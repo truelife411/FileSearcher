@@ -535,6 +535,8 @@ class FileSearcherApp:
         self._ctx_menu.add_separator()
         self._ctx_menu.add_command(label="删除到回收站", command=self._delete_file_recycle)
         self._ctx_menu.add_command(label="彻底删除", command=self._delete_file_permanent)
+        self._ctx_menu.add_separator()
+        self._ctx_menu.add_command(label="新窗口", command=self._open_new_window)
 
     def _build_statusbar(self):
         """构建底部状态栏。"""
@@ -918,6 +920,17 @@ class FileSearcherApp:
             self.status_var.set(f"已重命名: {old_name} → {new_name}")
         except Exception as e:
             messagebox.showerror("重命名失败", str(e))
+
+    def _open_new_window(self):
+        """右键菜单 → 新开一个程序窗口。"""
+        try:
+            script = os.path.abspath(__file__)
+            python = sys.executable
+            flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            subprocess.Popen([python, script], creationflags=flags)
+            self.status_var.set("已打开新窗口")
+        except Exception as e:
+            messagebox.showerror("打开失败", str(e))
 
     # ================================================================
     #  删除
