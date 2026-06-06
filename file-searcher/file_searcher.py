@@ -230,14 +230,13 @@ class IndexEngine:
         drives = [f"{d}:" for d in "CDEFGHIJKLMNOPQRSTUVWXYZAB" if os.path.exists(f"{d}:")]
         total_files = 0
         insert_batch = []
-        fts_batch = []
         dir_stack = [d + "\\" for d in drives]
 
         while dir_stack:
             if self._cancel():
                 break
             d = dir_stack.pop()
-            total_files = self._scan_directory(d, conn, insert_batch, fts_batch, total_files, dir_stack)
+            total_files = self._scan_directory(d, conn, insert_batch, total_files, dir_stack)
 
         if insert_batch:
             conn.executemany(
@@ -246,17 +245,11 @@ class IndexEngine:
                 insert_batch,
             )
             conn.commit()
-        if fts_batch:
-            conn.executemany(
-                "INSERT INTO files_fts(name, path, name_pinyin) VALUES(?,?,?)",
-                fts_batch,
-            )
-            conn.commit()
 
         conn.close()
         return total_files
 
-    def _scan_directory(self, dirpath, conn, insert_batch, fts_batch, total_files, dir_stack):
+    def _scan_directory(self, dirpath, conn, insert_batch, total_files, dir_stack):
         """扫描单个目录：将文件信息加入批处理队列，子目录加入栈。"""
         try:
             entries = os.scandir(dirpath)
@@ -297,11 +290,6 @@ class IndexEngine:
                         st.st_size,
                         datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                     ))
-                    fts_batch.append((
-                        entry.name,
-                        full,
-                        to_pinyin(entry.name),
-                    ))
                     total_files += 1
                     if len(insert_batch) >= 500:
                         conn.executemany(
@@ -309,14 +297,9 @@ class IndexEngine:
                             "VALUES(?,?,?,?,?,?)",
                             insert_batch,
                         )
-                        conn.executemany(
-                            "INSERT INTO files_fts(name, path, name_pinyin) VALUES(?,?,?)",
-                            fts_batch,
-                        )
                         conn.commit()
                         self._progress(f"已收录 {total_files} 个文件", total_files)
                         insert_batch.clear()
-                        fts_batch.clear()
         return total_files
 
     def _should_skip_dir(self, dirpath: str, entry) -> bool:
@@ -440,6 +423,12 @@ class IndexEngine:
             conn.close()
             return IndexEngine.search(query, limit, offset)
 
+        # FTS 表为空时回退到 LIKE
+        fts_count = conn.execute("SELECT COUNT(*) FROM files_fts").fetchone()[0]
+        if fts_count == 0:
+            conn.close()
+            return IndexEngine.search(query, limit, offset)
+
         # 构建 FTS 查询：在 name、path、name_pinyin 三列中搜索
         # 将用户输入转为拼音也加入搜索词，支持用拼音搜中文文件名
         pinyin_q = to_pinyin(q)
@@ -465,6 +454,62 @@ class IndexEngine:
 
         conn.close()
         return [dict(r) for r in rows]
+
+    # ---- FTS 后台填充 ----
+
+    @staticmethod
+    def populate_fts(batch_size: int = 2000, progress_cb=None) -> int:
+        """后台填充 FTS5 表（含拼音），从已索引的 files 表读取。返回处理条数。"""
+        if not INDEX_DB.exists():
+            return 0
+        conn = sqlite3.connect(str(INDEX_DB))
+        conn.execute("PRAGMA journal_mode=WAL")
+
+        # 确保 FTS 表存在
+        fts_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='files_fts'"
+        ).fetchone()
+        if not fts_exists:
+            conn.execute("""
+                CREATE VIRTUAL TABLE files_fts USING fts5(
+                    name, path, name_pinyin,
+                    content='', tokenize='unicode61'
+                )
+            """)
+            conn.commit()
+
+        # 统计总数
+        total_row = conn.execute("SELECT COUNT(*) FROM files").fetchone()
+        total = total_row[0] if total_row else 0
+        if total == 0:
+            conn.close()
+            return 0
+
+        offset = 0
+        processed = 0
+        while offset < total:
+            rows = conn.execute(
+                "SELECT name, path FROM files LIMIT ? OFFSET ?",
+                (batch_size, offset),
+            ).fetchall()
+
+            fts_data = [(name, path, to_pinyin(name)) for name, path in rows]
+            conn.executemany(
+                "INSERT INTO files_fts(name, path, name_pinyin) VALUES(?,?,?)",
+                fts_data,
+            )
+            conn.commit()
+
+            processed += len(rows)
+            offset += len(rows)
+            if progress_cb:
+                progress_cb(processed, total)
+
+            if not rows:
+                break
+
+        conn.close()
+        return processed
 
     # ---- 重复文件检测 ----
 
@@ -805,12 +850,26 @@ class FileSearcherApp:
         self.index_count_var.set(f"已收录 {count:,} 个文件")
 
     def _on_index_done(self, total: int):
-        """索引完成回调。"""
+        """索引完成回调。启动 FTS 模糊搜索索引后台填充。"""
         self._engine_cancel = False
         self.index_btn.config(state=tk.NORMAL)
         self._update_index_button_text()
-        self.status_var.set(f"索引完成 — 共收录 {total:,} 个文件")
+        self.status_var.set(f"索引完成 — 共收录 {total:,} 个文件，正在准备模糊搜索索引…")
         self._load_all()
+
+        # 后台填充 FTS（拼音索引），不阻塞正常搜索
+        def run_fts():
+            IndexEngine.populate_fts(
+                batch_size=2000,
+                progress_cb=lambda done, tot: self.root.after(
+                    0, lambda: self.status_var.set(
+                        f"模糊搜索索引准备中… {done:,} / {tot:,}"
+                    )
+                ),
+            )
+            self.root.after(0, lambda: self._update_index_button_text())
+
+        threading.Thread(target=run_fts, daemon=True).start()
 
     def _on_index_error(self, err: str):
         """索引出错回调。"""
@@ -1066,7 +1125,8 @@ class FileSearcherApp:
         total_sizes = len(candidates)
         total_files_to_hash = sum(c[1] for c in candidates)
         msg = (f"发现 {total_sizes} 组大小相同的文件\n"
-               f"共需比对 {total_files_to_hash:,} 个文件\n\n继续扫描？")
+               f"共需比对 {total_files_to_hash:,} 个文件\n"
+               f"（首次扫描需要计算哈希值，可能较慢，请耐心等待）\n\n继续扫描？")
         if not messagebox.askyesno("确认扫描", msg):
             return
 
