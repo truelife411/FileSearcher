@@ -24,6 +24,9 @@ from tkinter import ttk, messagebox
 from pathlib import Path
 from datetime import datetime
 
+import pystray
+from PIL import Image, ImageDraw
+
 
 # ================================================================
 #  全局常量配置
@@ -436,9 +439,11 @@ class FileSearcherApp:
         self._build_context_menu()
         self._build_statusbar()
         self._update_index_button_text()
+        self._setup_tray()
 
         self.root.after(100, self._load_all)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.root.bind("<Unmap>", self._on_minimize)
 
 
     # ================================================================
@@ -1114,7 +1119,56 @@ class FileSearcherApp:
             pass
 
     def _on_close(self):
-        """窗口关闭时保存列宽并销毁。"""
+        """关闭窗口 → 最小化到系统托盘。"""
+        self.root.withdraw()
+
+    # ================================================================
+    #  系统托盘
+    # ================================================================
+
+    def _create_tray_icon(self) -> Image.Image:
+        """用 Pillow 生成 32x32 的托盘图标（放大镜样式）。"""
+        img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        # 圆形放大镜边框
+        draw.ellipse([4, 4, 26, 26], outline="#0078D4", width=2)
+        # 手柄
+        draw.line([21, 21, 29, 29], fill="#0078D4", width=3)
+        return img
+
+    def _setup_tray(self):
+        """创建系统托盘图标和菜单。"""
+        icon = self._create_tray_icon()
+        menu = pystray.Menu(
+            pystray.MenuItem("显示窗口", self._tray_restore, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("退出", self._tray_exit),
+        )
+        self._tray = pystray.Icon("FileSearcher", icon, "File Searcher", menu)
+        self._tray._default_action = self._tray_restore
+        # 在后台线程运行 pystray
+        threading.Thread(target=self._tray.run, daemon=True).start()
+
+    def _on_minimize(self, event=None):
+        """窗口最小化时隐藏到托盘。"""
+        if self.root.state() == "iconic":
+            self.root.after(100, self.root.withdraw)
+
+    def _tray_restore(self, icon=None, item=None):
+        """双击托盘图标：恢复窗口。"""
+        self.root.after(0, self._do_restore)
+
+    def _do_restore(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def _tray_exit(self, icon=None, item=None):
+        """右键菜单「退出」：停止托盘并销毁窗口。"""
+        self._tray.stop()
+        self.root.after(0, self._do_exit)
+
+    def _do_exit(self):
         self._save_layout()
         self.root.destroy()
 
