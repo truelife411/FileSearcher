@@ -1130,13 +1130,11 @@ class FileSearcherApp:
             pass
 
     def _on_close(self):
-        """关闭窗口 → 最小化到系统托盘。"""
+        """关闭窗口 → 退出程序。"""
         if hasattr(self, '_tray') and self._tray is not None:
-            self.root.iconify()   # 先最小化
-            self.root.withdraw()   # 再隐藏到托盘
-        else:
-            self._save_layout()
-            self.root.destroy()
+            self._tray.stop()
+        self._save_layout()
+        self.root.destroy()
 
     # ================================================================
     #  系统托盘
