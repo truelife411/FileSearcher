@@ -971,165 +971,38 @@ class FileSearcherApp:
         self._results = [f for f in self._results if f["path"] != path]
 
     # ================================================================
-    #  拖拽到外部程序 (OLE Drag & Drop)
+    #  拖拽到外部程序
     # ================================================================
 
     def _setup_drag_drop(self):
-        """设置文件拖拽功能：使用 Windows OLE 拖拽。"""
-        self._drag_data = {"x": 0, "y": 0, "dragging": False}
-        self.tree.bind("<ButtonPress-1>", self._on_drag_start)
-        self.tree.bind("<B1-Motion>", self._on_drag_motion)
-        self.tree.bind("<ButtonRelease-1>", self._on_drag_end)
-
-        # 初始化 COM（确保 OLE 可用）
+        """设置文件拖拽功能（依赖 tkdnd 库）。"""
         try:
-            ctypes.windll.ole32.OleInitialize(None)
-        except Exception:
-            pass
+            self.root.tk.call("package", "require", "tkdnd")
+            self.root.tk.eval(f"tkdnd::drag_source register {self.tree._w} DND_Files")
+            self._dnd_cb = self.root.register(self._on_dnd_data)
+            self.root.tk.eval(f"tkdnd::drag_source handler {self.tree._w} drag {self._dnd_cb}")
+            self._dnd_ok = True
+        except tk.TclError:
+            self._dnd_ok = False
+            self.tree.bind("<B1-Motion>", self._on_drag_fallback)
 
-    def _on_drag_start(self, event):
-        """记录拖拽起始位置并选中点击的行。"""
-        # 先选中点击的行
-        row = self.tree.identify_row(event.y)
-        if row:
-            self.tree.selection_set(row)
-        self._drag_data["x"] = event.x_root
-        self._drag_data["y"] = event.y_root
-        self._drag_data["dragging"] = False
-
-    def _on_drag_motion(self, event):
-        """鼠标移动超过阈值后启动 OLE 拖拽。"""
-        if self._drag_data["dragging"]:
-            return
-        dx = event.x_root - self._drag_data["x"]
-        dy = event.y_root - self._drag_data["y"]
-        if abs(dx) < 8 and abs(dy) < 8:
-            return
-        self._drag_data["dragging"] = True
-
-        # 确保选中当前拖拽的行
-        row = self.tree.identify_row(event.y)
-        if row:
-            self.tree.selection_set(row)
-
+    def _on_dnd_data(self, *args):
+        """拖拽时返回文件路径（格式化为 tkdnd 需要的格式）。"""
         path = self._get_selected_path()
-        if path and os.path.exists(path):
-            path = os.path.normpath(path)
-            self._do_ole_drag(path)
+        if path:
+            return "{" + path.replace(chr(92), "/") + "}"
+        return ""
 
-    def _on_drag_end(self, event):
-        """重置拖拽状态。"""
-        self._drag_data["dragging"] = False
+    def _on_drag_fallback(self, event):
+        """tkdnd 不可用时的拖拽回退事件处理。"""
+        self._drag_started = getattr(self, '_drag_started', False)
+        if not self._drag_started:
+            self._drag_started = True
+            self.root.after(200, self._reset_drag_flag)
 
-    # ---- OLE Drag & Drop 核心实现 ----
-
-    def _do_ole_drag(self, filepath: str):
-        """通过 Windows OLE DoDragDrop 将文件拖拽给其他程序。"""
-        import ctypes
-        from ctypes import wintypes, Structure, c_void_p, byref, sizeof, cast, POINTER
-
-        CF_HDROP = 15
-        DROPEFFECT_COPY = 1
-        TYMED_HGLOBAL = 1
-        DRAGDROP_S_DROP = 0x00040100
-        DRAGDROP_S_CANCEL = 0x00040101
-        GMEM_MOVEABLE = 0x0002
-        GMEM_ZEROINIT = 0x0040
-        MK_LBUTTON = 0x0001
-        E_NOTIMPL = 0x80004001
-        S_OK = 0
-
-        class FORMATETC(Structure):
-            _fields_ = [("cfFormat", wintypes.UINT), ("ptd", c_void_p),
-                        ("dwAspect", wintypes.DWORD), ("lindex", wintypes.LONG),
-                        ("tymed", wintypes.DWORD)]
-        class STGMEDIUM(Structure):
-            _fields_ = [("tymed", wintypes.DWORD), ("hGlobal", c_void_p),
-                        ("pUnkForRelease", c_void_p)]
-
-        ole32 = ctypes.windll.ole32
-        kernel32 = ctypes.windll.kernel32
-
-        # ---- 构造 HDROP ----
-        class DROPFILES(Structure):
-            _fields_ = [("pFiles", wintypes.DWORD), ("pt", wintypes.LONG * 2),
-                        ("fNC", wintypes.BOOL), ("fWide", wintypes.BOOL)]
-
-        filepath = filepath.replace("/", "\\")
-        encoded = (filepath + "\0\0").encode("utf-16-le")
-        size = sizeof(DROPFILES) + len(encoded)
-        hglobal = kernel32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, size)
-        if not hglobal:
-            return
-        ptr = kernel32.GlobalLock(hglobal)
-        df = DROPFILES()
-        df.pFiles = sizeof(DROPFILES)
-        df.fWide = True
-        ctypes.memmove(ptr, byref(df), sizeof(DROPFILES))
-        ctypes.memmove(ptr + sizeof(DROPFILES), encoded, len(encoded))
-        kernel32.GlobalUnlock(hglobal)
-
-        # ---- IDataObject ----
-        refs = [1]
-
-        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(ctypes.c_ubyte), POINTER(c_void_p))
-        def _qi(this, riid, ppv):
-            ppv[0] = this; refs[0] += 1; return S_OK
-
-        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p)
-        def _addref(this): refs[0] += 1; return refs[0]
-
-        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p)
-        def _release(this):
-            refs[0] -= 1
-            if refs[0] == 0 and hglobal: kernel32.GlobalFree(hglobal)
-            return refs[0]
-
-        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(FORMATETC), POINTER(STGMEDIUM))
-        def _getdata(this, pfmt, pmed):
-            if pfmt[0].cfFormat == CF_HDROP and (pfmt[0].tymed & TYMED_HGLOBAL):
-                pmed[0].tymed = TYMED_HGLOBAL
-                pmed[0].hGlobal = hglobal
-                pmed[0].pUnkForRelease = None
-                return S_OK
-            return 0x80040064
-
-        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(FORMATETC))
-        def _qgetdata(this, pfmt):
-            return S_OK if pfmt[0].cfFormat == CF_HDROP and (pfmt[0].tymed & TYMED_HGLOBAL) else 0x80040064
-
-        _notimpl = ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p)(lambda this: E_NOTIMPL)
-
-        # 构造 vtable（12 个槽位：3 个 IUnknown + 9 个 IDataObject）
-        ida_vt = (c_void_p * 12)()
-        ida_vt[:] = [cast(f, c_void_p) for f in [_qi, _addref, _release,
-            _getdata, _notimpl, _qgetdata, _notimpl, _notimpl,
-            _notimpl, _notimpl, _notimpl, _notimpl]]
-        pDataObj = cast((c_void_p * 1)(cast(ida_vt, c_void_p)), c_void_p)
-
-        # ---- IDropSource ----
-        _ids_refs = [1]
-
-        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, wintypes.BOOL, wintypes.DWORD)
-        def _qcd(this, esc, ks):
-            if esc: return DRAGDROP_S_CANCEL
-            if not (ks & MK_LBUTTON): return DRAGDROP_S_DROP
-            return S_OK
-
-        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, wintypes.DWORD)
-        def _gf(this, e): return DRAGDROP_S_DROP
-
-        ids_vt = (c_void_p * 5)()
-        ids_vt[:] = [cast(f, c_void_p) for f in [_qi, _addref, _release, _qcd, _gf]]
-        pDropSrc = cast((c_void_p * 1)(cast(ids_vt, c_void_p)), c_void_p)
-
-        # ---- 执行拖拽 ----
-        try:
-            self.status_var.set(f"正在拖拽: {os.path.basename(filepath)}")
-            effect = wintypes.DWORD()
-            ole32.DoDragDrop(pDataObj, pDropSrc, DROPEFFECT_COPY, byref(effect))
-        except Exception:
-            pass
+    def _reset_drag_flag(self):
+        """重置拖拽标志。"""
+        self._drag_started = False
 
     # ================================================================
     #  无限滚动加载
