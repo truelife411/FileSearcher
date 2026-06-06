@@ -1131,7 +1131,12 @@ class FileSearcherApp:
 
     def _on_close(self):
         """关闭窗口 → 最小化到系统托盘。"""
-        self.root.withdraw()
+        if hasattr(self, '_tray') and self._tray is not None:
+            self.root.iconify()   # 先最小化
+            self.root.withdraw()   # 再隐藏到托盘
+        else:
+            self._save_layout()
+            self.root.destroy()
 
     # ================================================================
     #  系统托盘
@@ -1149,18 +1154,20 @@ class FileSearcherApp:
 
     def _setup_tray(self):
         """创建系统托盘图标和菜单。"""
-        icon = self._create_tray_icon()
-        menu = pystray.Menu(
-            pystray.MenuItem("显示窗口", self._tray_restore, default=True),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("新窗口", self._tray_new_window),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("退出", self._tray_exit),
-        )
-        self._tray = pystray.Icon("FileSearcher", icon, "File Searcher", menu)
-        self._tray._default_action = self._tray_restore
-        # 在后台线程运行 pystray
-        threading.Thread(target=self._tray.run, daemon=True).start()
+        try:
+            icon = self._create_tray_icon()
+            menu = pystray.Menu(
+                pystray.MenuItem("显示窗口", self._tray_restore, default=True),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("新窗口", self._tray_new_window),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("退出", self._tray_exit),
+            )
+            self._tray = pystray.Icon("FileSearcher", icon, "File Searcher", menu)
+            self._tray._default_action = self._tray_restore
+            threading.Thread(target=self._tray.run, daemon=True).start()
+        except Exception:
+            self._tray = None
 
     def _on_minimize(self, event=None):
         """窗口最小化时隐藏到托盘。"""
@@ -1169,6 +1176,8 @@ class FileSearcherApp:
 
     def _tray_restore(self, icon=None, item=None):
         """双击托盘图标：恢复窗口。"""
+        if self._tray is None:
+            return
         self.root.after(0, self._do_restore)
 
     def _do_restore(self):
@@ -1178,7 +1187,8 @@ class FileSearcherApp:
 
     def _tray_exit(self, icon=None, item=None):
         """右键菜单「退出」：停止托盘并销毁窗口。"""
-        self._tray.stop()
+        if self._tray is not None:
+            self._tray.stop()
         self.root.after(0, self._do_exit)
 
     def _tray_new_window(self, icon=None, item=None):
