@@ -232,6 +232,8 @@ class IndexEngine:
         insert_batch = []
         dir_stack = [d + "\\" for d in drives]
 
+        self._progress("开始扫描磁盘…", 0)
+
         while dir_stack:
             if self._cancel():
                 break
@@ -245,6 +247,7 @@ class IndexEngine:
                 insert_batch,
             )
             conn.commit()
+            self._progress(f"已收录 {total_files:,} 个文件", total_files)
 
         conn.close()
         return total_files
@@ -298,8 +301,10 @@ class IndexEngine:
                             insert_batch,
                         )
                         conn.commit()
-                        self._progress(f"已收录 {total_files} 个文件", total_files)
                         insert_batch.clear()
+                    # 每处理 500 个文件发送一次进度更新
+                    if total_files % 500 == 0:
+                        self._progress(f"已收录 {total_files:,} 个文件", total_files)
         return total_files
 
     def _should_skip_dir(self, dirpath: str, entry) -> bool:
