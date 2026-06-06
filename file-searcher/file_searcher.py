@@ -535,8 +535,6 @@ class FileSearcherApp:
         self._ctx_menu.add_separator()
         self._ctx_menu.add_command(label="删除到回收站", command=self._delete_file_recycle)
         self._ctx_menu.add_command(label="彻底删除", command=self._delete_file_permanent)
-        self._ctx_menu.add_separator()
-        self._ctx_menu.add_command(label="新窗口", command=self._open_new_window)
 
     def _build_statusbar(self):
         """构建底部状态栏。"""
@@ -1155,6 +1153,8 @@ class FileSearcherApp:
         menu = pystray.Menu(
             pystray.MenuItem("显示窗口", self._tray_restore, default=True),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("新窗口", self._tray_new_window),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", self._tray_exit),
         )
         self._tray = pystray.Icon("FileSearcher", icon, "File Searcher", menu)
@@ -1180,6 +1180,10 @@ class FileSearcherApp:
         """右键菜单「退出」：停止托盘并销毁窗口。"""
         self._tray.stop()
         self.root.after(0, self._do_exit)
+
+    def _tray_new_window(self, icon=None, item=None):
+        """托盘右键菜单「新窗口」：新开一个程序实例。"""
+        self._open_new_window()
 
     def _do_exit(self):
         self._save_layout()
