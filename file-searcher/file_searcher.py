@@ -971,38 +971,176 @@ class FileSearcherApp:
         self._results = [f for f in self._results if f["path"] != path]
 
     # ================================================================
-    #  拖拽到外部程序
+    #  拖拽到外部程序 (OLE Drag & Drop)
     # ================================================================
 
     def _setup_drag_drop(self):
-        """设置文件拖拽功能（依赖 tkdnd 库）。"""
-        try:
-            self.root.tk.call("package", "require", "tkdnd")
-            self.root.tk.eval(f"tkdnd::drag_source register {self.tree._w} DND_Files")
-            self._dnd_cb = self.root.register(self._on_dnd_data)
-            self.root.tk.eval(f"tkdnd::drag_source handler {self.tree._w} drag {self._dnd_cb}")
-            self._dnd_ok = True
-        except tk.TclError:
-            self._dnd_ok = False
-            self.tree.bind("<B1-Motion>", self._on_drag_fallback)
+        """设置文件拖拽功能：使用 Windows OLE 拖拽。"""
+        self._drag_data = {"x": 0, "y": 0, "dragging": False}
+        self.tree.bind("<ButtonPress-1>", self._on_drag_start)
+        self.tree.bind("<B1-Motion>", self._on_drag_motion)
 
-    def _on_dnd_data(self, *args):
-        """拖拽时返回文件路径（格式化为 tkdnd 需要的格式）。"""
+    def _on_drag_start(self, event):
+        """记录拖拽起始位置。"""
+        self._drag_data["x"] = event.x_root
+        self._drag_data["y"] = event.y_root
+        self._drag_data["dragging"] = False
+
+    def _on_drag_motion(self, event):
+        """鼠标移动超过阈值后启动 OLE 拖拽。"""
+        if self._drag_data["dragging"]:
+            return
+        dx = event.x_root - self._drag_data["x"]
+        dy = event.y_root - self._drag_data["y"]
+        if abs(dx) < 5 and abs(dy) < 5:
+            return
+        self._drag_data["dragging"] = True
         path = self._get_selected_path()
-        if path:
-            return "{" + path.replace(chr(92), "/") + "}"
-        return ""
+        if path and os.path.exists(path):
+            self._do_ole_drag(path)
 
-    def _on_drag_fallback(self, event):
-        """tkdnd 不可用时的拖拽回退事件处理。"""
-        self._drag_started = getattr(self, '_drag_started', False)
-        if not self._drag_started:
-            self._drag_started = True
-            self.root.after(200, self._reset_drag_flag)
+    # ---- OLE Drag & Drop 核心实现 ----
 
-    def _reset_drag_flag(self):
-        """重置拖拽标志。"""
-        self._drag_started = False
+    def _do_ole_drag(self, filepath: str):
+        """通过 Windows OLE DoDragDrop 将文件拖拽给其他程序。"""
+        import ctypes
+        from ctypes import wintypes, POINTER, Structure, c_void_p, byref, sizeof, cast
+
+        # ---- 常量 ----
+        CF_HDROP = 15
+        DROPEFFECT_COPY = 1
+        DVASPECT_CONTENT = 1
+        TYMED_HGLOBAL = 1
+        DRAGDROP_S_DROP = 0x00040100
+        DRAGDROP_S_CANCEL = 0x00040101
+        GMEM_MOVEABLE = 0x0002
+        GMEM_ZEROINIT = 0x0040
+        MK_LBUTTON = 0x0001
+        E_NOTIMPL = 0x80004001
+        S_OK = 0
+
+        # ---- 类型 ----
+        class FORMATETC(Structure):
+            _fields_ = [("cfFormat", wintypes.UINT), ("ptd", c_void_p),
+                        ("dwAspect", wintypes.DWORD), ("lindex", wintypes.LONG),
+                        ("tymed", wintypes.DWORD)]
+        class STGMEDIUM(Structure):
+            _fields_ = [("tymed", wintypes.DWORD), ("hGlobal", c_void_p),
+                        ("pUnkForRelease", c_void_p)]
+
+        ole32 = ctypes.windll.ole32
+        kernel32 = ctypes.windll.kernel32
+
+        # ---- 构造 HDROP 内存块 ----
+        class DROPFILES(Structure):
+            _fields_ = [("pFiles", wintypes.DWORD), ("pt_x", wintypes.LONG),
+                        ("pt_y", wintypes.LONG), ("fNC", wintypes.BOOL),
+                        ("fWide", wintypes.BOOL)]
+
+        file_bytes = (filepath + "\0\0").encode("utf-16-le")
+        total = sizeof(DROPFILES) + len(file_bytes)
+        hglobal = kernel32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total)
+        ptr = kernel32.GlobalLock(hglobal)
+        df = DROPFILES()
+        df.pFiles = sizeof(DROPFILES)
+        df.fWide = True
+        ctypes.memmove(ptr, byref(df), sizeof(DROPFILES))
+        ctypes.memmove(ptr + sizeof(DROPFILES), file_bytes, len(file_bytes))
+        kernel32.GlobalUnlock(hglobal)
+
+        medium = STGMEDIUM()
+        medium.tymed = TYMED_HGLOBAL
+        medium.hGlobal = hglobal
+
+        # ---- IDataObject VTable ----
+        IDataObject_Methods = ctypes.WINFUNCTYPE
+        _ida_refs = [1]
+        def ida_AddRef(this): _ida_refs[0] += 1; return _ida_refs[0]
+        def ida_Release(this):
+            _ida_refs[0] -= 1
+            if _ida_refs[0] == 0: kernel32.GlobalFree(hglobal)
+            return _ida_refs[0]
+
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(ctypes.c_ubyte), POINTER(c_void_p))
+        def ida_QueryInterface(this, riid, ppv):
+            ppv[0] = this; ida_AddRef(this); return S_OK
+
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(FORMATETC), POINTER(STGMEDIUM))
+        def ida_GetData(this, pfmt, pmed):
+            if pfmt[0].cfFormat == CF_HDROP and pfmt[0].tymed & TYMED_HGLOBAL:
+                pmed[0] = STGMEDIUM(tymed=TYMED_HGLOBAL, hGlobal=hglobal, pUnkForRelease=None)
+                return S_OK
+            return 0x80040064  # DV_E_FORMATETC
+
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(FORMATETC))
+        def ida_QueryGetData(this, pfmt):
+            if pfmt[0].cfFormat == CF_HDROP and pfmt[0].tymed & TYMED_HGLOBAL:
+                return S_OK
+            return 0x80040064
+
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, wintypes.DWORD, POINTER(c_void_p))
+        def ida_EnumFormatEtc(this, direction, ppenum): return E_NOTIMPL
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(FORMATETC), POINTER(STGMEDIUM), wintypes.BOOL)
+        def ida_GetDataHere(this, pfmt, pmed): return E_NOTIMPL
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(FORMATETC))
+        def ida_GetCanonicalFormatEtc(this, pfmt): return E_NOTIMPL
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(FORMATETC), POINTER(STGMEDIUM), wintypes.BOOL)
+        def ida_SetData(this, pfmt, pmed, release): return E_NOTIMPL
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, wintypes.DWORD, c_void_p, POINTER(wintypes.DWORD))
+        def ida_DAdvise(this, fmt, flags, sink, conn): return E_NOTIMPL
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, wintypes.DWORD)
+        def ida_DUnadvise(this, conn): return E_NOTIMPL
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(c_void_p))
+        def ida_EnumDAdvise(this, ppenum): return E_NOTIMPL
+
+        ida_vtable = (c_void_p * 12)()
+        ida_vtable[0] = cast(ida_QueryInterface, c_void_p)
+        ida_vtable[1] = cast(ida_AddRef, c_void_p)
+        ida_vtable[2] = cast(ida_Release, c_void_p)
+        ida_vtable[3] = cast(ida_GetData, c_void_p)
+        ida_vtable[4] = cast(ida_GetDataHere, c_void_p)
+        ida_vtable[5] = cast(ida_QueryGetData, c_void_p)
+        ida_vtable[6] = cast(ida_GetCanonicalFormatEtc, c_void_p)
+        ida_vtable[7] = cast(ida_SetData, c_void_p)
+        ida_vtable[8] = cast(ida_EnumFormatEtc, c_void_p)
+        ida_vtable[9] = cast(ida_DAdvise, c_void_p)
+        ida_vtable[10] = cast(ida_DUnadvise, c_void_p)
+        ida_vtable[11] = cast(ida_EnumDAdvise, c_void_p)
+        ida_obj = (c_void_p * 1)(cast(ida_vtable, c_void_p))
+        pDataObj = cast(ida_obj, c_void_p)
+
+        # ---- IDropSource VTable ----
+        _ids_refs = [1]
+
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, POINTER(ctypes.c_ubyte), POINTER(c_void_p))
+        def ids_QueryInterface(this, riid, ppv):
+            ppv[0] = this; _ids_refs[0] += 1; return S_OK
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p)
+        def ids_AddRef(this): _ids_refs[0] += 1; return _ids_refs[0]
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p)
+        def ids_Release(this): _ids_refs[0] -= 1; return _ids_refs[0]
+
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, wintypes.BOOL, wintypes.DWORD)
+        def ids_QueryContinueDrag(this, escape_pressed, key_state):
+            if escape_pressed: return DRAGDROP_S_CANCEL
+            if not (key_state & MK_LBUTTON): return DRAGDROP_S_DROP
+            return S_OK
+
+        @ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, wintypes.DWORD)
+        def ids_GiveFeedback(this, effect): return DRAGDROP_S_DROP  # 使用默认光标
+
+        ids_vtable = (c_void_p * 5)()
+        ids_vtable[0] = cast(ids_QueryInterface, c_void_p)
+        ids_vtable[1] = cast(ids_AddRef, c_void_p)
+        ids_vtable[2] = cast(ids_Release, c_void_p)
+        ids_vtable[3] = cast(ids_QueryContinueDrag, c_void_p)
+        ids_vtable[4] = cast(ids_GiveFeedback, c_void_p)
+        ids_obj = (c_void_p * 1)(cast(ids_vtable, c_void_p))
+        pDropSource = cast(ids_obj, c_void_p)
+
+        # ---- 启动拖拽 ----
+        effect = wintypes.DWORD()
+        ole32.DoDragDrop(pDataObj, pDropSource, DROPEFFECT_COPY, byref(effect))
 
     # ================================================================
     #  无限滚动加载
