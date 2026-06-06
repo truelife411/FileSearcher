@@ -19,18 +19,10 @@ import shutil
 import ctypes
 import threading
 
-import hashlib
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 from datetime import datetime
-
-try:
-    from pypinyin import lazy_pinyin
-    _PYIN_OK = True
-except ImportError:
-    _PYIN_OK = False
 
 
 # ================================================================
@@ -169,16 +161,6 @@ def rename_file(old_path: str, new_name: str) -> str:
     return new_path
 
 
-def to_pinyin(text: str) -> str:
-    """将中文文本转为拼音串（空格分隔），用于拼音搜索。"""
-    if not _PYIN_OK:
-        return ""
-    try:
-        return " ".join(lazy_pinyin(text))
-    except Exception:
-        return ""
-
-
 # ================================================================
 #  IndexEngine — 索引引擎
 # ================================================================
@@ -203,7 +185,6 @@ class IndexEngine:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=OFF")
         conn.execute("DROP TABLE IF EXISTS files")
-        conn.execute("DROP TABLE IF EXISTS files_fts")
         conn.execute("""
             CREATE TABLE files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,27 +193,17 @@ class IndexEngine:
                 path TEXT NOT NULL UNIQUE,
                 path_lower TEXT NOT NULL,
                 size INTEGER NOT NULL,
-                modified TEXT NOT NULL,
-                hash TEXT
+                modified TEXT NOT NULL
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_name_lower ON files(name_lower)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_path_lower ON files(path_lower)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_size ON files(size)")
-        conn.execute("""
-            CREATE VIRTUAL TABLE files_fts USING fts5(
-                name, path, name_pinyin,
-                content='', tokenize='unicode61'
-            )
-        """)
         conn.commit()
 
         drives = [f"{d}:" for d in "CDEFGHIJKLMNOPQRSTUVWXYZAB" if os.path.exists(f"{d}:")]
         total_files = 0
         insert_batch = []
         dir_stack = [d + "\\" for d in drives]
-
-        self._progress("开始扫描磁盘…", 0)
 
         while dir_stack:
             if self._cancel():
@@ -247,7 +218,6 @@ class IndexEngine:
                 insert_batch,
             )
             conn.commit()
-            self._progress(f"已收录 {total_files:,} 个文件", total_files)
 
         conn.close()
         return total_files
@@ -301,10 +271,8 @@ class IndexEngine:
                             insert_batch,
                         )
                         conn.commit()
+                        self._progress(f"已收录 {total_files} 个文件", total_files)
                         insert_batch.clear()
-                    # 每处理 500 个文件发送一次进度更新
-                    if total_files % 500 == 0:
-                        self._progress(f"已收录 {total_files:,} 个文件", total_files)
         return total_files
 
     def _should_skip_dir(self, dirpath: str, entry) -> bool:
@@ -406,227 +374,10 @@ class IndexEngine:
         conn.close()
         return [dict(r) for r in rows]
 
-    # ---- FTS5 模糊搜索 ----
-
-    @staticmethod
-    def search_fts(query: str, limit: int = 5000, offset: int = 0) -> list[dict]:
-        """使用 FTS5 进行模糊搜索，支持中文分词和拼音搜索。"""
-        if not INDEX_DB.exists():
-            return []
-        q = query.strip()
-        if not q:
-            return []
-
-        conn = sqlite3.connect(str(INDEX_DB))
-        conn.row_factory = sqlite3.Row
-
-        # 检查 FTS 表是否存在
-        fts_exists = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='files_fts'"
-        ).fetchone()
-        if not fts_exists:
-            conn.close()
-            return IndexEngine.search(query, limit, offset)
-
-        # FTS 表为空时回退到 LIKE
-        fts_count = conn.execute("SELECT COUNT(*) FROM files_fts").fetchone()[0]
-        if fts_count == 0:
-            conn.close()
-            return IndexEngine.search(query, limit, offset)
-
-        # 构建 FTS 查询：在 name、path、name_pinyin 三列中搜索
-        # 将用户输入转为拼音也加入搜索词，支持用拼音搜中文文件名
-        pinyin_q = to_pinyin(q)
-        search_terms = q
-        if pinyin_q:
-            search_terms = f"{q} {pinyin_q}"
-
-        # FTS5 查询语法：各列 OR 匹配
-        sql = """
-            SELECT f.name, f.path, f.size, f.modified,
-                   rank
-            FROM files_fts
-            JOIN files f ON f.path = files_fts.path
-            WHERE files_fts MATCH ?
-            ORDER BY rank
-            LIMIT ? OFFSET ?
-        """
-        try:
-            rows = conn.execute(sql, (search_terms, limit, offset)).fetchall()
-        except sqlite3.OperationalError:
-            conn.close()
-            return IndexEngine.search(query, limit, offset)
-
-        conn.close()
-        return [dict(r) for r in rows]
-
-    # ---- FTS 后台填充 ----
-
-    @staticmethod
-    def populate_fts(batch_size: int = 2000, progress_cb=None) -> int:
-        """后台填充 FTS5 表（含拼音），从已索引的 files 表读取。返回处理条数。"""
-        if not INDEX_DB.exists():
-            return 0
-        conn = sqlite3.connect(str(INDEX_DB))
-        conn.execute("PRAGMA journal_mode=WAL")
-
-        # 确保 FTS 表存在
-        fts_exists = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='files_fts'"
-        ).fetchone()
-        if not fts_exists:
-            conn.execute("""
-                CREATE VIRTUAL TABLE files_fts USING fts5(
-                    name, path, name_pinyin,
-                    content='', tokenize='unicode61'
-                )
-            """)
-            conn.commit()
-
-        # 统计总数
-        total_row = conn.execute("SELECT COUNT(*) FROM files").fetchone()
-        total = total_row[0] if total_row else 0
-        if total == 0:
-            conn.close()
-            return 0
-
-        offset = 0
-        processed = 0
-        while offset < total:
-            rows = conn.execute(
-                "SELECT name, path FROM files LIMIT ? OFFSET ?",
-                (batch_size, offset),
-            ).fetchall()
-
-            fts_data = [(name, path, to_pinyin(name)) for name, path in rows]
-            conn.executemany(
-                "INSERT INTO files_fts(name, path, name_pinyin) VALUES(?,?,?)",
-                fts_data,
-            )
-            conn.commit()
-
-            processed += len(rows)
-            offset += len(rows)
-            if progress_cb:
-                progress_cb(processed, total)
-
-            if not rows:
-                break
-
-        conn.close()
-        return processed
-
-    # ---- 重复文件检测 ----
-
-    @staticmethod
-    def _hash_column_exists() -> bool:
-        """检查 files 表是否有 hash 列（兼容旧索引）。"""
-        if not INDEX_DB.exists():
-            return False
-        conn = sqlite3.connect(str(INDEX_DB))
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(files)").fetchall()]
-        conn.close()
-        return "hash" in cols
-
-    @staticmethod
-    def find_duplicate_candidates(min_size: int = 1024) -> list[tuple[int, int]]:
-        """找出大小相同的文件组（重复候选），返回 [(size, count), ...] 按 count 降序。"""
-        if not INDEX_DB.exists():
-            return []
-        if not IndexEngine._hash_column_exists():
-            return []  # 旧索引，需要重建
-        conn = sqlite3.connect(str(INDEX_DB))
-        rows = conn.execute(
-            "SELECT size, COUNT(*) as cnt FROM files "
-            "WHERE size >= ? "
-            "GROUP BY size HAVING cnt > 1 ORDER BY cnt DESC",
-            (min_size,),
-        ).fetchall()
-        conn.close()
-        return [(r[0], r[1]) for r in rows]
-
-    @staticmethod
-    def compute_hashes_for_size(size: int, progress_cb=None) -> list[dict]:
-        """对指定大小的所有文件计算 MD5 哈希，返回含 hash 的文件列表。"""
-        if not INDEX_DB.exists():
-            return []
-        conn = sqlite3.connect(str(INDEX_DB))
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, name, path, size, modified FROM files WHERE size = ? AND hash IS NULL",
-            (size,),
-        ).fetchall()
-
-        results = []
-        total = len(rows)
-        for i, r in enumerate(rows):
-            if progress_cb and i % 10 == 0:
-                progress_cb(i, total)
-            try:
-                md5 = IndexEngine._file_md5(r["path"])
-            except (OSError, PermissionError):
-                continue
-            conn.execute("UPDATE files SET hash = ? WHERE id = ?", (md5, r["id"]))
-            results.append({**dict(r), "hash": md5})
-
-        conn.commit()
-        conn.close()
-        if progress_cb:
-            progress_cb(total, total)
-        return results
-
-    @staticmethod
-    def get_duplicates() -> list[dict]:
-        """获取所有重复文件组，返回 [{group_id, hash, files: [{name, path, size, modified}]}]。"""
-        if not INDEX_DB.exists():
-            return []
-        conn = sqlite3.connect(str(INDEX_DB))
-        conn.row_factory = sqlite3.Row
-        dup_hashes = conn.execute(
-            "SELECT hash, COUNT(*) as cnt FROM files "
-            "WHERE hash IS NOT NULL "
-            "GROUP BY hash HAVING cnt > 1 ORDER BY cnt DESC"
-        ).fetchall()
-
-        groups = []
-        for gid, (h, cnt) in enumerate(dup_hashes, 1):
-            files = conn.execute(
-                "SELECT name, path, size, modified FROM files WHERE hash = ? ORDER BY path",
-                (h,),
-            ).fetchall()
-            groups.append({
-                "group_id": gid,
-                "hash": h,
-                "count": cnt,
-                "files": [dict(f) for f in files],
-            })
-
-        conn.close()
-        return groups
-
-    @staticmethod
-    def _file_md5(filepath: str, chunk_size: int = 65536) -> str:
-        """计算文件的 MD5 哈希值。"""
-        md5 = hashlib.md5()
-        with open(filepath, "rb") as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                md5.update(chunk)
-        return md5.hexdigest()
-
-    @staticmethod
-    def clear_hashes():
-        """清除所有文件的哈希值（用于重新扫描重复文件）。"""
-        if not INDEX_DB.exists():
-            return
-        conn = sqlite3.connect(str(INDEX_DB))
-        conn.execute("UPDATE files SET hash = NULL")
-        conn.commit()
-        conn.close()
-
     # ---- 排除列表管理 ----
+
+    @classmethod
+    def _load_exclude_list(cls):
         """从 JSON 文件加载用户排除列表。"""
         if not cls.EXCLUDE_FILE.exists():
             return set(), []
@@ -677,9 +428,6 @@ class FileSearcherApp:
         self._has_more = False
         self._last_query = ""
         self._loading_more = False
-        self._search_mode = "exact"   # "exact" | "fuzzy"
-        self._view_mode = "normal"    # "normal" | "duplicates"
-        self._dup_groups: list[dict] = []  # 重复文件组缓存
 
         self._build_toolbar()
         self._build_tree()
@@ -698,7 +446,7 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """构建顶部工具栏：搜索框 + 模式切换 + 索引按钮 + 重复检测。"""
+        """构建顶部工具栏：搜索框 + 索引按钮。"""
         toolbar = ttk.Frame(self.root, padding=(8, 6))
         toolbar.pack(fill=tk.X)
 
@@ -706,15 +454,8 @@ class FileSearcherApp:
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
         search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=40)
-        search_entry.pack(side=tk.LEFT, padx=(0, 4))
+        search_entry.pack(side=tk.LEFT, padx=(0, 8))
         search_entry.bind("<Return>", lambda _e: self._do_search())
-
-        # 搜索模式切换
-        self.search_mode_var = tk.StringVar(value="精确")
-        mode_cb = ttk.Combobox(toolbar, textvariable=self.search_mode_var,
-                               values=["精确", "模糊"], state="readonly", width=5)
-        mode_cb.pack(side=tk.LEFT, padx=(0, 12))
-        mode_cb.bind("<<ComboboxSelected>>", lambda e: self._on_search_mode_changed())
 
         self.root.bind("<Escape>", lambda _e: self._clear_search())
         self._index_icon = tk.PhotoImage(width=1, height=1)
@@ -724,11 +465,7 @@ class FileSearcherApp:
         self.index_count_var = tk.StringVar(value="")
         ttk.Label(toolbar, textvariable=self.index_count_var, foreground="gray").pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Button(toolbar, text="排除列表", command=self._manage_exclude).pack(side=tk.LEFT, padx=(4, 0))
-        self.dup_btn = ttk.Button(toolbar, text="查找重复文件", command=self._start_duplicate_scan)
-        self.dup_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self.dup_clear_btn = ttk.Button(toolbar, text="退出重复视图", command=self._exit_duplicate_view, state=tk.DISABLED)
-        self.dup_clear_btn.pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Button(toolbar, text="排除列表", command=self._manage_exclude).pack(side=tk.LEFT, padx=(0, 12))
 
     def _build_tree(self):
         """构建中央文件列表 Treeview。列顺序：文件名 | 路径 | 类型 | 大小 | 修改时间。"""
@@ -747,7 +484,7 @@ class FileSearcherApp:
         self.tree.column("name", width=220, minwidth=120)
         self.tree.column("path", width=460, minwidth=160)
         self.tree.column("type", width=80, minwidth=60, anchor=tk.CENTER)
-        self.tree.column("size", width=80, minwidth=60, anchor=tk.E)
+        self.tree.column("size", width=30, minwidth=25, anchor=tk.E)
         self.tree.column("modified", width=75, minwidth=65, anchor=tk.CENTER)
 
         scrollbar_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -855,26 +592,12 @@ class FileSearcherApp:
         self.index_count_var.set(f"已收录 {count:,} 个文件")
 
     def _on_index_done(self, total: int):
-        """索引完成回调。启动 FTS 模糊搜索索引后台填充。"""
+        """索引完成回调。"""
         self._engine_cancel = False
         self.index_btn.config(state=tk.NORMAL)
         self._update_index_button_text()
-        self.status_var.set(f"索引完成 — 共收录 {total:,} 个文件，正在准备模糊搜索索引…")
+        self.status_var.set(f"索引完成 — 共收录 {total:,} 个文件")
         self._load_all()
-
-        # 后台填充 FTS（拼音索引），不阻塞正常搜索
-        def run_fts():
-            IndexEngine.populate_fts(
-                batch_size=2000,
-                progress_cb=lambda done, tot: self.root.after(
-                    0, lambda: self.status_var.set(
-                        f"模糊搜索索引准备中… {done:,} / {tot:,}"
-                    )
-                ),
-            )
-            self.root.after(0, lambda: self._update_index_button_text())
-
-        threading.Thread(target=run_fts, daemon=True).start()
 
     def _on_index_error(self, err: str):
         """索引出错回调。"""
@@ -890,9 +613,6 @@ class FileSearcherApp:
         """加载首页（默认按大小降序的前 5000 个文件）。"""
         if not IndexEngine.index_exists():
             return
-        self._view_mode = "normal"
-        self._dup_groups = []
-        self.dup_clear_btn.config(state=tk.DISABLED)
         self._last_query = ""
         self._sort_col = "size"
         self._sort_asc = False
@@ -914,14 +634,8 @@ class FileSearcherApp:
             self.root.after_cancel(self._search_timer)
         self._search_timer = self.root.after(300, self._do_search)
 
-    def _on_search_mode_changed(self):
-        """搜索模式切换时立即重新搜索。"""
-        mode = self.search_mode_var.get()
-        self._search_mode = "fuzzy" if mode == "模糊" else "exact"
-        self._do_search()
-
     def _do_search(self):
-        """执行搜索：精确模式用 LIKE，模糊模式用 FTS5。"""
+        """执行搜索：从索引中按关键词查询。"""
         query = self.search_var.get().strip()
         if not query:
             self._load_all()
@@ -930,20 +644,10 @@ class FileSearcherApp:
             self.status_var.set("请先创建索引再搜索")
             return
         self._last_query = query
-        self._view_mode = "normal"
-
-        if self._search_mode == "fuzzy":
-            self._results = IndexEngine.search_fts(query, limit=5000, offset=0)
-            self._has_more = len(self._results) == 5000
-            mode_label = "模糊"
-        else:
-            self._results = IndexEngine.search(query, limit=5000, offset=0,
-                                               order_col=self._sort_col, order_desc=not self._sort_asc)
-            self._has_more = len(self._results) == 5000
-            mode_label = "精确"
-
+        self._results = IndexEngine.search(query, limit=5000, offset=0, order_col=self._sort_col, order_desc=not self._sort_asc)
+        self._has_more = len(self._results) == 5000
         self._refresh_tree()
-        self.status_var.set(f"搜索「{query}」({mode_label}) — 已显示 {len(self._results):,} 个文件")
+        self.status_var.set(f"搜索「{query}」— 已显示 {len(self._results):,} 个文件")
 
     # ================================================================
     #  排除列表管理
@@ -1094,176 +798,11 @@ class FileSearcherApp:
             self._exclude_save(ex_list)
 
     # ================================================================
-    #  重复文件检测 GUI
-    # ================================================================
-
-    def _start_duplicate_scan(self):
-        """启动重复文件扫描（后台线程）。"""
-        if not IndexEngine.index_exists():
-            messagebox.showwarning("提示", "请先创建索引再查找重复文件")
-            return
-
-        if not IndexEngine._hash_column_exists():
-            if messagebox.askyesno("需要重建索引",
-                                   "当前索引缺少哈希列（旧版本索引），需要重建索引才能查找重复文件。\n\n是否立即重建？"):
-                self._do_index()
-            return
-
-        # 确认是否重新扫描
-        existing = IndexEngine.get_duplicates()
-        if existing:
-            total_dup = sum(g["count"] for g in existing)
-            if messagebox.askyesno("已有扫描结果",
-                                   f"已有重复文件扫描结果：{len(existing)} 组，共 {total_dup} 个文件。\n\n"
-                                   "是否重新扫描？\n（选择「否」将直接查看已有结果）"):
-                IndexEngine.clear_hashes()
-            else:
-                self._show_duplicates(existing)
-                return
-
-        # 获取候选：大小相同的文件组
-        candidates = IndexEngine.find_duplicate_candidates(min_size=1024)
-        if not candidates:
-            messagebox.showinfo("结果", "没有找到大小相同的文件，无需哈希比对。")
-            return
-
-        total_sizes = len(candidates)
-        total_files_to_hash = sum(c[1] for c in candidates)
-        msg = (f"发现 {total_sizes} 组大小相同的文件\n"
-               f"共需比对 {total_files_to_hash:,} 个文件\n"
-               f"（首次扫描需要计算哈希值，可能较慢，请耐心等待）\n\n继续扫描？")
-        if not messagebox.askyesno("确认扫描", msg):
-            return
-
-        self.dup_btn.config(state=tk.DISABLED)
-        self.status_var.set("正在扫描重复文件，计算哈希值…")
-
-        def run():
-            try:
-                done_groups = 0
-                for size, cnt in candidates:
-                    if self._engine_cancel:
-                        break
-                    done_groups += 1
-                    self.root.after(0, lambda s=size, d=done_groups, t=total_sizes:
-                                    self.status_var.set(
-                                        f"扫描重复文件 [{d}/{t}] — 正在比对 {format_size(s)} 文件组…"))
-                    IndexEngine.compute_hashes_for_size(size)
-
-                if not self._engine_cancel:
-                    groups = IndexEngine.get_duplicates()
-                    self.root.after(0, lambda: self._on_dup_scan_done(groups))
-                else:
-                    self.root.after(0, lambda: self.status_var.set("重复文件扫描已取消"))
-            except Exception as e:
-                self.root.after(0, lambda: self._on_dup_scan_error(str(e)))
-            finally:
-                self.root.after(0, lambda: self.dup_btn.config(state=tk.NORMAL))
-
-        self._engine_cancel = False
-        threading.Thread(target=run, daemon=True).start()
-
-    def _on_dup_scan_done(self, groups: list[dict]):
-        """重复扫描完成，展示结果。"""
-        self._engine_cancel = False
-        if not groups:
-            messagebox.showinfo("结果", "没有发现重复文件。")
-            self.status_var.set("就绪 — 未发现重复文件")
-            return
-        total_files = sum(g["count"] for g in groups)
-        self.status_var.set(f"发现 {len(groups)} 组重复文件，共 {total_files} 个文件（可释放空间：{self._calc_dup_space(groups)}）")
-        self._show_duplicates(groups)
-
-    def _on_dup_scan_error(self, err: str):
-        self._engine_cancel = False
-        self.status_var.set(f"扫描出错: {err}")
-
-    def _calc_dup_space(self, groups: list[dict]) -> str:
-        """计算重复文件可释放空间（每组保留一个，其余可删）。"""
-        wasted = 0
-        for g in groups:
-            size = g["files"][0]["size"] if g["files"] else 0
-            wasted += size * (g["count"] - 1)
-        return format_size(wasted)
-
-    def _show_duplicates(self, groups: list[dict]):
-        """在 treeview 中展示重复文件组，每组用颜色区分。"""
-        self._view_mode = "duplicates"
-        self._dup_groups = groups
-        self._results = []
-
-        self.tree.delete(*self.tree.get_children())
-        self._item_to_result = {}
-
-        # 用交替颜色区分不同组
-        tag_colors = ["#FFF8E1", "#E8F5E9"]  # 浅黄、浅绿交替
-
-        for g in groups:
-            gid = g["group_id"]
-            tag = f"dup_{gid}"
-            color = tag_colors[gid % len(tag_colors)]
-            self.tree.tag_configure(tag, background=color)
-
-            # 先插入组标题行
-            header_vals = (
-                f"▸ 重复组 #{gid}（{g['count']} 个文件）",
-                f"MD5: {g['hash']}",
-                "",
-                format_size(g["files"][0]["size"]),
-                "",
-            )
-            self.tree.insert("", tk.END, values=header_vals, tags=(tag,))
-
-            for f in g["files"]:
-                ext = os.path.splitext(f["name"])[1]
-                ext_text = ext.upper().lstrip(".") if ext else ""
-                vals = (
-                    f["name"],
-                    f["path"],
-                    ext_text,
-                    format_size(f["size"]),
-                    f["modified"],
-                )
-                iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
-                self._item_to_result[iid] = f
-                self._results.append(f)
-
-        self.dup_clear_btn.config(state=tk.NORMAL)
-
-    def _exit_duplicate_view(self):
-        """退出重复文件视图，返回正常模式。"""
-        self._view_mode = "normal"
-        self._dup_groups = []
-        self.dup_clear_btn.config(state=tk.DISABLED)
-        query = self.search_var.get().strip()
-        if query:
-            self._do_search()
-        else:
-            self._load_all()
-
-    # ================================================================
     #  文件列表显示与交互
     # ================================================================
 
     def _refresh_tree(self):
         """清空并重新填充 Treeview（用于排序和首次加载）。"""
-        if self._view_mode == "duplicates":
-            # 重复视图下，直接重建列表（无组标题，删除后保持一致）
-            self.tree.delete(*self.tree.get_children())
-            self._item_to_result = {}
-            for f in self._results:
-                ext = os.path.splitext(f["name"])[1]
-                ext_text = ext.upper().lstrip(".") if ext else ""
-                vals = (
-                    f["name"],
-                    f["path"],
-                    ext_text,
-                    format_size(f["size"]),
-                    f["modified"],
-                )
-                iid = self.tree.insert("", tk.END, values=vals)
-                self._item_to_result[iid] = f
-            return
         self.tree.delete(*self.tree.get_children())
         self._item_to_result = {}
         for f in self._results:
@@ -1462,18 +1001,13 @@ class FileSearcherApp:
         """加载下一页数据（5000 条），追加到列表末尾。"""
         if not self._has_more or self._loading_more:
             return
-        if self._view_mode == "duplicates":
-            return
         self._loading_more = True
         offset = len(self._results)
         if self._last_query:
-            if self._search_mode == "fuzzy":
-                more = IndexEngine.search_fts(self._last_query, limit=5000, offset=offset)
-            else:
-                more = IndexEngine.search(
-                    self._last_query, limit=5000, offset=offset,
-                    order_col=self._sort_col, order_desc=not self._sort_asc,
-                )
+            more = IndexEngine.search(
+                self._last_query, limit=5000, offset=offset,
+                order_col=self._sort_col, order_desc=not self._sort_asc,
+            )
         else:
             more = IndexEngine.load_all(
                 limit=5000, offset=offset,
@@ -1531,10 +1065,6 @@ class FileSearcherApp:
 
     def _sort_by(self, col: str):
         """点击列头排序。同列再次点击切换升降序，切换列默认升序。"""
-        if self._view_mode == "duplicates":
-            self._exit_duplicate_view()
-            return
-
         if self._sort_col == col:
             self._sort_asc = not self._sort_asc
         else:
