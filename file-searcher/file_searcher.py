@@ -988,7 +988,11 @@ class FileSearcherApp:
             pass
 
     def _on_drag_start(self, event):
-        """记录拖拽起始位置。"""
+        """记录拖拽起始位置并选中点击的行。"""
+        # 先选中点击的行
+        row = self.tree.identify_row(event.y)
+        if row:
+            self.tree.selection_set(row)
         self._drag_data["x"] = event.x_root
         self._drag_data["y"] = event.y_root
         self._drag_data["dragging"] = False
@@ -1002,11 +1006,16 @@ class FileSearcherApp:
         if abs(dx) < 8 and abs(dy) < 8:
             return
         self._drag_data["dragging"] = True
+
+        # 确保选中当前拖拽的行
+        row = self.tree.identify_row(event.y)
+        if row:
+            self.tree.selection_set(row)
+
         path = self._get_selected_path()
         if path and os.path.exists(path):
             path = os.path.normpath(path)
-            # 延迟到事件循环空闲时执行，避免阻塞当前事件处理
-            self.root.after(10, lambda: self._do_ole_drag(path))
+            self._do_ole_drag(path)
 
     def _on_drag_end(self, event):
         """重置拖拽状态。"""
