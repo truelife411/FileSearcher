@@ -458,9 +458,9 @@ class FileSearcherApp:
         ttk.Label(toolbar, text="\U0001f50d 搜索:").pack(side=tk.LEFT, padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
-        search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=40)
-        search_entry.pack(side=tk.LEFT, padx=(0, 8))
-        search_entry.bind("<Return>", lambda _e: self._do_search())
+        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=40)
+        self.search_entry.pack(side=tk.LEFT, padx=(0, 8))
+        self.search_entry.bind("<Return>", lambda _e: self._do_search())
 
         self.root.bind("<Escape>", lambda _e: self._clear_search())
         self._index_icon = tk.PhotoImage(width=1, height=1)
@@ -1130,11 +1130,8 @@ class FileSearcherApp:
             pass
 
     def _on_close(self):
-        """关闭窗口 → 退出程序。"""
-        if hasattr(self, '_tray') and self._tray is not None:
-            self._tray.stop()
-        self._save_layout()
-        self.root.destroy()
+        """关闭窗口 → 最小化到系统托盘。"""
+        self.root.withdraw()
 
     # ================================================================
     #  系统托盘
@@ -1181,7 +1178,14 @@ class FileSearcherApp:
     def _do_restore(self):
         self.root.deiconify()
         self.root.lift()
+        self.root.state("zoomed")  # 最大化窗口
         self.root.focus_force()
+        # 搜索框全选文字，无文字则聚焦到搜索框
+        self.search_entry.focus_set()
+        if self.search_var.get().strip():
+            self.search_entry.select_range(0, tk.END)
+        else:
+            self.search_entry.icursor(0)
 
     def _tray_exit(self, icon=None, item=None):
         """右键菜单「退出」：停止托盘并销毁窗口。"""
