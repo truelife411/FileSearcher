@@ -697,30 +697,30 @@ class FileSearcherApp:
         # ====== 顶部标签栏（自定义大按钮） ======
         TAB_BG = "#f0f0f0"
         TAB_ACTIVE_BG = "#ffffff"
-        TAB_FONT = ("Microsoft YaHei", int(12 * s), "bold")
-        TAB_FONT_INACTIVE = ("Microsoft YaHei", int(12 * s))
+        TAB_FONT = ("Microsoft YaHei", int(10 * s), "bold")
+        TAB_FONT_INACTIVE = ("Microsoft YaHei", int(10 * s))
         TAB_ACTIVE_FG = "#0078D4"
         TAB_INACTIVE_FG = "#666666"
 
-        tab_bar = tk.Frame(dlg, bg=TAB_BG, height=int(44 * s))
+        tab_bar = tk.Frame(dlg, bg=TAB_BG, height=int(34 * s))
         tab_bar.pack(fill=tk.X, padx=int(14 * s), pady=(int(14 * s), 0))
         tab_bar.pack_propagate(False)
 
         btn_index = tk.Label(tab_bar, text="  📋  索引设置  ", font=TAB_FONT,
                              bg=TAB_ACTIVE_BG, fg=TAB_ACTIVE_FG,
-                             bd=0, padx=int(22 * s), pady=int(8 * s),
+                             bd=0, padx=int(16 * s), pady=int(6 * s),
                              cursor="hand2")
         btn_index.pack(side=tk.LEFT)
 
         btn_exclude = tk.Label(tab_bar, text="  ⊘  排除列表  ", font=TAB_FONT_INACTIVE,
                                bg=TAB_BG, fg=TAB_INACTIVE_FG,
-                               bd=0, padx=int(22 * s), pady=int(8 * s),
+                               bd=0, padx=int(16 * s), pady=int(6 * s),
                                cursor="hand2")
         btn_exclude.pack(side=tk.LEFT, padx=(int(4 * s), 0))
 
         # 底部蓝条（激活指示）
-        indicator = tk.Frame(tab_bar, bg=TAB_ACTIVE_FG, height=int(3 * s))
-        indicator.place(in_=btn_index, x=0, rely=1.0, relwidth=1.0, y=0, height=int(3 * s))
+        indicator = tk.Frame(tab_bar, bg=TAB_ACTIVE_FG, height=int(2 * s))
+        indicator.place(in_=btn_index, x=0, rely=1.0, relwidth=1.0, y=0, height=int(2 * s))
 
         # 分割线
         tk.Frame(dlg, bg="#d0d0d0", height=1).pack(fill=tk.X, padx=int(14 * s))
@@ -811,13 +811,13 @@ class FileSearcherApp:
                 page_index.pack(fill=tk.BOTH, expand=True)
                 btn_index.config(font=TAB_FONT, bg=TAB_ACTIVE_BG, fg=TAB_ACTIVE_FG)
                 btn_exclude.config(font=TAB_FONT_INACTIVE, bg=TAB_BG, fg=TAB_INACTIVE_FG)
-                indicator.place(in_=btn_index, x=0, rely=1.0, relwidth=1.0, y=0, height=int(3 * s))
+                indicator.place(in_=btn_index, x=0, rely=1.0, relwidth=1.0, y=0, height=int(2 * s))
             else:
                 page_index.pack_forget()
                 page_exclude.pack(fill=tk.BOTH, expand=True)
                 btn_index.config(font=TAB_FONT_INACTIVE, bg=TAB_BG, fg=TAB_INACTIVE_FG)
                 btn_exclude.config(font=TAB_FONT, bg=TAB_ACTIVE_BG, fg=TAB_ACTIVE_FG)
-                indicator.place(in_=btn_exclude, x=0, rely=1.0, relwidth=1.0, y=0, height=int(3 * s))
+                indicator.place(in_=btn_exclude, x=0, rely=1.0, relwidth=1.0, y=0, height=int(2 * s))
 
         btn_index.bind("<Button-1>", lambda _e: _switch_to(0))
         btn_exclude.bind("<Button-1>", lambda _e: _switch_to(1))
