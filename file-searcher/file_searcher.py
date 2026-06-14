@@ -678,51 +678,63 @@ class FileSearcherApp:
         """弹出设置对话框。"""
         dlg = tk.Toplevel(self.root)
         dlg.title("设置")
-        dlg.resizable(False, False)
+        dlg.resizable(True, True)
         dlg.grab_set()
         dlg.transient(self.root)
 
-        # 居中显示
+        # 按主窗口 DPI 缩放调整对话框尺寸 + 内容 padding，避免高 DPI 屏内容溢出
+        try:
+            scale = float(self.root.tk.call('tk', 'scaling'))
+        except Exception:
+            scale = 1.0
+        # 内容按 100% 缩放估算约 460x220，根据当前 scale 放大
+        s = max(1.0, scale)
+        dw = int(520 * s)
+        dh = int(260 * s)
+
         dlg.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
-        dw, dh = 380, 180
         dlg.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+        dlg.minsize(int(420 * s), int(220 * s))
 
-        pad = {"padx": 18, "pady": 8}
+        # 外层容器
+        outer = ttk.Frame(dlg, padding=(int(20 * s), int(14 * s)))
+        outer.pack(fill=tk.BOTH, expand=True)
 
         # --- 选项 1：启动时自动更新索引 ---
         auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
         ttk.Checkbutton(
-            dlg,
+            outer,
             text="启动时自动更新索引",
             variable=auto_start_var,
-        ).pack(anchor=tk.W, **pad)
+        ).pack(anchor=tk.W, pady=(0, int(10 * s)))
 
         # --- 选项 2：最小化到托盘后定时更新 ---
         tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
         minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
 
-        tray_frame = ttk.Frame(dlg)
-        tray_frame.pack(anchor=tk.W, padx=18, pady=4)
-
         ttk.Checkbutton(
-            tray_frame,
-            text="最小化到托盘后，自动更新索引，间隔",
+            outer,
+            text="最小化到托盘后，自动更新索引",
             variable=tray_auto_var,
-        ).pack(side=tk.LEFT)
+        ).pack(anchor=tk.W, pady=(0, int(6 * s)))
 
+        minutes_frame = ttk.Frame(outer)
+        minutes_frame.pack(anchor=tk.W, padx=(int(24 * s), 0), pady=(0, int(14 * s)))
+
+        ttk.Label(minutes_frame, text="间隔").pack(side=tk.LEFT)
         spin = ttk.Spinbox(
-            tray_frame,
-            from_=5, to=120, width=5,
+            minutes_frame,
+            from_=5, to=120, width=int(6 * s),
             textvariable=minutes_var,
         )
-        spin.pack(side=tk.LEFT, padx=(4, 4))
-        ttk.Label(tray_frame, text="分钟").pack(side=tk.LEFT)
+        spin.pack(side=tk.LEFT, padx=(int(6 * s), int(4 * s)))
+        ttk.Label(minutes_frame, text="分钟（5~120）").pack(side=tk.LEFT)
 
         # --- 按钮 ---
-        btn_frame = ttk.Frame(dlg)
-        btn_frame.pack(side=tk.BOTTOM, pady=12)
+        btn_frame = ttk.Frame(dlg, padding=(0, int(8 * s), 0, int(12 * s)))
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
         def _save():
             try:
@@ -736,8 +748,8 @@ class FileSearcherApp:
             IndexEngine.save_settings(self._settings)
             dlg.destroy()
 
-        ttk.Button(btn_frame, text="保存", command=_save, width=10).pack(side=tk.LEFT, padx=8)
-        ttk.Button(btn_frame, text="取消", command=dlg.destroy, width=10).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="保存", command=_save, width=int(10 * s)).pack(side=tk.RIGHT, padx=(0, int(8 * s)))
+        ttk.Button(btn_frame, text="取消", command=dlg.destroy, width=int(10 * s)).pack(side=tk.RIGHT, padx=(0, int(4 * s)))
 
     # ================================================================
     #  搜索逻辑
