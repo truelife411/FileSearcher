@@ -703,40 +703,26 @@ class FileSearcherApp:
         NAV_ACTIVE_BG = "#ffffff"
         NAV_FG = "#333333"
         NAV_ACTIVE_FG = "#0078D4"
-        NAV_FONT = ("Microsoft YaHei", int(10 * s))
-        NAV_FONT_BOLD = ("Microsoft YaHei", int(10 * s), "bold")
-        NAV_WIDTH = int(150 * s)
+        NAV_WIDTH = int(120 * s)
 
         nav_panel = tk.Frame(body, bg=NAV_BG, width=NAV_WIDTH)
         nav_panel.pack(side=tk.LEFT, fill=tk.Y)
         nav_panel.pack_propagate(False)
 
-        # 导航标题
-        tk.Label(nav_panel, text="设置", font=("Microsoft YaHei", int(10 * s), "bold"),
-                 bg=NAV_BG, fg="#555555",
-                 anchor=tk.W, padx=int(16 * s), pady=int(12 * s)).pack(fill=tk.X)
+        # 导航项（紧凑，默认字号，无图标）
+        nav_item_h = int(20 * s)
 
-        # 分隔
-        tk.Frame(nav_panel, bg="#dcdcdc", height=1).pack(fill=tk.X, padx=int(10 * s))
-
-        # 导航项
-        nav_item_h = int(36 * s)
-        nav_icon_size = int(14 * s)
-
-        def _make_nav_item(text, icon):
+        def _make_nav_item(text):
             f = tk.Frame(nav_panel, bg=NAV_BG, height=nav_item_h, cursor="hand2")
-            f.pack(fill=tk.X, padx=int(6 * s), pady=(int(2 * s), 0))
+            f.pack(fill=tk.X, padx=int(6 * s), pady=(int(4 * s), 0))
             f.pack_propagate(False)
-            icon_lbl = tk.Label(f, text=icon, font=("Segoe UI Symbol", nav_icon_size),
-                                bg=NAV_BG, fg=NAV_FG, padx=int(10 * s))
-            icon_lbl.pack(side=tk.LEFT)
-            text_lbl = tk.Label(f, text=text, font=NAV_FONT,
+            text_lbl = tk.Label(f, text=text,
                                 bg=NAV_BG, fg=NAV_FG, anchor=tk.W)
-            text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            return f, icon_lbl, text_lbl
+            text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=int(10 * s))
+            return f, text_lbl
 
-        nav_idx, idx_icon, idx_text = _make_nav_item("索引设置", "📋")
-        nav_ex, ex_icon, ex_text = _make_nav_item("排除列表", "⊘")
+        nav_idx, idx_text = _make_nav_item("索引设置")
+        nav_ex, ex_text = _make_nav_item("排除列表")
 
         # 右侧分隔
         tk.Frame(body, bg="#dcdcdc", width=1).pack(side=tk.LEFT, fill=tk.Y)
@@ -768,16 +754,14 @@ class FileSearcherApp:
         tray_auto_var.trace_add("write", lambda *_: _persist_general())
         minutes_var.trace_add("write", lambda *_: _persist_general())
 
-        ttk.Label(page_index, text="启动时自动更新索引",
-                  font=("Microsoft YaHei", int(10 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
+        ttk.Label(page_index, text="启动时自动更新索引").pack(anchor=tk.W, pady=(0, int(8 * s)))
         cb1 = ttk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
                               variable=auto_start_var)
         cb1.pack(anchor=tk.W, padx=(int(16 * s), 0), pady=(0, int(16 * s)))
 
         ttk.Separator(page_index, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=int(10 * s))
 
-        ttk.Label(page_index, text="托盘自动更新",
-                  font=("Microsoft YaHei", int(10 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
+        ttk.Label(page_index, text="托盘自动更新").pack(anchor=tk.W, pady=(0, int(8 * s)))
         cb2 = ttk.Checkbutton(page_index, text="最小化到托盘后，自动更新索引",
                               variable=tray_auto_var)
         cb2.pack(anchor=tk.W, padx=(int(16 * s), 0), pady=(0, int(6 * s)))
@@ -825,25 +809,23 @@ class FileSearcherApp:
             ex_list.insert("", tk.END, values=("路径包含", p))
 
         # ====== 导航切换 ======
-        def _highlight(active_frame, active_icon, active_text):
-            for f, ic, tx in [(nav_idx, idx_icon, idx_text), (nav_ex, ex_icon, ex_text)]:
+        def _highlight(active_frame, active_text):
+            for f, tx in [(nav_idx, idx_text), (nav_ex, ex_text)]:
                 is_active = (f is active_frame)
                 bg = NAV_ACTIVE_BG if is_active else NAV_BG
                 fg = NAV_ACTIVE_FG if is_active else NAV_FG
-                fn = NAV_FONT_BOLD if is_active else NAV_FONT
                 f.config(bg=bg)
-                ic.config(bg=bg, fg=fg)
-                tx.config(bg=bg, fg=fg, font=fn)
+                tx.config(bg=bg, fg=fg)
 
         def _on_idx_click(_e=None):
             page_exclude.pack_forget()
             page_index.pack(fill=tk.BOTH, expand=True)
-            _highlight(nav_idx, idx_icon, idx_text)
+            _highlight(nav_idx, idx_text)
 
         def _on_ex_click(_e=None):
             page_index.pack_forget()
             page_exclude.pack(fill=tk.BOTH, expand=True)
-            _highlight(nav_ex, ex_icon, ex_text)
+            _highlight(nav_ex, ex_text)
 
         nav_idx.bind("<Button-1>", _on_idx_click)
         nav_ex.bind("<Button-1>", _on_ex_click)
