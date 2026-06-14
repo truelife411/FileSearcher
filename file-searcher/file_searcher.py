@@ -712,7 +712,7 @@ class FileSearcherApp:
         nav_panel.pack_propagate(False)
 
         # 导航标题
-        tk.Label(nav_panel, text="设置", font=("Microsoft YaHei", int(11 * s), "bold"),
+        tk.Label(nav_panel, text="设置", font=("Microsoft YaHei", int(10 * s), "bold"),
                  bg=NAV_BG, fg="#555555",
                  anchor=tk.W, padx=int(16 * s), pady=int(12 * s)).pack(fill=tk.X)
 
@@ -769,7 +769,7 @@ class FileSearcherApp:
         minutes_var.trace_add("write", lambda *_: _persist_general())
 
         ttk.Label(page_index, text="启动时自动更新索引",
-                  font=("Microsoft YaHei", int(11 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
+                  font=("Microsoft YaHei", int(10 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
         cb1 = ttk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
                               variable=auto_start_var)
         cb1.pack(anchor=tk.W, padx=(int(16 * s), 0), pady=(0, int(16 * s)))
@@ -777,7 +777,7 @@ class FileSearcherApp:
         ttk.Separator(page_index, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=int(10 * s))
 
         ttk.Label(page_index, text="托盘自动更新",
-                  font=("Microsoft YaHei", int(11 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
+                  font=("Microsoft YaHei", int(10 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
         cb2 = ttk.Checkbutton(page_index, text="最小化到托盘后，自动更新索引",
                               variable=tray_auto_var)
         cb2.pack(anchor=tk.W, padx=(int(16 * s), 0), pady=(0, int(6 * s)))
