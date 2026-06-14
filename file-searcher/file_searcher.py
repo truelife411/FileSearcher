@@ -508,8 +508,6 @@ class FileSearcherApp:
         self.index_count_var = tk.StringVar(value="")
         ttk.Label(toolbar, textvariable=self.index_count_var, foreground="gray").pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Button(toolbar, text="排除列表", command=self._manage_exclude).pack(side=tk.LEFT, padx=(0, 12))
-
         # 设置按钮放在右上角
         ttk.Button(toolbar, text="⚙ 设置", command=self._open_settings).pack(side=tk.RIGHT, padx=(0, 4))
 
@@ -675,7 +673,7 @@ class FileSearcherApp:
     # ================================================================
 
     def _open_settings(self):
-        """弹出设置对话框。"""
+        """弹出设置对话框：启动行为 + 托盘自动更新 + 排除列表。"""
         dlg = tk.Toplevel(self.root)
         dlg.title("设置")
         dlg.resizable(True, True)
@@ -687,25 +685,33 @@ class FileSearcherApp:
             scale = float(self.root.tk.call('tk', 'scaling'))
         except Exception:
             scale = 1.0
-        # 内容按 100% 缩放估算约 460x220，根据当前 scale 放大
         s = max(1.0, scale)
-        dw = int(520 * s)
-        dh = int(260 * s)
+        dw = int(620 * s)
+        dh = int(560 * s)
+        dlg.minsize(int(520 * s), int(460 * s))
 
         dlg.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
         dlg.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
-        dlg.minsize(int(420 * s), int(220 * s))
 
-        # 外层容器
-        outer = ttk.Frame(dlg, padding=(int(20 * s), int(14 * s)))
-        outer.pack(fill=tk.BOTH, expand=True)
+        # 顶部按钮栏（关闭）
+        top_bar = ttk.Frame(dlg, padding=(int(8 * s), int(8 * s), int(8 * s), 0))
+        top_bar.pack(side=tk.TOP, fill=tk.X)
+        ttk.Button(top_bar, text="关闭", command=dlg.destroy, width=int(10 * s)).pack(side=tk.RIGHT)
+
+        # 用 Notebook 分两页：常规、排除列表
+        nb = ttk.Notebook(dlg)
+        nb.pack(fill=tk.BOTH, expand=True, padx=int(8 * s), pady=(int(8 * s), 0))
+
+        # ============ Tab 1: 常规 ============
+        tab_general = ttk.Frame(nb, padding=(int(20 * s), int(14 * s)))
+        nb.add(tab_general, text="常规")
 
         # --- 选项 1：启动时自动更新索引 ---
         auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
         ttk.Checkbutton(
-            outer,
+            tab_general,
             text="启动时自动更新索引",
             variable=auto_start_var,
         ).pack(anchor=tk.W, pady=(0, int(10 * s)))
@@ -715,12 +721,12 @@ class FileSearcherApp:
         minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
 
         ttk.Checkbutton(
-            outer,
+            tab_general,
             text="最小化到托盘后，自动更新索引",
             variable=tray_auto_var,
         ).pack(anchor=tk.W, pady=(0, int(6 * s)))
 
-        minutes_frame = ttk.Frame(outer)
+        minutes_frame = ttk.Frame(tab_general)
         minutes_frame.pack(anchor=tk.W, padx=(int(24 * s), 0), pady=(0, int(14 * s)))
 
         ttk.Label(minutes_frame, text="间隔").pack(side=tk.LEFT)
@@ -732,8 +738,47 @@ class FileSearcherApp:
         spin.pack(side=tk.LEFT, padx=(int(6 * s), int(4 * s)))
         ttk.Label(minutes_frame, text="分钟（5~120）").pack(side=tk.LEFT)
 
-        # --- 按钮 ---
-        btn_frame = ttk.Frame(dlg, padding=(0, int(8 * s), 0, int(12 * s)))
+        ttk.Separator(tab_general, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(int(10 * s), int(10 * s)))
+        ttk.Label(tab_general, text="修改后点「保存」生效（排除列表会即时保存）",
+                  foreground="gray").pack(anchor=tk.W)
+
+        # ============ Tab 2: 排除列表 ============
+        tab_ex = ttk.Frame(nb, padding=(int(8 * s), int(8 * s)))
+        nb.add(tab_ex, text="排除列表")
+
+        ttk.Label(tab_ex, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）:").pack(anchor=tk.W, pady=(0, int(6 * s)))
+
+        tb = ttk.Frame(tab_ex)
+        tb.pack(fill=tk.X, pady=(0, int(4 * s)))
+        ttk.Button(tb, text="＋ 添加", command=lambda: self._exclude_add(ex_list, dlg)).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(tb, text="✎ 编辑", command=lambda: self._exclude_edit(ex_list, dlg)).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(tb, text="✕ 删除", command=lambda: self._exclude_delete(ex_list)).pack(side=tk.LEFT)
+
+        frame = ttk.Frame(tab_ex)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        columns = ("type", "value")
+        ex_list = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
+        ex_list.heading("type", text="类型")
+        ex_list.heading("value", text="排除内容")
+        ex_list.column("type", width=int(80 * s), minwidth=60)
+        ex_list.column("value", width=int(600 * s), minwidth=200)
+
+        scroll_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=ex_list.yview)
+        ex_list.configure(yscrollcommand=scroll_y.set)
+        ex_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+
+        ex_list.bind("<Double-1>", lambda e: self._exclude_edit(ex_list, dlg))
+
+        data = IndexEngine.get_exclude_list()
+        for d in data.get("dirs", []):
+            ex_list.insert("", tk.END, values=("目录名", d))
+        for p in data.get("paths", []):
+            ex_list.insert("", tk.END, values=("路径包含", p))
+
+        # ============ 底部按钮（保存/取消）===========
+        btn_frame = ttk.Frame(dlg, padding=(int(8 * s), int(8 * s), int(8 * s), int(12 * s)))
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
         def _save():
