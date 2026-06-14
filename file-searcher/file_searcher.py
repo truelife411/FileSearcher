@@ -130,28 +130,34 @@ def open_file_location(path: str):
     subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
 
 
-def send_to_recycle_bin(path: str):
-    """将文件移入回收站（可通过 Windows Shell API 恢复）"""
-    buf = ctypes.create_unicode_buffer(path + "\0\0")
+def send_to_recycle_bin(paths: list[str]):
+    """将文件列表移入回收站（可通过 Windows Shell API 恢复）。"""
+    if not paths:
+        return
+    file_list = "\0".join(paths) + "\0\0"
+    buf = ctypes.create_unicode_buffer(file_list)
     op = SHFILEOPSTRUCTW()
     op.wFunc = FO_DELETE
     op.pFrom = ctypes.cast(buf, ctypes.c_wchar_p)
     op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
     ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
     if ret != 0:
-        raise OSError(f"无法删除文件: {path}")
+        raise OSError(f"无法删除文件: {paths}")
 
 
-def permanent_delete(path: str):
-    """彻底删除文件，不可恢复"""
-    buf = ctypes.create_unicode_buffer(path + "\0\0")
+def permanent_delete(paths: list[str]):
+    """彻底删除文件列表，不可恢复。"""
+    if not paths:
+        return
+    file_list = "\0".join(paths) + "\0\0"
+    buf = ctypes.create_unicode_buffer(file_list)
     op = SHFILEOPSTRUCTW()
     op.wFunc = FO_DELETE
     op.pFrom = ctypes.cast(buf, ctypes.c_wchar_p)
     op.fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_WANTNUKEWARNING
     ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
     if ret != 0:
-        raise OSError(f"无法删除文件: {path}")
+        raise OSError(f"无法删除文件: {paths}")
 
 
 def rename_file(old_path: str, new_name: str) -> str:
@@ -1050,12 +1056,19 @@ class FileSearcherApp:
             self._item_to_result[iid] = f
 
     def _get_selected_path(self) -> str | None:
-        """获取当前选中文件的完整路径。"""
+        """获取当前选中文件的完整路径（兼容单选）。"""
+        paths = self._get_selected_paths()
+        return paths[0] if paths else None
+
+    def _get_selected_paths(self) -> list[str]:
+        """获取所有选中文件的完整路径列表。"""
         sel = self.tree.selection()
-        if not sel:
-            return None
-        result = self._item_to_result.get(sel[0])
-        return result["path"] if result else None
+        paths = []
+        for iid in sel:
+            result = self._item_to_result.get(iid)
+            if result:
+                paths.append(result["path"])
+        return paths
 
     def _on_double_click(self, event):
         """双击文件名：检查文件是否存在后打开。"""
@@ -1161,34 +1174,50 @@ class FileSearcherApp:
     # ================================================================
 
     def _delete_file_recycle(self):
-        """删除到回收站（可恢复）。"""
-        path = self._get_selected_path()
-        if not path:
+        """删除到回收站（可恢复），支持多选。"""
+        paths = self._get_selected_paths()
+        if not paths:
             return
-        name = os.path.basename(path)
-        if not messagebox.askyesno("确认删除", f"确定将「{name}」移动到回收站？"):
+        count = len(paths)
+        if count == 1:
+            msg = f"确定将「{os.path.basename(paths[0])}」移动到回收站？"
+        else:
+            msg = f"确定将选中的 {count} 个文件移动到回收站？"
+        if not messagebox.askyesno("确认删除", msg):
             return
         try:
-            send_to_recycle_bin(path)
-            self._remove_from_results(path)
+            send_to_recycle_bin(paths)
+            for p in paths:
+                self._remove_from_results(p)
             self._refresh_tree()
-            self.status_var.set(f"已删除到回收站: {name}")
+            if count == 1:
+                self.status_var.set(f"已删除到回收站: {os.path.basename(paths[0])}")
+            else:
+                self.status_var.set(f"已删除 {count} 个文件到回收站")
         except Exception as e:
             messagebox.showerror("删除失败", str(e))
 
     def _delete_file_permanent(self):
-        """彻底删除文件（不可恢复，有二次确认）。"""
-        path = self._get_selected_path()
-        if not path:
+        """彻底删除文件（不可恢复，有二次确认），支持多选。"""
+        paths = self._get_selected_paths()
+        if not paths:
             return
-        name = os.path.basename(path)
-        if not messagebox.askyesno("确认彻底删除", f"确定彻底删除「{name}」？\n\n此操作不可恢复！"):
+        count = len(paths)
+        if count == 1:
+            msg = f"确定彻底删除「{os.path.basename(paths[0])}」？\n\n此操作不可恢复！"
+        else:
+            msg = f"确定彻底删除选中的 {count} 个文件？\n\n此操作不可恢复！"
+        if not messagebox.askyesno("确认彻底删除", msg):
             return
         try:
-            permanent_delete(path)
-            self._remove_from_results(path)
+            permanent_delete(paths)
+            for p in paths:
+                self._remove_from_results(p)
             self._refresh_tree()
-            self.status_var.set(f"已彻底删除: {name}")
+            if count == 1:
+                self.status_var.set(f"已彻底删除: {os.path.basename(paths[0])}")
+            else:
+                self.status_var.set(f"已彻底删除 {count} 个文件")
         except Exception as e:
             messagebox.showerror("删除失败", str(e))
 
@@ -1461,15 +1490,23 @@ class FileSearcherApp:
 
     def _copy_path(self, event=None):
         """Ctrl+C：将选中文件复制到剪贴板（资源管理器可粘贴）。"""
-        path = self._get_selected_path()
-        if path and self._set_clipboard_hdrop([path], move=False):
-            self.status_var.set(f"已复制: {os.path.basename(path)}")
+        paths = self._get_selected_paths()
+        if paths and self._set_clipboard_hdrop(paths, move=False):
+            count = len(paths)
+            if count == 1:
+                self.status_var.set(f"已复制: {os.path.basename(paths[0])}")
+            else:
+                self.status_var.set(f"已复制 {count} 个文件")
 
     def _cut_path(self, event=None):
         """Ctrl+X：将选中文件剪切到剪贴板（资源管理器可粘贴）。"""
-        path = self._get_selected_path()
-        if path and self._set_clipboard_hdrop([path], move=True):
-            self.status_var.set(f"已剪切: {os.path.basename(path)}")
+        paths = self._get_selected_paths()
+        if paths and self._set_clipboard_hdrop(paths, move=True):
+            count = len(paths)
+            if count == 1:
+                self.status_var.set(f"已剪切: {os.path.basename(paths[0])}")
+            else:
+                self.status_var.set(f"已剪切 {count} 个文件")
 
     def _set_clipboard_hdrop(self, paths: list[str], move: bool = False) -> bool:
         """将文件列表以 CF_HDROP 格式写入剪贴板，支持资源管理器粘贴。"""
