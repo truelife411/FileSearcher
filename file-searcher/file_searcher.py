@@ -1460,20 +1460,104 @@ class FileSearcherApp:
     # ================================================================
 
     def _copy_path(self, event=None):
-        """Ctrl+C：将选中文件的路径复制到剪贴板。"""
+        """Ctrl+C：将选中文件复制到剪贴板（资源管理器可粘贴）。"""
         path = self._get_selected_path()
-        if path:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(path)
+        if path and self._set_clipboard_hdrop([path], move=False):
             self.status_var.set(f"已复制: {os.path.basename(path)}")
 
     def _cut_path(self, event=None):
-        """Ctrl+X：将选中文件的路径剪切到剪贴板。"""
+        """Ctrl+X：将选中文件剪切到剪贴板（资源管理器可粘贴）。"""
         path = self._get_selected_path()
-        if path:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(path)
+        if path and self._set_clipboard_hdrop([path], move=True):
             self.status_var.set(f"已剪切: {os.path.basename(path)}")
+
+    def _set_clipboard_hdrop(self, paths: list[str], move: bool = False) -> bool:
+        """将文件列表以 CF_HDROP 格式写入剪贴板，支持资源管理器粘贴。"""
+        try:
+            CF_HDROP = 15
+            GMEM_MOVEABLE = 0x0002
+            DROPEFFECT_MOVE = 2
+
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            kernel32.GlobalAlloc.argtypes = [ctypes.c_uint32, ctypes.c_size_t]
+            kernel32.GlobalAlloc.restype = ctypes.c_void_p
+            kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+            kernel32.GlobalLock.restype = ctypes.c_void_p
+            kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+            kernel32.GlobalUnlock.restype = ctypes.c_int
+            kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+            kernel32.GlobalFree.restype = ctypes.c_void_p
+
+            user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+            user32.OpenClipboard.restype = ctypes.c_int
+            user32.EmptyClipboard.restype = ctypes.c_int
+            user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+            user32.SetClipboardData.restype = ctypes.c_void_p
+            user32.CloseClipboard.restype = ctypes.c_int
+            user32.RegisterClipboardFormatW.argtypes = [ctypes.c_wchar_p]
+            user32.RegisterClipboardFormatW.restype = ctypes.c_uint
+
+            class DROPFILES(ctypes.Structure):
+                _fields_ = [
+                    ("pFiles", ctypes.c_uint32),
+                    ("x", ctypes.c_long),
+                    ("y", ctypes.c_long),
+                    ("fNC", ctypes.c_int32),
+                    ("fWide", ctypes.c_int32),
+                ]
+
+            # 构造文件列表（Unicode，双 \0 结尾）
+            file_list = "\0".join(paths) + "\0\0"
+            file_data = file_list.encode("utf-16-le")
+
+            df = DROPFILES()
+            df.pFiles = ctypes.sizeof(DROPFILES)
+            df.x = 0
+            df.y = 0
+            df.fNC = 0
+            df.fWide = 1
+
+            total_size = ctypes.sizeof(DROPFILES) + len(file_data)
+
+            h_global = kernel32.GlobalAlloc(GMEM_MOVEABLE, total_size)
+            if not h_global:
+                return False
+
+            ptr = kernel32.GlobalLock(h_global)
+            if not ptr:
+                kernel32.GlobalFree(h_global)
+                return False
+
+            ctypes.memmove(ptr, ctypes.addressof(df), ctypes.sizeof(DROPFILES))
+            ctypes.memmove(ptr + ctypes.sizeof(DROPFILES), file_data, len(file_data))
+            kernel32.GlobalUnlock(h_global)
+
+            if not user32.OpenClipboard(0):
+                kernel32.GlobalFree(h_global)
+                return False
+
+            user32.EmptyClipboard()
+            user32.SetClipboardData(CF_HDROP, h_global)
+
+            # 剪切时附加 DropEffect，让资源管理器执行移动
+            if move:
+                fmt = user32.RegisterClipboardFormatW("Preferred DropEffect")
+                if fmt:
+                    h_eff = kernel32.GlobalAlloc(GMEM_MOVEABLE, 4)
+                    if h_eff:
+                        p_eff = kernel32.GlobalLock(h_eff)
+                        if p_eff:
+                            ctypes.c_int32.from_address(p_eff).value = DROPEFFECT_MOVE
+                            kernel32.GlobalUnlock(h_eff)
+                            user32.SetClipboardData(fmt, h_eff)
+
+            user32.CloseClipboard()
+            return True
+        except Exception as e:
+            print(f"Clipboard error: {e}")
+            return False
 
 
 # ================================================================
