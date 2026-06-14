@@ -523,7 +523,7 @@ class FileSearcherApp:
         frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 4))
 
         columns = ("name", "path", "type", "size", "modified")
-        self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended")
 
         self.tree.heading("name", text="文件名", command=lambda: self._sort_by("name"))
         self.tree.heading("path", text="路径", command=lambda: self._sort_by("path"))
