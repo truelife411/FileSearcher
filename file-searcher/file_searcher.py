@@ -1080,10 +1080,24 @@ class FileSearcherApp:
             open_with_default(path)
 
     def _on_right_click(self, event):
-        """右键：选中行并弹出上下文菜单。"""
-        self.tree.selection_set(self.tree.identify_row(event.y))
-        sel = self.tree.selection()
-        if sel:
+        """右键：不丢失多选，并根据选中数量置灰部分菜单项。"""
+        row = self.tree.identify_row(event.y)
+        current_sel = self.tree.selection()
+        # 如果右键点击的行不在当前选中列表中，则只选这一行
+        if row and row not in current_sel:
+            self.tree.selection_set(row)
+            current_sel = (row,)
+
+        # 根据选中数量设置菜单项状态
+        multi = len(current_sel) > 1
+        self._ctx_menu.entryconfig("打开", state="disabled" if multi else "normal")
+        self._ctx_menu.entryconfig("打开所在文件夹", state="disabled" if multi else "normal")
+        self._ctx_menu.entryconfig("重命名", state="disabled" if multi else "normal")
+        # 删除类始终可用
+        self._ctx_menu.entryconfig("删除到回收站", state="normal")
+        self._ctx_menu.entryconfig("彻底删除", state="normal")
+
+        if current_sel:
             self._ctx_menu.post(event.x_root, event.y_root)
 
     def _open_selected(self):
