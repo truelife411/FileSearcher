@@ -673,62 +673,103 @@ class FileSearcherApp:
     # ================================================================
 
     def _open_settings(self):
-        """弹出设置对话框：启动行为 + 托盘自动更新 + 排除列表。"""
+        """弹出设置对话框：左侧导航 + 右侧内容。修改即保存。"""
         dlg = tk.Toplevel(self.root)
         dlg.title("设置")
         dlg.resizable(True, True)
         dlg.grab_set()
         dlg.transient(self.root)
 
-        # 按主窗口 DPI 缩放调整对话框尺寸 + 内容 padding，避免高 DPI 屏内容溢出
+        # 按主窗口 DPI 缩放调整对话框尺寸 + 内容 padding
         try:
             scale = float(self.root.tk.call('tk', 'scaling'))
         except Exception:
             scale = 1.0
         s = max(1.0, scale)
-        dw = int(620 * s)
+        dw = int(720 * s)
         dh = int(560 * s)
-        dlg.minsize(int(520 * s), int(460 * s))
+        dlg.minsize(int(620 * s), int(460 * s))
 
         dlg.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
         dlg.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
 
-        # 顶部按钮栏（关闭）
-        top_bar = ttk.Frame(dlg, padding=(int(8 * s), int(8 * s), int(8 * s), 0))
-        top_bar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(top_bar, text="关闭", command=dlg.destroy, width=int(10 * s)).pack(side=tk.RIGHT)
+        # ====== 左侧导航栏 + 右侧内容区 ======
+        body = ttk.Frame(dlg)
+        body.pack(fill=tk.BOTH, expand=True, padx=int(8 * s), pady=int(8 * s))
 
-        # 用 Notebook 分两页：常规、排除列表
-        nb = ttk.Notebook(dlg)
-        nb.pack(fill=tk.BOTH, expand=True, padx=int(8 * s), pady=(int(8 * s), 0))
+        # 左侧导航
+        nav = tk.Listbox(
+            body,
+            font=("Microsoft YaHei", int(11 * s)),
+            activestyle="dotbox",
+            highlightthickness=0,
+            bd=0,
+            selectmode="browse",
+            exportselection=False,
+        )
+        nav.pack(side=tk.LEFT, fill=tk.Y)
+        nav.insert(tk.END, "  ⚙  常规")
+        nav.insert(tk.END, "  ⊘  排除列表")
+        nav.config(width=int(16 * s))
 
-        # ============ Tab 1: 常规 ============
-        tab_general = ttk.Frame(nb, padding=(int(20 * s), int(14 * s)))
-        nb.add(tab_general, text="常规")
+        # 分割线
+        ttk.Separator(body, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=int(6 * s))
 
-        # --- 选项 1：启动时自动更新索引 ---
+        # 右侧内容容器（Frame 切换）
+        right = ttk.Frame(body)
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # ============ 内容页：常规 ============
+        page_general = ttk.Frame(right, padding=(int(18 * s), int(14 * s)))
+        page_exclude = ttk.Frame(right, padding=(int(8 * s), int(8 * s)))
+
+        def _show_general():
+            page_exclude.pack_forget()
+            page_general.pack(fill=tk.BOTH, expand=True)
+
+        def _show_exclude():
+            page_general.pack_forget()
+            page_exclude.pack(fill=tk.BOTH, expand=True)
+
+        # ---- 常规页内容 ----
         auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
-        ttk.Checkbutton(
-            tab_general,
-            text="启动时自动更新索引",
-            variable=auto_start_var,
-        ).pack(anchor=tk.W, pady=(0, int(10 * s)))
-
-        # --- 选项 2：最小化到托盘后定时更新 ---
         tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
         minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
 
+        def _persist_general():
+            try:
+                mins = int(minutes_var.get())
+                mins = max(5, min(120, mins))
+            except Exception:
+                mins = 30
+            self._settings["auto_index_on_start"] = auto_start_var.get()
+            self._settings["tray_auto_index"] = tray_auto_var.get()
+            self._settings["tray_auto_index_minutes"] = mins
+            IndexEngine.save_settings(self._settings)
+
+        # Checkbutton + Spinbox 都加 trace，修改即保存
+        auto_start_var.trace_add("write", lambda *_: _persist_general())
+        tray_auto_var.trace_add("write", lambda *_: _persist_general())
+
+        ttk.Separator(page_general, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, int(8 * s)))
+        ttk.Label(page_general, text="启动行为", font=("Microsoft YaHei", int(11 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
         ttk.Checkbutton(
-            tab_general,
+            page_general,
+            text="启动时自动更新索引",
+            variable=auto_start_var,
+        ).pack(anchor=tk.W, pady=(0, int(14 * s)))
+
+        ttk.Label(page_general, text="托盘自动更新", font=("Microsoft YaHei", int(11 * s), "bold")).pack(anchor=tk.W, pady=(0, int(8 * s)))
+        ttk.Checkbutton(
+            page_general,
             text="最小化到托盘后，自动更新索引",
             variable=tray_auto_var,
         ).pack(anchor=tk.W, pady=(0, int(6 * s)))
 
-        minutes_frame = ttk.Frame(tab_general)
-        minutes_frame.pack(anchor=tk.W, padx=(int(24 * s), 0), pady=(0, int(14 * s)))
-
+        minutes_frame = ttk.Frame(page_general)
+        minutes_frame.pack(anchor=tk.W, padx=(int(24 * s), 0), pady=(0, int(10 * s)))
         ttk.Label(minutes_frame, text="间隔").pack(side=tk.LEFT)
         spin = ttk.Spinbox(
             minutes_frame,
@@ -737,34 +778,35 @@ class FileSearcherApp:
         )
         spin.pack(side=tk.LEFT, padx=(int(6 * s), int(4 * s)))
         ttk.Label(minutes_frame, text="分钟（5~120）").pack(side=tk.LEFT)
+        minutes_var.trace_add("write", lambda *_: _persist_general())
 
-        ttk.Separator(tab_general, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(int(10 * s), int(10 * s)))
-        ttk.Label(tab_general, text="修改后点「保存」生效（排除列表会即时保存）",
+        # 底部说明
+        ttk.Separator(page_general, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(int(10 * s), int(6 * s)))
+        ttk.Label(page_general, text="所有修改会自动保存，无需点确认。",
                   foreground="gray").pack(anchor=tk.W)
 
-        # ============ Tab 2: 排除列表 ============
-        tab_ex = ttk.Frame(nb, padding=(int(8 * s), int(8 * s)))
-        nb.add(tab_ex, text="排除列表")
+        # ---- 排除列表页内容 ----
+        top_ex = ttk.Frame(page_exclude)
+        top_ex.pack(fill=tk.X, pady=(0, int(6 * s)))
+        ttk.Label(top_ex, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）").pack(side=tk.LEFT)
 
-        ttk.Label(tab_ex, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）:").pack(anchor=tk.W, pady=(0, int(6 * s)))
-
-        tb = ttk.Frame(tab_ex)
+        tb = ttk.Frame(page_exclude)
         tb.pack(fill=tk.X, pady=(0, int(4 * s)))
         ttk.Button(tb, text="＋ 添加", command=lambda: self._exclude_add(ex_list, dlg)).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(tb, text="✎ 编辑", command=lambda: self._exclude_edit(ex_list, dlg)).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(tb, text="✕ 删除", command=lambda: self._exclude_delete(ex_list)).pack(side=tk.LEFT)
 
-        frame = ttk.Frame(tab_ex)
-        frame.pack(fill=tk.BOTH, expand=True)
+        ex_frame = ttk.Frame(page_exclude)
+        ex_frame.pack(fill=tk.BOTH, expand=True)
 
         columns = ("type", "value")
-        ex_list = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
+        ex_list = ttk.Treeview(ex_frame, columns=columns, show="headings", selectmode="browse")
         ex_list.heading("type", text="类型")
         ex_list.heading("value", text="排除内容")
-        ex_list.column("type", width=int(80 * s), minwidth=60)
+        ex_list.column("type", width=int(80 * s), minwidth=60, anchor=tk.CENTER)
         ex_list.column("value", width=int(600 * s), minwidth=200)
 
-        scroll_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=ex_list.yview)
+        scroll_y = ttk.Scrollbar(ex_frame, orient=tk.VERTICAL, command=ex_list.yview)
         ex_list.configure(yscrollcommand=scroll_y.set)
         ex_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
@@ -777,24 +819,21 @@ class FileSearcherApp:
         for p in data.get("paths", []):
             ex_list.insert("", tk.END, values=("路径包含", p))
 
-        # ============ 底部按钮（保存/取消）===========
-        btn_frame = ttk.Frame(dlg, padding=(int(8 * s), int(8 * s), int(8 * s), int(12 * s)))
-        btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        # 导航点击事件
+        def _on_nav_select(_e=None):
+            sel = nav.curselection()
+            if not sel:
+                return
+            idx = sel[0]
+            if idx == 0:
+                _show_general()
+            else:
+                _show_exclude()
 
-        def _save():
-            try:
-                mins = int(minutes_var.get())
-                mins = max(5, min(120, mins))
-            except Exception:
-                mins = 30
-            self._settings["auto_index_on_start"] = auto_start_var.get()
-            self._settings["tray_auto_index"] = tray_auto_var.get()
-            self._settings["tray_auto_index_minutes"] = mins
-            IndexEngine.save_settings(self._settings)
-            dlg.destroy()
-
-        ttk.Button(btn_frame, text="保存", command=_save, width=int(10 * s)).pack(side=tk.RIGHT, padx=(0, int(8 * s)))
-        ttk.Button(btn_frame, text="取消", command=dlg.destroy, width=int(10 * s)).pack(side=tk.RIGHT, padx=(0, int(4 * s)))
+        nav.bind("<<ListboxSelect>>", _on_nav_select)
+        nav.selection_set(0)
+        _show_general()
+        nav.focus_set()
 
     # ================================================================
     #  搜索逻辑
