@@ -673,7 +673,7 @@ class FileSearcherApp:
     # ================================================================
 
     def _open_settings(self):
-        """弹出设置对话框：所有内容垂直堆叠，修改即保存。"""
+        """弹出设置对话框：顶部大按钮切换内容，修改即保存。"""
         dlg = tk.Toplevel(self.root)
         dlg.title("设置")
         dlg.resizable(True, True)
@@ -685,40 +685,54 @@ class FileSearcherApp:
         except Exception:
             scale = 1.0
         s = max(1.0, scale)
-        dw = int(680 * s)
-        dh = int(600 * s)
-        dlg.minsize(int(540 * s), int(480 * s))
-
+        dw = int(700 * s)
+        dh = int(560 * s)
+        dlg.minsize(int(560 * s), int(420 * s))
+        dlg.configure(bg="#f0f0f0")
         dlg.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
         dlg.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
 
-        # 外层可滚动容器
-        canvas = tk.Canvas(dlg, highlightthickness=0, bd=0)
-        scrollbar = ttk.Scrollbar(dlg, orient=tk.VERTICAL, command=canvas.yview)
-        scroll_frame = ttk.Frame(canvas)
+        # ====== 顶部标签栏（自定义大按钮） ======
+        TAB_BG = "#f0f0f0"
+        TAB_ACTIVE_BG = "#ffffff"
+        TAB_FONT = ("Microsoft YaHei", int(12 * s), "bold")
+        TAB_FONT_INACTIVE = ("Microsoft YaHei", int(12 * s))
+        TAB_ACTIVE_FG = "#0078D4"
+        TAB_INACTIVE_FG = "#666666"
 
-        scroll_frame.bind("<Configure>",
-                          lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>",
-                       lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")))
-        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
+        tab_bar = tk.Frame(dlg, bg=TAB_BG, height=int(44 * s))
+        tab_bar.pack(fill=tk.X, padx=int(14 * s), pady=(int(14 * s), 0))
+        tab_bar.pack_propagate(False)
 
-        inner = ttk.Frame(scroll_frame, padding=(int(24 * s), int(20 * s)))
-        inner.pack(fill=tk.BOTH, expand=True)
+        btn_index = tk.Label(tab_bar, text="  📋  索引设置  ", font=TAB_FONT,
+                             bg=TAB_ACTIVE_BG, fg=TAB_ACTIVE_FG,
+                             bd=0, padx=int(22 * s), pady=int(8 * s),
+                             cursor="hand2")
+        btn_index.pack(side=tk.LEFT)
 
-        _pad_y = int(10 * s)
+        btn_exclude = tk.Label(tab_bar, text="  ⊘  排除列表  ", font=TAB_FONT_INACTIVE,
+                               bg=TAB_BG, fg=TAB_INACTIVE_FG,
+                               bd=0, padx=int(22 * s), pady=int(8 * s),
+                               cursor="hand2")
+        btn_exclude.pack(side=tk.LEFT, padx=(int(4 * s), 0))
 
-        # ========================  索引设置  ========================
-        ttk.Label(inner, text="索引设置",
-                  font=("Microsoft YaHei", int(13 * s), "bold")).pack(anchor=tk.W)
-        ttk.Separator(inner, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=_pad_y)
+        # 底部蓝条（激活指示）
+        indicator = tk.Frame(tab_bar, bg=TAB_ACTIVE_FG, height=int(3 * s))
+        indicator.place(in_=btn_index, x=0, rely=1.0, relwidth=1.0, y=0, height=int(3 * s))
 
+        # 分割线
+        tk.Frame(dlg, bg="#d0d0d0", height=1).pack(fill=tk.X, padx=int(14 * s))
+
+        # ====== 内容区 ======
+        content = ttk.Frame(dlg)
+        content.pack(fill=tk.BOTH, expand=True, padx=int(14 * s), pady=int(14 * s))
+
+        page_index = ttk.Frame(content, padding=(int(18 * s), int(14 * s)))
+        page_exclude = ttk.Frame(content, padding=(int(8 * s), int(8 * s)))
+
+        # ---- 索引设置页 ----
         auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
         tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
         minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
@@ -738,34 +752,35 @@ class FileSearcherApp:
         tray_auto_var.trace_add("write", lambda *_: _persist_general())
         minutes_var.trace_add("write", lambda *_: _persist_general())
 
-        ttk.Checkbutton(inner, text="启动时自动更新索引",
-                        variable=auto_start_var).pack(anchor=tk.W, pady=(0, _pad_y))
+        ttk.Label(page_index, text="启动时自动更新索引").pack(anchor=tk.W, pady=(0, int(14 * s)))
+        cb1 = ttk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
+                              variable=auto_start_var)
+        cb1.pack(anchor=tk.W, padx=(int(16 * s), 0), pady=(0, int(18 * s)))
 
-        ttk.Checkbutton(inner, text="最小化到托盘后，自动更新索引",
-                        variable=tray_auto_var).pack(anchor=tk.W, pady=(0, int(6 * s)))
+        ttk.Label(page_index, text="托盘自动更新").pack(anchor=tk.W, pady=(0, int(14 * s)))
+        cb2 = ttk.Checkbutton(page_index, text="最小化到托盘后，自动更新索引",
+                              variable=tray_auto_var)
+        cb2.pack(anchor=tk.W, padx=(int(16 * s), 0), pady=(0, int(8 * s)))
 
-        minutes_frame = ttk.Frame(inner)
-        minutes_frame.pack(anchor=tk.W, padx=(int(30 * s), 0), pady=(0, int(20 * s)))
+        minutes_frame = ttk.Frame(page_index)
+        minutes_frame.pack(anchor=tk.W, padx=(int(16 * s), 0))
         ttk.Label(minutes_frame, text="间隔").pack(side=tk.LEFT)
         spin = ttk.Spinbox(minutes_frame, from_=5, to=120, width=int(6 * s),
                            textvariable=minutes_var)
         spin.pack(side=tk.LEFT, padx=(int(6 * s), int(4 * s)))
         ttk.Label(minutes_frame, text="分钟（5~120）").pack(side=tk.LEFT)
 
-        # ========================  排除列表  ========================
-        ttk.Label(inner, text="排除列表",
-                  font=("Microsoft YaHei", int(13 * s), "bold")).pack(anchor=tk.W, pady=(int(14 * s), 0))
-        ttk.Separator(inner, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=_pad_y)
-        ttk.Label(inner, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）",
+        # ---- 排除列表页 ----
+        ttk.Label(page_exclude, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）",
                   foreground="gray").pack(anchor=tk.W, pady=(0, int(8 * s)))
 
-        tb = ttk.Frame(inner)
+        tb = ttk.Frame(page_exclude)
         tb.pack(fill=tk.X, pady=(0, int(4 * s)))
         ttk.Button(tb, text="＋ 添加", command=lambda: self._exclude_add(ex_list, dlg)).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(tb, text="✎ 编辑", command=lambda: self._exclude_edit(ex_list, dlg)).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(tb, text="✕ 删除", command=lambda: self._exclude_delete(ex_list)).pack(side=tk.LEFT)
 
-        ex_frame = ttk.Frame(inner)
+        ex_frame = ttk.Frame(page_exclude)
         ex_frame.pack(fill=tk.BOTH, expand=True)
 
         columns = ("type", "value")
@@ -774,7 +789,7 @@ class FileSearcherApp:
         ex_list.heading("type", text="类型")
         ex_list.heading("value", text="排除内容")
         ex_list.column("type", width=int(90 * s), minwidth=70, anchor=tk.CENTER)
-        ex_list.column("value", width=int(460 * s), minwidth=200)
+        ex_list.column("value", width=int(480 * s), minwidth=200)
 
         scroll_y = ttk.Scrollbar(ex_frame, orient=tk.VERTICAL, command=ex_list.yview)
         ex_list.configure(yscrollcommand=scroll_y.set)
@@ -788,6 +803,25 @@ class FileSearcherApp:
             ex_list.insert("", tk.END, values=("目录名", d))
         for p in data.get("paths", []):
             ex_list.insert("", tk.END, values=("路径包含", p))
+
+        # ====== 标签切换逻辑 ======
+        def _switch_to(idx):
+            if idx == 0:
+                page_exclude.pack_forget()
+                page_index.pack(fill=tk.BOTH, expand=True)
+                btn_index.config(font=TAB_FONT, bg=TAB_ACTIVE_BG, fg=TAB_ACTIVE_FG)
+                btn_exclude.config(font=TAB_FONT_INACTIVE, bg=TAB_BG, fg=TAB_INACTIVE_FG)
+                indicator.place(in_=btn_index, x=0, rely=1.0, relwidth=1.0, y=0, height=int(3 * s))
+            else:
+                page_index.pack_forget()
+                page_exclude.pack(fill=tk.BOTH, expand=True)
+                btn_index.config(font=TAB_FONT_INACTIVE, bg=TAB_BG, fg=TAB_INACTIVE_FG)
+                btn_exclude.config(font=TAB_FONT, bg=TAB_ACTIVE_BG, fg=TAB_ACTIVE_FG)
+                indicator.place(in_=btn_exclude, x=0, rely=1.0, relwidth=1.0, y=0, height=int(3 * s))
+
+        btn_index.bind("<Button-1>", lambda _e: _switch_to(0))
+        btn_exclude.bind("<Button-1>", lambda _e: _switch_to(1))
+        _switch_to(0)
 
     # ================================================================
     #  搜索逻辑
