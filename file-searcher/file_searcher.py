@@ -172,6 +172,7 @@ class IndexEngine:
 
     EXCLUDE_FILE = INDEX_DIR / "exclude.json"
     LAYOUT_FILE = INDEX_DIR / "layout.json"
+    SETTINGS_FILE = INDEX_DIR / "settings.json"
 
     def __init__(self, progress_callback=None, cancel_check=None):
         self._progress = progress_callback or (lambda msg, n: None)
@@ -410,6 +411,35 @@ class IndexEngine:
         except Exception:
             return {"dirs": [], "paths": []}
 
+    # ---- 设置管理 ----
+
+    DEFAULT_SETTINGS = {
+        "auto_index_on_start": False,   # 启动时自动增量更新索引
+        "tray_auto_index": False,        # 最小化到托盘后自动更新索引
+        "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
+    }
+
+    @classmethod
+    def load_settings(cls) -> dict:
+        """从 JSON 文件读取设置，缺失项使用默认值。"""
+        settings = dict(cls.DEFAULT_SETTINGS)
+        if cls.SETTINGS_FILE.exists():
+            try:
+                data = json.loads(cls.SETTINGS_FILE.read_text(encoding="utf-8"))
+                settings.update({k: v for k, v in data.items() if k in settings})
+            except Exception:
+                pass
+        return settings
+
+    @classmethod
+    def save_settings(cls, settings: dict):
+        """将设置保存到 JSON 文件。"""
+        INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        cls.SETTINGS_FILE.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
 
 # ================================================================
 #  FileSearcherApp — GUI 主应用
@@ -431,6 +461,10 @@ class FileSearcherApp:
         self._has_more = False
         self._last_query = ""
         self._loading_more = False
+        self._tray_index_after_id = None   # 托盘定时更新的 after id
+
+        # 加载设置
+        self._settings = IndexEngine.load_settings()
 
         self._build_toolbar()
         self._build_tree()
@@ -444,6 +478,10 @@ class FileSearcherApp:
         self.root.after(100, self._load_all)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.bind("<Unmap>", self._on_minimize)
+
+        # 启动时自动更新索引（如果已开启且索引存在）
+        if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
+            self.root.after(500, self._do_index_silent)
 
 
     # ================================================================
@@ -471,6 +509,9 @@ class FileSearcherApp:
         ttk.Label(toolbar, textvariable=self.index_count_var, foreground="gray").pack(side=tk.LEFT, padx=(8, 0))
 
         ttk.Button(toolbar, text="排除列表", command=self._manage_exclude).pack(side=tk.LEFT, padx=(0, 12))
+
+        # 设置按钮放在右上角
+        ttk.Button(toolbar, text="⚙ 设置", command=self._open_settings).pack(side=tk.RIGHT, padx=(0, 4))
 
     def _build_tree(self):
         """构建中央文件列表 Treeview。列顺序：文件名 | 路径 | 类型 | 大小 | 修改时间。"""
@@ -609,6 +650,94 @@ class FileSearcherApp:
         self._engine_cancel = False
         self.index_btn.config(state=tk.NORMAL)
         self.status_var.set(f"索引出错: {err}")
+
+    def _do_index_silent(self):
+        """静默后台重建索引（自动触发，不弹确认框，不禁用按钮界面交互不受影响）。"""
+        if self._engine_cancel:
+            return
+        self._engine_cancel = False
+        engine = IndexEngine(
+            progress_callback=lambda msg, n: self.root.after(0, self._on_index_progress, msg, n),
+            cancel_check=lambda: self._engine_cancel,
+        )
+
+        def run():
+            try:
+                total = engine.build_index()
+                self.root.after(0, lambda: self._on_index_done(total))
+            except Exception as e:
+                self.root.after(0, lambda: self._on_index_error(str(e)))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    # ================================================================
+    #  设置对话框
+    # ================================================================
+
+    def _open_settings(self):
+        """弹出设置对话框。"""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("设置")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.transient(self.root)
+
+        # 居中显示
+        dlg.update_idletasks()
+        pw, ph = self.root.winfo_width(), self.root.winfo_height()
+        px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
+        dw, dh = 380, 180
+        dlg.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+        pad = {"padx": 18, "pady": 8}
+
+        # --- 选项 1：启动时自动更新索引 ---
+        auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
+        ttk.Checkbutton(
+            dlg,
+            text="启动时自动更新索引",
+            variable=auto_start_var,
+        ).pack(anchor=tk.W, **pad)
+
+        # --- 选项 2：最小化到托盘后定时更新 ---
+        tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
+        minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
+
+        tray_frame = ttk.Frame(dlg)
+        tray_frame.pack(anchor=tk.W, padx=18, pady=4)
+
+        ttk.Checkbutton(
+            tray_frame,
+            text="最小化到托盘后，自动更新索引，间隔",
+            variable=tray_auto_var,
+        ).pack(side=tk.LEFT)
+
+        spin = ttk.Spinbox(
+            tray_frame,
+            from_=5, to=120, width=5,
+            textvariable=minutes_var,
+        )
+        spin.pack(side=tk.LEFT, padx=(4, 4))
+        ttk.Label(tray_frame, text="分钟").pack(side=tk.LEFT)
+
+        # --- 按钮 ---
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(side=tk.BOTTOM, pady=12)
+
+        def _save():
+            try:
+                mins = int(minutes_var.get())
+                mins = max(5, min(120, mins))
+            except Exception:
+                mins = 30
+            self._settings["auto_index_on_start"] = auto_start_var.get()
+            self._settings["tray_auto_index"] = tray_auto_var.get()
+            self._settings["tray_auto_index_minutes"] = mins
+            IndexEngine.save_settings(self._settings)
+            dlg.destroy()
+
+        ttk.Button(btn_frame, text="保存", command=_save, width=10).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="取消", command=dlg.destroy, width=10).pack(side=tk.LEFT, padx=8)
 
     # ================================================================
     #  搜索逻辑
@@ -1132,6 +1261,7 @@ class FileSearcherApp:
     def _on_close(self):
         """关闭窗口 → 最小化到系统托盘。"""
         self.root.withdraw()
+        self._start_tray_auto_index_timer()
 
     # ================================================================
     #  系统托盘
@@ -1165,9 +1295,10 @@ class FileSearcherApp:
             self._tray = None
 
     def _on_minimize(self, event=None):
-        """窗口最小化时隐藏到托盘。"""
+        """窗口最小化时隐藏到托盘，并按设置启动定时索引。"""
         if self.root.state() == "iconic":
             self.root.after(100, self.root.withdraw)
+            self._start_tray_auto_index_timer()
 
     def _tray_restore(self, icon=None, item=None):
         """双击托盘图标：恢复窗口。"""
@@ -1176,6 +1307,8 @@ class FileSearcherApp:
         self.root.after(0, self._do_restore)
 
     def _do_restore(self):
+        # 取消待执行的托盘定时索引
+        self._cancel_tray_auto_index_timer()
         self.root.deiconify()
         self.root.lift()
         self.root.state("zoomed")  # 最大化窗口
@@ -1186,6 +1319,29 @@ class FileSearcherApp:
             self.search_entry.select_range(0, tk.END)
         else:
             self.search_entry.icursor(0)
+
+    def _start_tray_auto_index_timer(self):
+        """如果设置了托盘自动更新，启动定时器，N 分钟后触发一次静默索引。"""
+        self._cancel_tray_auto_index_timer()
+        if self._settings.get("tray_auto_index") and IndexEngine.index_exists():
+            minutes = self._settings.get("tray_auto_index_minutes", 30)
+            ms = max(5, minutes) * 60 * 1000
+            self._tray_index_after_id = self.root.after(ms, self._on_tray_auto_index)
+
+    def _cancel_tray_auto_index_timer(self):
+        """取消待执行的托盘定时索引。"""
+        if self._tray_index_after_id is not None:
+            try:
+                self.root.after_cancel(self._tray_index_after_id)
+            except Exception:
+                pass
+            self._tray_index_after_id = None
+
+    def _on_tray_auto_index(self):
+        """托盘定时触发：静默更新索引。"""
+        self._tray_index_after_id = None
+        if not self._engine_cancel:
+            self._do_index_silent()
 
     def _tray_exit(self, icon=None, item=None):
         """右键菜单「退出」：停止托盘并销毁窗口。"""
@@ -1198,6 +1354,7 @@ class FileSearcherApp:
         self._open_new_window()
 
     def _do_exit(self):
+        self._cancel_tray_auto_index_timer()
         self._save_layout()
         self.root.destroy()
 
