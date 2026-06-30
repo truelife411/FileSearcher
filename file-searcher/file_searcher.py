@@ -1,12 +1,3 @@
-try:
-    import ctypes
-    ctypes.windll.shcore.SetProcessDPIAwareness(2)
-except Exception:
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
-
 #!/usr/bin/env python3
 """File Searcher — 全盘文件快速搜索工具，基于本地索引。"""
 
@@ -18,6 +9,16 @@ import json
 import shutil
 import ctypes
 import threading
+
+# Windows DPI 感知
+if sys.platform == "win32":
+    try:
+        ctypes.windll.shcore.SetProcessDPIAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -44,6 +45,8 @@ IGNORE_DIRS = {
     "microsoft.net", "assembly", "installer",
     "node_modules", "__pycache__", ".git", ".svn", ".hg", ".file_searcher_index",
     "package cache", "driverstore", "servicing",
+    # Linux 虚拟文件系统
+    "proc", "sys", "dev", "run", "lost+found", "snap",
 }
 
 IGNORE_EXTENSIONS = {
@@ -120,44 +123,81 @@ def format_size(size: int) -> str:
 def open_with_default(path: str):
     """用系统默认软件打开文件"""
     try:
-        os.startfile(os.path.normpath(path))
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(path))
+        else:
+            subprocess.Popen(["xdg-open", path])
     except OSError as e:
         messagebox.showerror("打开失败", str(e))
 
 
 def open_file_location(path: str):
     """在资源管理器中定位并选中文件"""
-    subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+    if sys.platform == "win32":
+        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+    else:
+        subprocess.Popen(["xdg-open", os.path.dirname(path)])
+
+
+def _find_trash_cmd() -> str | None:
+    """查找可用的回收站命令。"""
+    for cmd in ["gio", "trash-put", "kioclient5", "kioclient"]:
+        if shutil.which(cmd):
+            return cmd
+    return None
 
 
 def send_to_recycle_bin(paths: list[str]):
-    """将文件列表移入回收站（可通过 Windows Shell API 恢复）。"""
+    """将文件列表移入回收站。"""
     if not paths:
         return
-    file_list = "\0".join(paths) + "\0\0"
-    buf = ctypes.create_unicode_buffer(file_list)
-    op = SHFILEOPSTRUCTW()
-    op.wFunc = FO_DELETE
-    op.pFrom = ctypes.cast(buf, ctypes.c_wchar_p)
-    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
-    ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
-    if ret != 0:
-        raise OSError(f"无法删除文件: {paths}")
+    if sys.platform == "win32":
+        file_list = "\0".join(paths) + "\0\0"
+        buf = ctypes.create_unicode_buffer(file_list)
+        op = SHFILEOPSTRUCTW()
+        op.wFunc = FO_DELETE
+        op.pFrom = ctypes.cast(buf, ctypes.c_wchar_p)
+        op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+        ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+        if ret != 0:
+            raise OSError(f"无法删除文件: {paths}")
+    else:
+        trash_cmd = _find_trash_cmd()
+        if trash_cmd is None:
+            raise OSError("未找到回收站命令，请安装 trash-cli (sudo apt install trash-cli)")
+        for p in paths:
+            try:
+                if trash_cmd == "gio":
+                    subprocess.run(["gio", "trash", p], check=True)
+                else:
+                    subprocess.run([trash_cmd, p], check=True)
+            except subprocess.CalledProcessError as e:
+                raise OSError(f"无法删除文件: {p}") from e
 
 
 def permanent_delete(paths: list[str]):
     """彻底删除文件列表，不可恢复。"""
     if not paths:
         return
-    file_list = "\0".join(paths) + "\0\0"
-    buf = ctypes.create_unicode_buffer(file_list)
-    op = SHFILEOPSTRUCTW()
-    op.wFunc = FO_DELETE
-    op.pFrom = ctypes.cast(buf, ctypes.c_wchar_p)
-    op.fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_WANTNUKEWARNING
-    ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
-    if ret != 0:
-        raise OSError(f"无法删除文件: {paths}")
+    if sys.platform == "win32":
+        file_list = "\0".join(paths) + "\0\0"
+        buf = ctypes.create_unicode_buffer(file_list)
+        op = SHFILEOPSTRUCTW()
+        op.wFunc = FO_DELETE
+        op.pFrom = ctypes.cast(buf, ctypes.c_wchar_p)
+        op.fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_WANTNUKEWARNING
+        ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+        if ret != 0:
+            raise OSError(f"无法删除文件: {paths}")
+    else:
+        for p in paths:
+            try:
+                if os.path.isdir(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+            except OSError as e:
+                raise OSError(f"无法删除文件: {p}") from e
 
 
 def rename_file(old_path: str, new_name: str) -> str:
@@ -456,7 +496,7 @@ class FileSearcherApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("File Searcher — 全盘文件搜索")
-        self.root.state("zoomed")
+        self.root.state("zoomed") if sys.platform == "win32" else self.root.attributes("-zoomed", True)
         self.root.minsize(800, 400)
 
         self._engine_cancel = False
@@ -555,10 +595,11 @@ class FileSearcherApp:
             foreground=[("selected", "white")],
         )
         import tkinter.font as tkfont
-        FONT = ("Microsoft YaHei", 9)
-        _font_obj = tkfont.Font(family="Microsoft YaHei", size=9)
-        _row_h = _font_obj.metrics("linespace") + 6
-        FONT_HEAD = ("Microsoft YaHei", 9, "bold")
+        _FONT_FAMILY = "Microsoft YaHei" if sys.platform == "win32" else "sans-serif"
+        FONT = (_FONT_FAMILY, 9)
+        _font_obj = tkfont.Font(family=_FONT_FAMILY, size=9)
+        _row_h = int(_font_obj.metrics("linespace") * 1.3)
+        FONT_HEAD = (_FONT_FAMILY, 9, "bold")
         style.configure("Treeview", font=FONT, rowheight=_row_h)
         style.configure("Treeview.Heading", background="#D0D0D0", relief="flat", font=FONT_HEAD)
         style.map("Treeview.Heading",
@@ -1451,7 +1492,10 @@ class FileSearcherApp:
         self._cancel_tray_auto_index_timer()
         self.root.deiconify()
         self.root.lift()
-        self.root.state("zoomed")  # 最大化窗口
+        if sys.platform == "win32":
+            self.root.state("zoomed")
+        else:
+            self.root.attributes("-zoomed", True)
         self.root.focus_force()
         # 搜索框全选文字，无文字则聚焦到搜索框
         self.search_entry.focus_set()
@@ -1523,91 +1567,122 @@ class FileSearcherApp:
                 self.status_var.set(f"已剪切 {count} 个文件")
 
     def _set_clipboard_hdrop(self, paths: list[str], move: bool = False) -> bool:
-        """将文件列表以 CF_HDROP 格式写入剪贴板，支持资源管理器粘贴。"""
+        """将文件列表写入剪贴板。Windows 用 CF_HDROP 支持资源管理器粘贴；Linux 降级为纯文本路径。"""
         try:
-            CF_HDROP = 15
-            GMEM_MOVEABLE = 0x0002
-            DROPEFFECT_MOVE = 2
-
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
-
-            kernel32.GlobalAlloc.argtypes = [ctypes.c_uint32, ctypes.c_size_t]
-            kernel32.GlobalAlloc.restype = ctypes.c_void_p
-            kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-            kernel32.GlobalLock.restype = ctypes.c_void_p
-            kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-            kernel32.GlobalUnlock.restype = ctypes.c_int
-            kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
-            kernel32.GlobalFree.restype = ctypes.c_void_p
-
-            user32.OpenClipboard.argtypes = [ctypes.c_void_p]
-            user32.OpenClipboard.restype = ctypes.c_int
-            user32.EmptyClipboard.restype = ctypes.c_int
-            user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
-            user32.SetClipboardData.restype = ctypes.c_void_p
-            user32.CloseClipboard.restype = ctypes.c_int
-            user32.RegisterClipboardFormatW.argtypes = [ctypes.c_wchar_p]
-            user32.RegisterClipboardFormatW.restype = ctypes.c_uint
-
-            class DROPFILES(ctypes.Structure):
-                _fields_ = [
-                    ("pFiles", ctypes.c_uint32),
-                    ("x", ctypes.c_long),
-                    ("y", ctypes.c_long),
-                    ("fNC", ctypes.c_int32),
-                    ("fWide", ctypes.c_int32),
-                ]
-
-            # 构造文件列表（Unicode，双 \0 结尾）
-            file_list = "\0".join(paths) + "\0\0"
-            file_data = file_list.encode("utf-16-le")
-
-            df = DROPFILES()
-            df.pFiles = ctypes.sizeof(DROPFILES)
-            df.x = 0
-            df.y = 0
-            df.fNC = 0
-            df.fWide = 1
-
-            total_size = ctypes.sizeof(DROPFILES) + len(file_data)
-
-            h_global = kernel32.GlobalAlloc(GMEM_MOVEABLE, total_size)
-            if not h_global:
-                return False
-
-            ptr = kernel32.GlobalLock(h_global)
-            if not ptr:
-                kernel32.GlobalFree(h_global)
-                return False
-
-            ctypes.memmove(ptr, ctypes.addressof(df), ctypes.sizeof(DROPFILES))
-            ctypes.memmove(ptr + ctypes.sizeof(DROPFILES), file_data, len(file_data))
-            kernel32.GlobalUnlock(h_global)
-
-            if not user32.OpenClipboard(0):
-                kernel32.GlobalFree(h_global)
-                return False
-
-            user32.EmptyClipboard()
-            user32.SetClipboardData(CF_HDROP, h_global)
-
-            # 剪切时附加 DropEffect，让资源管理器执行移动
-            if move:
-                fmt = user32.RegisterClipboardFormatW("Preferred DropEffect")
-                if fmt:
-                    h_eff = kernel32.GlobalAlloc(GMEM_MOVEABLE, 4)
-                    if h_eff:
-                        p_eff = kernel32.GlobalLock(h_eff)
-                        if p_eff:
-                            ctypes.c_int32.from_address(p_eff).value = DROPEFFECT_MOVE
-                            kernel32.GlobalUnlock(h_eff)
-                            user32.SetClipboardData(fmt, h_eff)
-
-            user32.CloseClipboard()
-            return True
+            if sys.platform == "win32":
+                return self._set_clipboard_win32(paths, move)
+            else:
+                return self._set_clipboard_linux(paths, move)
         except Exception as e:
             print(f"Clipboard error: {e}")
+            return False
+
+    def _set_clipboard_win32(self, paths: list[str], move: bool) -> bool:
+        """Windows：CF_HDROP 格式，资源管理器可粘贴文件。"""
+        CF_HDROP = 15
+        GMEM_MOVEABLE = 0x0002
+        DROPEFFECT_MOVE = 2
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint32, ctypes.c_size_t]
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.restype = ctypes.c_int
+        kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalFree.restype = ctypes.c_void_p
+
+        user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+        user32.OpenClipboard.restype = ctypes.c_int
+        user32.EmptyClipboard.restype = ctypes.c_int
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+        user32.SetClipboardData.restype = ctypes.c_void_p
+        user32.CloseClipboard.restype = ctypes.c_int
+        user32.RegisterClipboardFormatW.argtypes = [ctypes.c_wchar_p]
+        user32.RegisterClipboardFormatW.restype = ctypes.c_uint
+
+        class DROPFILES(ctypes.Structure):
+            _fields_ = [
+                ("pFiles", ctypes.c_uint32),
+                ("x", ctypes.c_long),
+                ("y", ctypes.c_long),
+                ("fNC", ctypes.c_int32),
+                ("fWide", ctypes.c_int32),
+            ]
+
+        file_list = "\0".join(paths) + "\0\0"
+        file_data = file_list.encode("utf-16-le")
+
+        df = DROPFILES()
+        df.pFiles = ctypes.sizeof(DROPFILES)
+        df.x = 0
+        df.y = 0
+        df.fNC = 0
+        df.fWide = 1
+
+        total_size = ctypes.sizeof(DROPFILES) + len(file_data)
+
+        h_global = kernel32.GlobalAlloc(GMEM_MOVEABLE, total_size)
+        if not h_global:
+            return False
+
+        ptr = kernel32.GlobalLock(h_global)
+        if not ptr:
+            kernel32.GlobalFree(h_global)
+            return False
+
+        ctypes.memmove(ptr, ctypes.addressof(df), ctypes.sizeof(DROPFILES))
+        ctypes.memmove(ptr + ctypes.sizeof(DROPFILES), file_data, len(file_data))
+        kernel32.GlobalUnlock(h_global)
+
+        if not user32.OpenClipboard(0):
+            kernel32.GlobalFree(h_global)
+            return False
+
+        user32.EmptyClipboard()
+        user32.SetClipboardData(CF_HDROP, h_global)
+
+        if move:
+            fmt = user32.RegisterClipboardFormatW("Preferred DropEffect")
+            if fmt:
+                h_eff = kernel32.GlobalAlloc(GMEM_MOVEABLE, 4)
+                if h_eff:
+                    p_eff = kernel32.GlobalLock(h_eff)
+                    if p_eff:
+                        ctypes.c_int32.from_address(p_eff).value = DROPEFFECT_MOVE
+                        kernel32.GlobalUnlock(h_eff)
+                        user32.SetClipboardData(fmt, h_eff)
+
+        user32.CloseClipboard()
+        return True
+
+    def _set_clipboard_linux(self, paths: list[str], move: bool) -> bool:
+        """Linux：通过 xclip/wl-copy 写入纯文本路径到剪贴板。"""
+        text = "\n".join(paths)
+        # 优先 Wayland (wl-copy)，其次 X11 (xclip)
+        for cmd in ["wl-copy", "xclip", "xsel"]:
+            if shutil.which(cmd):
+                try:
+                    if cmd == "xclip":
+                        subprocess.run([cmd, "-selection", "clipboard"],
+                                       input=text.encode("utf-8"), check=True)
+                    elif cmd == "xsel":
+                        subprocess.run([cmd, "--clipboard", "--input"],
+                                       input=text.encode("utf-8"), check=True)
+                    else:
+                        subprocess.run([cmd], input=text.encode("utf-8"), check=True)
+                    return True
+                except Exception:
+                    continue
+        # 最后兜底：Tkinter 自带的剪贴板
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            return True
+        except Exception:
             return False
 
 
