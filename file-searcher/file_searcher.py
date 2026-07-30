@@ -9,6 +9,8 @@ import json
 import shutil
 import ctypes
 import threading
+import queue
+from concurrent.futures import ThreadPoolExecutor
 
 # Windows DPI 感知
 if sys.platform == "win32":
@@ -34,6 +36,9 @@ from PIL import Image, ImageDraw
 # ================================================================
 INDEX_DIR = Path.home() / ".file_searcher_index"
 INDEX_DB = INDEX_DIR / "index.db"
+INDEX_SCAN_WORKERS = 4
+INDEX_WRITE_BATCH_SIZE = 5000
+INDEX_QUEUE_SIZE = 20000
 
 IGNORE_DIRS = {
     "windows", "winnt", "system32", "syswow64", "winsxs",
@@ -216,6 +221,7 @@ def rename_file(old_path: str, new_name: str) -> str:
 class IndexEngine:
     """全盘文件索引引擎，使用 SQLite 存储文件元数据。"""
 
+    _build_lock = threading.Lock()
     EXCLUDE_FILE = INDEX_DIR / "exclude.json"
     LAYOUT_FILE = INDEX_DIR / "layout.json"
     SETTINGS_FILE = INDEX_DIR / "settings.json"
@@ -228,16 +234,26 @@ class IndexEngine:
     # ---- 索引构建 ----
 
     def build_index(self):
-        """构建全盘文件索引。遍历所有盘符，递归扫描目录，批量写入 SQLite。"""
+        """并行扫描所有盘符，由当前线程统一批量写入 SQLite。"""
+        if not self._build_lock.acquire(blocking=False):
+            raise RuntimeError("索引任务已在运行")
+        try:
+            return self._build_index_locked()
+        finally:
+            self._build_lock.release()
+
+    def _build_index_locked(self):
+        """执行单个全量索引任务。"""
         INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
         conn = sqlite3.connect(str(INDEX_DB))
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=OFF")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute("DROP TABLE IF EXISTS files")
         conn.execute("""
             CREATE TABLE files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 name_lower TEXT NOT NULL,
                 path TEXT NOT NULL UNIQUE,
@@ -246,84 +262,129 @@ class IndexEngine:
                 modified TEXT NOT NULL
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_name_lower ON files(name_lower)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_path_lower ON files(path_lower)")
-        conn.commit()
 
-        drives = [f"{d}:" for d in "CDEFGHIJKLMNOPQRSTUVWXYZAB" if os.path.exists(f"{d}:")]
+        drives = [f"{d}:\\" for d in "CDEFGHIJKLMNOPQRSTUVWXYZAB" if os.path.exists(f"{d}:\\")]
+        if not drives:
+            conn.commit()
+            conn.close()
+            return 0
+
+        result_queue = queue.Queue(maxsize=INDEX_QUEUE_SIZE)
+        producer_done = object()
+        stop_event = threading.Event()
+        worker_count = min(len(drives), INDEX_SCAN_WORKERS)
+        completed_producers = 0
         total_files = 0
         insert_batch = []
-        dir_stack = [d + "\\" for d in drives]
 
-        while dir_stack:
-            if self._cancel():
-                break
-            d = dir_stack.pop()
-            total_files = self._scan_directory(d, conn, insert_batch, total_files, dir_stack)
-
-        if insert_batch:
-            conn.executemany(
-                "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified) "
-                "VALUES(?,?,?,?,?,?)",
-                insert_batch,
-            )
-            conn.commit()
-
-        conn.close()
-        return total_files
-
-    def _scan_directory(self, dirpath, conn, insert_batch, total_files, dir_stack):
-        """扫描单个目录：将文件信息加入批处理队列，子目录加入栈。"""
-        try:
-            entries = os.scandir(dirpath)
-        except (PermissionError, OSError):
-            return total_files
-
-        with entries:
-            for entry in entries:
-                if self._cancel():
-                    break
-                full = entry.path
+        def put_queue_item(item):
+            while not stop_event.is_set():
                 try:
-                    is_dir = entry.is_dir(follow_symlinks=False)
-                except OSError:
+                    result_queue.put(item, timeout=0.2)
+                    return True
+                except queue.Full:
                     continue
-                if is_dir:
-                    if self._should_skip_dir(full, entry):
+            return False
+
+        def scan_drive(drive):
+            try:
+                self._scan_drive(drive, put_queue_item)
+            finally:
+                put_queue_item(producer_done)
+
+        try:
+            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="index-scan") as executor:
+                futures = [executor.submit(scan_drive, drive) for drive in drives]
+
+                while completed_producers < len(drives):
+                    item = result_queue.get()
+                    if item is producer_done:
+                        completed_producers += 1
                         continue
-                    dir_stack.append(full)
-                else:
+
+                    insert_batch.append(item)
+                    total_files += 1
+                    if len(insert_batch) >= INDEX_WRITE_BATCH_SIZE:
+                        conn.executemany(
+                            "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified) "
+                            "VALUES(?,?,?,?,?,?)",
+                            insert_batch,
+                        )
+                        self._progress(f"已收录 {total_files} 个文件", total_files)
+                        insert_batch.clear()
+
+                for future in futures:
+                    future.result()
+
+            if self._cancel():
+                conn.rollback()
+                return -1
+
+            if insert_batch:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified) "
+                    "VALUES(?,?,?,?,?,?)",
+                    insert_batch,
+                )
+
+            self._progress("正在优化索引…", total_files)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_name_lower ON files(name_lower)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_path_lower ON files(path_lower)")
+            conn.commit()
+            return total_files
+        except Exception:
+            stop_event.set()
+            conn.rollback()
+            raise
+        finally:
+            stop_event.set()
+            conn.close()
+
+    def _scan_drive(self, drive, put_queue_item):
+        """扫描单个盘符，并把文件元数据放入有界队列。"""
+        dir_stack = [drive]
+        while dir_stack and not self._cancel():
+            dirpath = dir_stack.pop()
+            try:
+                entries = os.scandir(dirpath)
+            except (PermissionError, OSError):
+                continue
+
+            with entries:
+                for entry in entries:
+                    if self._cancel():
+                        return
+                    full = entry.path
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if is_dir:
+                        if not self._should_skip_dir(full, entry):
+                            dir_stack.append(full)
+                        continue
+
                     try:
                         is_file = entry.is_file(follow_symlinks=False)
                     except OSError:
                         continue
-                    if not is_file:
-                        continue
-                    if not self._should_include_file(full, entry):
+                    if not is_file or not self._should_include_file(full, entry):
                         continue
                     try:
                         st = entry.stat()
                     except OSError:
                         continue
-                    insert_batch.append((
+
+                    item = (
                         entry.name,
                         entry.name.lower(),
                         full,
                         full.lower(),
                         st.st_size,
                         datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    ))
-                    total_files += 1
-                    if len(insert_batch) >= 500:
-                        conn.executemany(
-                            "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified) "
-                            "VALUES(?,?,?,?,?,?)",
-                            insert_batch,
-                        )
-                        conn.commit()
-                        self._progress(f"已收录 {total_files} 个文件", total_files)
-                        insert_batch.clear()
-        return total_files
+                    )
+                    if not put_queue_item(item):
+                        return
 
     def _should_skip_dir(self, dirpath: str, entry) -> bool:
         """判断目录是否应被跳过（系统目录、junction 点、排除列表等）。"""
@@ -687,6 +748,9 @@ class FileSearcherApp:
         self._engine_cancel = False
         self.index_btn.config(state=tk.NORMAL)
         self._update_index_button_text()
+        if total < 0:
+            self.status_var.set("索引已停止，原索引保持不变")
+            return
         self.status_var.set(f"索引完成 — 共收录 {total:,} 个文件")
         self._load_all()
 
