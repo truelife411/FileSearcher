@@ -10,6 +10,7 @@ import shutil
 import ctypes
 import threading
 import queue
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 # Windows DPI 感知
@@ -243,7 +244,8 @@ class IndexEngine:
             self._build_lock.release()
 
     def _build_index_locked(self):
-        """执行单个全量索引任务。"""
+        """执行单个全量索引任务，并返回各阶段耗时。"""
+        total_started = time.perf_counter()
         INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
         conn = sqlite3.connect(str(INDEX_DB))
@@ -267,7 +269,13 @@ class IndexEngine:
         if not drives:
             conn.commit()
             conn.close()
-            return 0
+            elapsed = time.perf_counter() - total_started
+            return {
+                "total_files": 0,
+                "scan_write_seconds": elapsed,
+                "optimize_seconds": 0.0,
+                "total_seconds": elapsed,
+            }
 
         result_queue = queue.Queue(maxsize=INDEX_QUEUE_SIZE)
         producer_done = object()
@@ -318,7 +326,7 @@ class IndexEngine:
 
             if self._cancel():
                 conn.rollback()
-                return -1
+                return None
 
             if insert_batch:
                 conn.executemany(
@@ -327,11 +335,19 @@ class IndexEngine:
                     insert_batch,
                 )
 
+            scan_write_seconds = time.perf_counter() - total_started
             self._progress("正在优化索引…", total_files)
+            optimize_started = time.perf_counter()
             conn.execute("CREATE INDEX IF NOT EXISTS idx_name_lower ON files(name_lower)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_path_lower ON files(path_lower)")
             conn.commit()
-            return total_files
+            optimize_seconds = time.perf_counter() - optimize_started
+            return {
+                "total_files": total_files,
+                "scan_write_seconds": scan_write_seconds,
+                "optimize_seconds": optimize_seconds,
+                "total_seconds": time.perf_counter() - total_started,
+            }
         except Exception:
             stop_event.set()
             conn.rollback()
@@ -725,8 +741,8 @@ class FileSearcherApp:
 
         def run():
             try:
-                total = engine.build_index()
-                self.root.after(0, lambda: self._on_index_done(total))
+                stats = engine.build_index()
+                self.root.after(0, lambda result=stats: self._on_index_done(result))
             except Exception as e:
                 self.root.after(0, lambda: self._on_index_error(str(e)))
 
@@ -743,15 +759,22 @@ class FileSearcherApp:
         self.status_var.set(msg)
         self.index_count_var.set(f"已收录 {count:,} 个文件")
 
-    def _on_index_done(self, total: int):
-        """索引完成回调。"""
+    def _on_index_done(self, stats):
+        """索引完成回调，显示文件数和各阶段耗时。"""
         self._engine_cancel = False
         self.index_btn.config(state=tk.NORMAL)
         self._update_index_button_text()
-        if total < 0:
+        if stats is None:
             self.status_var.set("索引已停止，原索引保持不变")
             return
-        self.status_var.set(f"索引完成 — 共收录 {total:,} 个文件")
+        total = stats["total_files"]
+        scan_write = stats["scan_write_seconds"]
+        optimize = stats["optimize_seconds"]
+        elapsed = stats["total_seconds"]
+        self.status_var.set(
+            f"索引完成 — {total:,} 个文件｜扫描写入 {scan_write:.1f} 秒｜"
+            f"优化 {optimize:.1f} 秒｜总计 {elapsed:.1f} 秒"
+        )
         self._load_all()
 
     def _on_index_error(self, err: str):
@@ -772,8 +795,8 @@ class FileSearcherApp:
 
         def run():
             try:
-                total = engine.build_index()
-                self.root.after(0, lambda: self._on_index_done(total))
+                stats = engine.build_index()
+                self.root.after(0, lambda result=stats: self._on_index_done(result))
             except Exception as e:
                 self.root.after(0, lambda: self._on_index_error(str(e)))
 
