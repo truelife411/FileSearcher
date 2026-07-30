@@ -771,11 +771,11 @@ class FileSearcherApp:
         scan_write = stats["scan_write_seconds"]
         optimize = stats["optimize_seconds"]
         elapsed = stats["total_seconds"]
+        self._load_all()
         self.status_var.set(
             f"索引完成 — {total:,} 个文件｜扫描写入 {scan_write:.1f} 秒｜"
             f"优化 {optimize:.1f} 秒｜总计 {elapsed:.1f} 秒"
         )
-        self._load_all()
 
     def _on_index_error(self, err: str):
         """索引出错回调。"""
