@@ -12,6 +12,7 @@ import threading
 import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 # Windows DPI 感知
 if sys.platform == "win32":
@@ -26,10 +27,9 @@ if sys.platform == "win32":
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
-from datetime import datetime
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageTk
 
 
 # ================================================================
@@ -40,6 +40,37 @@ INDEX_DB = INDEX_DIR / "index.db"
 INDEX_SCAN_WORKERS = 4
 INDEX_WRITE_BATCH_SIZE = 5000
 INDEX_QUEUE_SIZE = 20000
+PAGE_SIZE = 5000
+
+FONT_FAMILY = "Microsoft YaHei UI" if sys.platform == "win32" else "sans-serif"
+SPACING = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24}
+THEMES = {
+    "dark": {
+        "bg": "#111318", "surface": "#191C23", "surface_alt": "#20242D",
+        "input": "#151820", "border": "#303642", "text": "#F3F5F7",
+        "muted": "#9AA4B2", "accent": "#4C8DFF", "accent_hover": "#6AA0FF",
+        "selected": "#285FBA", "row_alt": "#171A21", "success": "#55C98B",
+        "warning": "#E7B65B", "error": "#F07178",
+    },
+    "light": {
+        "bg": "#F3F5F8", "surface": "#FFFFFF", "surface_alt": "#E9EDF3",
+        "input": "#FFFFFF", "border": "#CED5DF", "text": "#18202A",
+        "muted": "#687386", "accent": "#2167D5", "accent_hover": "#1857B8",
+        "selected": "#2E6FCE", "row_alt": "#F6F8FB", "success": "#218A5A",
+        "warning": "#A96D00", "error": "#C43E4D",
+    },
+}
+
+DOCUMENT_EXTENSIONS = {".doc", ".docx", ".pdf", ".txt", ".rtf", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".csv", ".md"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff", ".ico", ".svg"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a"}
+ARCHIVE_EXTENSIONS = {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".cab"}
+CODE_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".go", ".rs", ".php", ".rb", ".swift", ".kt", ".html", ".css", ".scss", ".json", ".xml", ".yaml", ".yml", ".sql", ".sh", ".ps1"}
+TYPE_FILTERS = {
+    "文档": DOCUMENT_EXTENSIONS, "图片": IMAGE_EXTENSIONS, "视频": VIDEO_EXTENSIONS,
+    "音频": AUDIO_EXTENSIONS, "压缩包": ARCHIVE_EXTENSIONS, "代码": CODE_EXTENSIONS,
+}
 
 IGNORE_DIRS = {
     "windows", "winnt", "system32", "syswow64", "winsxs",
@@ -106,6 +137,157 @@ FOF_ALLOWUNDO = 0x40
 FOF_NOCONFIRMATION = 0x10
 FOF_SILENT = 0x0004
 FOF_WANTNUKEWARNING = 0x4000
+
+
+class WindowsShellIconCache:
+    """按扩展名缓存 Windows Shell 小图标，失败时返回统一占位图标。"""
+
+    def __init__(self, root, background: str, size: int = 16):
+        self.root = root
+        self.background = background
+        self.size = size
+        self._cache = {}
+        self._fallback = self._make_fallback()
+
+    def _make_fallback(self):
+        image = Image.new("RGBA", (self.size, self.size), self.background)
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((3, 1, self.size - 3, self.size - 2), outline="#7E8998", fill="#E8EBEF")
+        draw.line((self.size - 6, 1, self.size - 3, 4), fill="#7E8998")
+        return ImageTk.PhotoImage(image, master=self.root)
+
+    def get(self, path: str, is_dir: bool = False):
+        key = "__folder__" if is_dir else (Path(path).suffix.lower() or "__file__")
+        if key not in self._cache:
+            self._cache[key] = self._load_shell_icon(key, is_dir) or self._fallback
+        return self._cache[key]
+
+    def _load_shell_icon(self, key: str, is_dir: bool):
+        if sys.platform != "win32":
+            return None
+        info = None
+        shell32 = user32 = gdi32 = None
+        screen_dc = mem_dc = bitmap = old_bitmap = brush = None
+        try:
+            from ctypes import wintypes
+
+            class SHFILEINFOW(ctypes.Structure):
+                _fields_ = [
+                    ("hIcon", wintypes.HICON), ("iIcon", ctypes.c_int),
+                    ("dwAttributes", wintypes.DWORD), ("szDisplayName", wintypes.WCHAR * 260),
+                    ("szTypeName", wintypes.WCHAR * 80),
+                ]
+
+            class BITMAPINFOHEADER(ctypes.Structure):
+                _fields_ = [
+                    ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
+                    ("biHeight", wintypes.LONG), ("biPlanes", wintypes.WORD),
+                    ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+                    ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", wintypes.LONG),
+                    ("biYPelsPerMeter", wintypes.LONG), ("biClrUsed", wintypes.DWORD),
+                    ("biClrImportant", wintypes.DWORD),
+                ]
+
+            shell32 = ctypes.windll.shell32
+            user32 = ctypes.windll.user32
+            gdi32 = ctypes.windll.gdi32
+            shell32.SHGetFileInfoW.argtypes = [
+                wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(SHFILEINFOW),
+                wintypes.UINT, wintypes.UINT,
+            ]
+            shell32.SHGetFileInfoW.restype = ctypes.c_size_t
+            user32.GetDC.argtypes = [wintypes.HWND]
+            user32.GetDC.restype = wintypes.HDC
+            user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+            user32.ReleaseDC.restype = ctypes.c_int
+            user32.FillRect.argtypes = [wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.HBRUSH]
+            user32.FillRect.restype = ctypes.c_int
+            user32.DrawIconEx.argtypes = [
+                wintypes.HDC, ctypes.c_int, ctypes.c_int, wintypes.HICON,
+                ctypes.c_int, ctypes.c_int, wintypes.UINT, wintypes.HBRUSH, wintypes.UINT,
+            ]
+            user32.DrawIconEx.restype = wintypes.BOOL
+            user32.DestroyIcon.argtypes = [wintypes.HICON]
+            user32.DestroyIcon.restype = wintypes.BOOL
+            gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
+            gdi32.CreateCompatibleDC.restype = wintypes.HDC
+            gdi32.CreateCompatibleBitmap.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
+            gdi32.CreateCompatibleBitmap.restype = wintypes.HBITMAP
+            gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
+            gdi32.SelectObject.restype = wintypes.HGDIOBJ
+            gdi32.CreateSolidBrush.argtypes = [wintypes.COLORREF]
+            gdi32.CreateSolidBrush.restype = wintypes.HBRUSH
+            gdi32.GetDIBits.argtypes = [
+                wintypes.HDC, wintypes.HBITMAP, wintypes.UINT, wintypes.UINT,
+                ctypes.c_void_p, ctypes.POINTER(BITMAPINFOHEADER), wintypes.UINT,
+            ]
+            gdi32.GetDIBits.restype = ctypes.c_int
+            gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+            gdi32.DeleteObject.restype = wintypes.BOOL
+            gdi32.DeleteDC.argtypes = [wintypes.HDC]
+            gdi32.DeleteDC.restype = wintypes.BOOL
+
+            info = SHFILEINFOW()
+            sample = "folder" if is_dir else ("file" + key if key.startswith(".") else "file")
+            attributes = 0x10 if is_dir else 0x80
+            flags = 0x000000100 | 0x000000001 | 0x000000010
+            if not shell32.SHGetFileInfoW(sample, attributes, ctypes.byref(info), ctypes.sizeof(info), flags):
+                return None
+
+            width = height = self.size
+            screen_dc = user32.GetDC(None)
+            if not screen_dc:
+                return None
+            mem_dc = gdi32.CreateCompatibleDC(screen_dc)
+            if not mem_dc:
+                return None
+            bitmap = gdi32.CreateCompatibleBitmap(screen_dc, width, height)
+            if not bitmap:
+                return None
+            old_bitmap = gdi32.SelectObject(mem_dc, bitmap)
+            if not old_bitmap or old_bitmap == ctypes.c_void_p(-1).value:
+                old_bitmap = None
+                return None
+            bg = self.background.lstrip("#")
+            colorref = int(bg[4:6] + bg[2:4] + bg[0:2], 16)
+            brush = gdi32.CreateSolidBrush(colorref)
+            if not brush:
+                return None
+            rect = wintypes.RECT(0, 0, width, height)
+            user32.FillRect(mem_dc, ctypes.byref(rect), brush)
+            user32.DrawIconEx(mem_dc, 0, 0, info.hIcon, width, height, 0, None, 0x0003)
+
+            header = BITMAPINFOHEADER()
+            header.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+            header.biWidth = width
+            header.biHeight = -height
+            header.biPlanes = 1
+            header.biBitCount = 32
+            buffer = ctypes.create_string_buffer(width * height * 4)
+            gdi32.SelectObject(mem_dc, old_bitmap)
+            old_bitmap = None
+            if not gdi32.GetDIBits(mem_dc, bitmap, 0, height, buffer, ctypes.byref(header), 0):
+                return None
+            image = Image.frombuffer("RGBA", (width, height), buffer, "raw", "BGRA", 0, 1).copy()
+            return ImageTk.PhotoImage(image, master=self.root)
+        except Exception:
+            return None
+        finally:
+            try:
+                if gdi32 is not None and old_bitmap and mem_dc:
+                    gdi32.SelectObject(mem_dc, old_bitmap)
+                if gdi32 is not None and brush:
+                    gdi32.DeleteObject(brush)
+                if gdi32 is not None and bitmap:
+                    gdi32.DeleteObject(bitmap)
+                if gdi32 is not None and mem_dc:
+                    gdi32.DeleteDC(mem_dc)
+                if user32 is not None and screen_dc:
+                    user32.ReleaseDC(None, screen_dc)
+                if user32 is not None and info is not None and info.hIcon:
+                    user32.DestroyIcon(info.hIcon)
+            except Exception:
+                pass
 
 
 # ================================================================
@@ -261,7 +443,8 @@ class IndexEngine:
                 path TEXT NOT NULL UNIQUE,
                 path_lower TEXT NOT NULL,
                 size INTEGER NOT NULL,
-                modified TEXT NOT NULL
+                modified TEXT NOT NULL,
+                is_dir INTEGER NOT NULL DEFAULT 0
             )
         """)
 
@@ -314,8 +497,8 @@ class IndexEngine:
                     total_files += 1
                     if len(insert_batch) >= INDEX_WRITE_BATCH_SIZE:
                         conn.executemany(
-                            "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified) "
-                            "VALUES(?,?,?,?,?,?)",
+                            "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified, is_dir) "
+                            "VALUES(?,?,?,?,?,?,?)",
                             insert_batch,
                         )
                         self._progress(f"已收录 {total_files} 个文件", total_files)
@@ -330,8 +513,8 @@ class IndexEngine:
 
             if insert_batch:
                 conn.executemany(
-                    "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified) "
-                    "VALUES(?,?,?,?,?,?)",
+                    "INSERT OR IGNORE INTO files(name, name_lower, path, path_lower, size, modified, is_dir) "
+                    "VALUES(?,?,?,?,?,?,?)",
                     insert_batch,
                 )
 
@@ -377,6 +560,16 @@ class IndexEngine:
                         continue
                     if is_dir:
                         if not self._should_skip_dir(full, entry):
+                            try:
+                                st = entry.stat(follow_symlinks=False)
+                                item = (
+                                    entry.name, entry.name.lower(), full, full.lower(), 0,
+                                    datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"), 1,
+                                )
+                                if not put_queue_item(item):
+                                    return
+                            except OSError:
+                                pass
                             dir_stack.append(full)
                         continue
 
@@ -398,6 +591,7 @@ class IndexEngine:
                         full.lower(),
                         st.st_size,
                         datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        0,
                     )
                     if not put_queue_item(item):
                         return
@@ -459,47 +653,128 @@ class IndexEngine:
     _COL_DB = {"name": "name_lower", "path": "path_lower", "type": "name_lower", "size": "size", "modified": "modified"}
 
     @staticmethod
-    def search(query: str, limit: int = 5000, offset: int = 0, order_col: str = "name", order_desc: bool = False) -> list[dict]:
-        """在索引中搜索文件。类型列排序在 Python 侧完成以与显示一致。"""
+    def _query_files(query: str = "", limit: int = PAGE_SIZE, offset: int = 0,
+                     order_col: str = "name", order_desc: bool = False, filters: dict | None = None,
+                     count_only: bool = False):
+        """使用参数化条件查询索引，统一支持搜索、筛选、排序、计数和分页。"""
         if not INDEX_DB.exists():
-            return []
-        q = query.strip().lower()
+            return 0 if count_only else []
+        filters = filters or {}
         conn = sqlite3.connect(str(INDEX_DB))
         conn.row_factory = sqlite3.Row
-        if order_col == "type":
-            sql = "SELECT name, path, size, modified FROM files WHERE name_lower LIKE ? OR path_lower LIKE ?"
-            rows = conn.execute(sql, ("%" + q + "%", "%" + q + "%")).fetchall()
+        has_is_dir = any(row[1] == "is_dir" for row in conn.execute("PRAGMA table_info(files)"))
+        is_dir_sql = "is_dir" if has_is_dir else "0"
+        clauses, params = [], []
+        q = query.strip().lower()
+        if q:
+            clauses.append("(name_lower LIKE ? OR path_lower LIKE ?)")
+            params.extend((f"%{q}%", f"%{q}%"))
+
+        path_prefix = filters.get("path_prefix")
+        if path_prefix:
+            prefix = os.path.normcase(os.path.normpath(path_prefix)).lower()
+            child_prefix = prefix.rstrip("\\/") + os.sep
+            escaped_child_prefix = (child_prefix.replace("\\", "\\\\")
+                                    .replace("%", "\\%")
+                                    .replace("_", "\\_"))
+            clauses.append("(path_lower = ? OR path_lower LIKE ? ESCAPE '\\')")
+            params.extend((prefix, escaped_child_prefix + "%"))
+
+        type_name = filters.get("type", "全部")
+        if type_name == "文件夹":
+            clauses.append(f"{is_dir_sql} = 1")
+        elif type_name != "全部":
+            clauses.append(f"{is_dir_sql} = 0")
+            extensions = TYPE_FILTERS.get(type_name, set())
+            if extensions:
+                ext_clauses = []
+                for ext in sorted(extensions):
+                    ext_clauses.append("name_lower LIKE ?")
+                    params.append("%" + ext)
+                clauses.append("(" + " OR ".join(ext_clauses) + ")")
+
+        time_name = filters.get("time", "全部")
+        days = {"今天": 0, "近7天": 7, "近30天": 30}.get(time_name)
+        if days is not None:
+            start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            if days:
+                start -= timedelta(days=days - 1)
+            clauses.append("modified >= ?")
+            params.append(start.strftime("%Y-%m-%d %H:%M:%S"))
+
+        size_name = filters.get("size", "全部")
+        if size_name == "<1MB":
+            clauses.append(f"({is_dir_sql} = 0 AND size < ?)")
+            params.append(1024 * 1024)
+        elif size_name == "1-100MB":
+            clauses.append(f"({is_dir_sql} = 0 AND size >= ? AND size <= ?)")
+            params.extend((1024 * 1024, 100 * 1024 * 1024))
+        elif size_name == ">100MB":
+            clauses.append(f"({is_dir_sql} = 0 AND size > ?)")
+            params.append(100 * 1024 * 1024)
+
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        if count_only:
+            row = conn.execute("SELECT COUNT(*) FROM files" + where, params).fetchone()
             conn.close()
-            results = [dict(r) for r in rows]
-            results.sort(key=lambda r: os.path.splitext(r["name"])[1].lower(), reverse=order_desc)
-            return results[offset:offset + limit]
+            return row[0] if row else 0
+
         col = IndexEngine._COL_DB.get(order_col, "name_lower")
         direction = "DESC" if order_desc else "ASC"
-        sql = f"SELECT name, path, size, modified FROM files WHERE name_lower LIKE ? OR path_lower LIKE ? ORDER BY {col} {direction} LIMIT ? OFFSET ?"
-        rows = conn.execute(sql, ("%" + q + "%", "%" + q + "%", limit, offset)).fetchall()
+        if order_col == "type":
+            type_parts = []
+            if has_is_dir:
+                type_parts.append("is_dir DESC")
+            type_parts.extend((
+                f"lower(substr(name, instr(name, '.'))) {direction}",
+                "name_lower ASC",
+                "path_lower ASC",
+            ))
+            order = ", ".join(type_parts)
+        else:
+            order = f"{col} {direction}, path_lower ASC"
+        sql = (
+            f"SELECT name, path, size, modified, {is_dir_sql} AS is_dir FROM files"
+            f"{where} ORDER BY {order} LIMIT ? OFFSET ?"
+        )
+        rows = conn.execute(sql, (*params, limit, offset)).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return [dict(row) for row in rows]
 
     @staticmethod
-    def load_all(limit: int = 5000, offset: int = 0, order_col: str = "size", order_desc: bool = True) -> list[dict]:
-        """加载全部文件，默认按大小降序。类型列排序在 Python 侧完成。"""
-        if not INDEX_DB.exists():
-            return []
+    def search(query: str, limit: int = PAGE_SIZE, offset: int = 0, order_col: str = "name",
+               order_desc: bool = False, filters: dict | None = None) -> list[dict]:
+        return IndexEngine._query_files(query, limit, offset, order_col, order_desc, filters)
+
+    @staticmethod
+    def load_all(limit: int = PAGE_SIZE, offset: int = 0, order_col: str = "size",
+                 order_desc: bool = True, filters: dict | None = None) -> list[dict]:
+        return IndexEngine._query_files("", limit, offset, order_col, order_desc, filters)
+
+    @staticmethod
+    def result_count(query: str = "", filters: dict | None = None) -> int:
+        return IndexEngine._query_files(query, filters=filters, count_only=True)
+
+    @staticmethod
+    def remove_paths(paths: list[str]):
+        """从索引中同步删除指定路径及其子路径。"""
+        if not paths or not INDEX_DB.exists():
+            return
         conn = sqlite3.connect(str(INDEX_DB))
-        conn.row_factory = sqlite3.Row
-        if order_col == "type":
-            sql = "SELECT name, path, size, modified FROM files"
-            rows = conn.execute(sql).fetchall()
+        try:
+            for path in paths:
+                normalized = os.path.normcase(os.path.normpath(path)).lower()
+                child_prefix = normalized.rstrip("\\/") + os.sep
+                escaped_child_prefix = (child_prefix.replace("\\", "\\\\")
+                                        .replace("%", "\\%")
+                                        .replace("_", "\\_"))
+                conn.execute(
+                    "DELETE FROM files WHERE path_lower = ? OR path_lower LIKE ? ESCAPE '\\'",
+                    (normalized, escaped_child_prefix + "%"),
+                )
+            conn.commit()
+        finally:
             conn.close()
-            results = [dict(r) for r in rows]
-            results.sort(key=lambda r: os.path.splitext(r["name"])[1].lower(), reverse=order_desc)
-            return results[offset:offset + limit]
-        col = IndexEngine._COL_DB.get(order_col, "size")
-        direction = "DESC" if order_desc else "ASC"
-        sql = f"SELECT name, path, size, modified FROM files ORDER BY {col} {direction} LIMIT ? OFFSET ?"
-        rows = conn.execute(sql, (limit, offset)).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
 
     # ---- 排除列表管理 ----
 
@@ -540,6 +815,7 @@ class IndexEngine:
         "auto_index_on_start": False,   # 启动时自动增量更新索引
         "tray_auto_index": False,        # 最小化到托盘后自动更新索引
         "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
+        "theme": "dark",
     }
 
     @classmethod
@@ -552,6 +828,8 @@ class IndexEngine:
                 settings.update({k: v for k, v in data.items() if k in settings})
             except Exception:
                 pass
+        if settings.get("theme") not in {"dark", "light", "system"}:
+            settings["theme"] = cls.DEFAULT_SETTINGS["theme"]
         return settings
 
     @classmethod
@@ -574,37 +852,99 @@ class FileSearcherApp:
         self.root = root
         self.root.title("File Searcher — 全盘文件搜索")
         self.root.state("zoomed") if sys.platform == "win32" else self.root.attributes("-zoomed", True)
-        self.root.minsize(800, 400)
+        self.root.minsize(900, 560)
 
         self._engine_cancel = False
+        self._index_running = False
         self._search_timer = None
+        self._suppress_search_trace = False
         self._results: list[dict] = []
         self._sort_col = "size"
         self._sort_asc = False
         self._has_more = False
         self._last_query = ""
+        self._last_filters = {}
+        self._total_results = 0
         self._loading_more = False
-        self._tray_index_after_id = None   # 托盘定时更新的 after id
-
-        # 加载设置
+        self._tray_index_after_id = None
         self._settings = IndexEngine.load_settings()
+        self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
+        self.colors = THEMES[self._theme_name]
+        self._configure_theme()
+        self._icon_cache = WindowsShellIconCache(self.root, self.colors["surface"])
+
+        self._path_options = self._build_path_options()
+        self.path_filter_var = tk.StringVar(value="全部")
+        self.type_filter_var = tk.StringVar(value="全部")
+        self.time_filter_var = tk.StringVar(value="全部")
+        self.size_filter_var = tk.StringVar(value="全部")
 
         self._build_toolbar()
         self._build_tree()
+        self._build_statusbar()
         self._load_layout()
         self._setup_drag_drop()
         self._build_context_menu()
-        self._build_statusbar()
+        self._bind_shortcuts()
         self._update_index_button_text()
         self._setup_tray()
 
         self.root.after(100, self._load_all)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.bind("<Unmap>", self._on_minimize)
-
-        # 启动时自动更新索引（如果已开启且索引存在）
         if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
             self.root.after(500, self._do_index_silent)
+
+    def _resolve_theme(self, theme: str) -> str:
+        if theme != "system":
+            return theme if theme in THEMES else "dark"
+        if sys.platform == "win32":
+            try:
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+                return "light" if winreg.QueryValueEx(key, "AppsUseLightTheme")[0] else "dark"
+            except Exception:
+                pass
+        return "dark"
+
+    def _configure_theme(self):
+        c = self.colors
+        self.root.configure(bg=c["bg"])
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure(".", background=c["bg"], foreground=c["text"], font=(FONT_FAMILY, 10))
+        style.configure("TFrame", background=c["bg"])
+        style.configure("Surface.TFrame", background=c["surface"])
+        style.configure("TLabel", background=c["bg"], foreground=c["text"])
+        style.configure("Muted.TLabel", background=c["bg"], foreground=c["muted"])
+        style.configure("Status.TLabel", background=c["surface"], foreground=c["muted"], padding=(10, 6))
+        style.configure("TButton", background=c["surface_alt"], foreground=c["text"], bordercolor=c["border"], padding=(12, 7))
+        style.map("TButton", background=[("active", c["border"]), ("disabled", c["surface"])], foreground=[("disabled", c["muted"])])
+        style.configure("Accent.TButton", background=c["accent"], foreground="#FFFFFF", bordercolor=c["accent"], font=(FONT_FAMILY, 10, "bold"))
+        style.map("Accent.TButton", background=[("active", c["accent_hover"]), ("disabled", c["border"])])
+        style.configure("TEntry", fieldbackground=c["input"], foreground=c["text"], insertcolor=c["text"], bordercolor=c["border"], padding=8)
+        style.configure("TCombobox", fieldbackground=c["input"], background=c["surface_alt"], foreground=c["text"], arrowcolor=c["muted"], bordercolor=c["border"], padding=5)
+        style.map("TCombobox", fieldbackground=[("readonly", c["input"])], foreground=[("readonly", c["text"])])
+        style.configure("Treeview", background=c["surface"], fieldbackground=c["surface"], foreground=c["text"], borderwidth=0, rowheight=28)
+        style.map("Treeview", background=[("selected", c["selected"])], foreground=[("selected", "#FFFFFF")])
+        style.configure("Treeview.Heading", background=c["surface_alt"], foreground=c["text"], bordercolor=c["border"], relief="flat", padding=(8, 8), font=(FONT_FAMILY, 10, "bold"))
+        style.map("Treeview.Heading", background=[("active", c["border"])])
+        style.configure("TProgressbar", troughcolor=c["surface_alt"], background=c["accent"], bordercolor=c["surface_alt"])
+        style.configure("TCheckbutton", background=c["bg"], foreground=c["text"])
+        style.configure("TSeparator", background=c["border"])
+
+    def _build_path_options(self):
+        home = Path.home()
+        candidates = {
+            "全部": None,
+            "桌面": home / "Desktop",
+            "文档": home / "Documents",
+            "下载": home / "Downloads",
+        }
+        return {name: str(path) if path else None for name, path in candidates.items()}
 
 
     # ================================================================
@@ -612,87 +952,144 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """构建顶部工具栏：搜索框 + 索引按钮。"""
-        toolbar = ttk.Frame(self.root, padding=(8, 6))
-        toolbar.pack(fill=tk.X)
+        """构建自适应搜索区、索引信息和紧凑筛选区。"""
+        c = self.colors
+        header = ttk.Frame(self.root, style="Surface.TFrame", padding=(16, 14, 16, 10))
+        header.pack(fill=tk.X)
+        header.columnconfigure(0, weight=1)
 
-        ttk.Label(toolbar, text="\U0001f50d 搜索:").pack(side=tk.LEFT, padx=(0, 4))
+        search_row = ttk.Frame(header, style="Surface.TFrame")
+        search_row.grid(row=0, column=0, sticky="ew")
+        search_row.columnconfigure(0, weight=1)
+
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
-        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=40)
-        self.search_entry.pack(side=tk.LEFT, padx=(0, 8))
-        self.search_entry.bind("<Return>", lambda _e: self._do_search())
+        search_box = tk.Frame(search_row, bg=c["input"], highlightbackground=c["border"], highlightthickness=1)
+        search_box.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        search_box.columnconfigure(0, weight=1)
+        self.search_entry = tk.Entry(search_box, textvariable=self.search_var, relief="flat", bd=0,
+                                     bg=c["input"], fg=c["text"], insertbackground=c["text"],
+                                     font=(FONT_FAMILY, 11))
+        self.search_entry.grid(row=0, column=0, sticky="ew", padx=(12, 4), pady=9)
+        self.search_entry.bind("<Return>", self._do_search)
+        self.search_entry.bind("<FocusIn>", self._hide_placeholder)
+        self.search_entry.bind("<FocusOut>", self._show_placeholder)
+        self.clear_btn = tk.Button(search_box, text="×", command=self._clear_search, relief="flat", bd=0,
+                                   bg=c["input"], fg=c["muted"], activebackground=c["surface_alt"],
+                                   activeforeground=c["text"], cursor="hand2", font=(FONT_FAMILY, 13))
+        self.clear_btn.grid(row=0, column=1, padx=(2, 8))
+        self._placeholder = "搜索文件名或完整路径…"
+        self._placeholder_visible = False
+        self._show_placeholder()
 
-        self.root.bind("<Escape>", lambda _e: self._clear_search())
-        self._index_icon = tk.PhotoImage(width=1, height=1)
+        self.index_btn = ttk.Button(search_row, text="创建索引", style="Accent.TButton", command=self._toggle_index)
+        self.index_btn.grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(search_row, text="设置", command=self._open_settings).grid(row=0, column=2)
 
-        self.index_btn = ttk.Button(toolbar, text="创建索引", command=self._toggle_index)
-        self.index_btn.pack(side=tk.LEFT, padx=(4, 0))
-        self.index_count_var = tk.StringVar(value="")
-        ttk.Label(toolbar, textvariable=self.index_count_var, foreground="gray").pack(side=tk.LEFT, padx=(8, 0))
+        info_row = ttk.Frame(header, style="Surface.TFrame")
+        info_row.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        self.index_status_var = tk.StringVar(value="尚未创建索引")
+        self.index_count_var = tk.StringVar(value="0 项")
+        self.index_updated_var = tk.StringVar(value="未更新")
+        self.result_count_var = tk.StringVar(value="结果 0")
+        for text_var in (self.index_status_var, self.index_count_var, self.index_updated_var, self.result_count_var):
+            tk.Label(info_row, textvariable=text_var, bg=c["surface"], fg=c["muted"], font=(FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=(0, 18))
 
-        # 设置按钮放在右上角
-        ttk.Button(toolbar, text="⚙ 设置", command=self._open_settings).pack(side=tk.RIGHT, padx=(0, 4))
+        filter_row = ttk.Frame(self.root, padding=(16, 8, 16, 10))
+        filter_row.pack(fill=tk.X)
+        ttk.Label(filter_row, text="位置").pack(side=tk.LEFT, padx=(0, 5))
+        path_box = ttk.Combobox(filter_row, textvariable=self.path_filter_var, values=list(self._path_options), state="readonly", width=8)
+        path_box.pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(filter_row, text="类型").pack(side=tk.LEFT, padx=(0, 5))
+        type_box = ttk.Combobox(filter_row, textvariable=self.type_filter_var,
+                                values=["全部", "文件夹", "文档", "图片", "视频", "音频", "压缩包", "代码"], state="readonly", width=8)
+        type_box.pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(filter_row, text="时间").pack(side=tk.LEFT, padx=(0, 5))
+        time_box = ttk.Combobox(filter_row, textvariable=self.time_filter_var,
+                                values=["全部", "今天", "近7天", "近30天"], state="readonly", width=8)
+        time_box.pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(filter_row, text="大小").pack(side=tk.LEFT, padx=(0, 5))
+        size_box = ttk.Combobox(filter_row, textvariable=self.size_filter_var,
+                                values=["全部", "<1MB", "1-100MB", ">100MB"], state="readonly", width=10)
+        size_box.pack(side=tk.LEFT)
+        for box in (path_box, type_box, time_box, size_box):
+            box.bind("<<ComboboxSelected>>", lambda _e: self._do_search())
+
+    def _set_search_value(self, value: str):
+        """更新搜索变量但不触发查询，用于占位符和程序化清空。"""
+        self._suppress_search_trace = True
+        try:
+            self.search_var.set(value)
+        finally:
+            self._suppress_search_trace = False
+
+    def _hide_placeholder(self, _event=None):
+        if self._placeholder_visible:
+            self._set_search_value("")
+            self.search_entry.configure(fg=self.colors["text"])
+            self._placeholder_visible = False
+
+    def _show_placeholder(self, _event=None):
+        if not self.search_var.get() and self.root.focus_get() != self.search_entry:
+            self._placeholder_visible = True
+            self.search_entry.configure(fg=self.colors["muted"])
+            self._set_search_value(self._placeholder)
+
+    def _search_text(self):
+        return "" if self._placeholder_visible else self.search_var.get().strip()
+
+    def _current_filters(self):
+        return {
+            "path_prefix": self._path_options.get(self.path_filter_var.get()),
+            "type": self.type_filter_var.get(),
+            "time": self.time_filter_var.get(),
+            "size": self.size_filter_var.get(),
+        }
 
     def _build_tree(self):
-        """构建中央文件列表 Treeview。列顺序：文件名 | 路径 | 类型 | 大小 | 修改时间。"""
-        frame = ttk.Frame(self.root)
-        frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 4))
-
+        """构建支持系统图标、交替行色和空状态的结果列表。"""
+        frame = ttk.Frame(self.root, padding=(16, 0, 16, 8))
+        frame.pack(fill=tk.BOTH, expand=True)
         columns = ("name", "path", "type", "size", "modified")
-        self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended")
+        self.tree = ttk.Treeview(frame, columns=columns, show="tree headings", selectmode="extended")
+        self.tree.heading("#0", text="")
+        self.tree.column("#0", width=34, minwidth=34, stretch=False, anchor=tk.CENTER)
+        headings = {"name": "文件名", "path": "路径", "type": "类型", "size": "大小", "modified": "修改时间"}
+        for col, text in headings.items():
+            self.tree.heading(col, text=text, command=lambda c=col: self._sort_by(c))
+        self.tree.column("name", width=250, minwidth=140)
+        self.tree.column("path", width=520, minwidth=220)
+        self.tree.column("type", width=100, minwidth=70, anchor=tk.CENTER)
+        self.tree.column("size", width=110, minwidth=80, anchor=tk.E)
+        self.tree.column("modified", width=165, minwidth=130, anchor=tk.CENTER)
 
-        self.tree.heading("name", text="文件名", command=lambda: self._sort_by("name"))
-        self.tree.heading("path", text="路径", command=lambda: self._sort_by("path"))
-        self.tree.heading("type", text="类型", command=lambda: self._sort_by("type"))
-        self.tree.heading("size", text="大小", command=lambda: self._sort_by("size"))
-        self.tree.heading("modified", text="修改时间", command=lambda: self._sort_by("modified"))
-
-        self.tree.column("name", width=220, minwidth=120)
-        self.tree.column("path", width=460, minwidth=160)
-        self.tree.column("type", width=80, minwidth=60, anchor=tk.CENTER)
-        self.tree.column("size", width=30, minwidth=25, anchor=tk.E)
-        self.tree.column("modified", width=75, minwidth=65, anchor=tk.CENTER)
-
-        scrollbar_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self._on_tree_scroll_wrapper)
         scrollbar_x = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=self.tree.xview)
         self.tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
-        scrollbar_y.configure(command=self._on_tree_scroll_wrapper)
-
         self.tree.grid(row=0, column=0, sticky="nsew")
         scrollbar_y.grid(row=0, column=1, sticky="ns")
         scrollbar_x.grid(row=1, column=0, sticky="ew")
-
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
-
-        style = ttk.Style()
-        style.map("Treeview",
-            background=[("selected", "#0078D4")],
-            foreground=[("selected", "white")],
-        )
-        import tkinter.font as tkfont
-        _FONT_FAMILY = "Microsoft YaHei" if sys.platform == "win32" else "sans-serif"
-        FONT = (_FONT_FAMILY, 9)
-        _font_obj = tkfont.Font(family=_FONT_FAMILY, size=9)
-        _row_h = int(_font_obj.metrics("linespace") * 1.3)
-        FONT_HEAD = (_FONT_FAMILY, 9, "bold")
-        style.configure("Treeview", font=FONT, rowheight=_row_h)
-        style.configure("Treeview.Heading", background="#D0D0D0", relief="flat", font=FONT_HEAD)
-        style.map("Treeview.Heading",
-            background=[("active", "#A0A0A0")])
-
+        self.tree.tag_configure("odd", background=self.colors["surface"])
+        self.tree.tag_configure("even", background=self.colors["row_alt"])
+        self.tree.tag_configure("empty", foreground=self.colors["muted"], font=(FONT_FAMILY, 11))
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
-        self.tree.bind("<Delete>", lambda e: self._delete_file_recycle())
-        self.tree.bind("<Control-c>", self._copy_path)
-        self.tree.bind("<Control-x>", self._cut_path)
+        self.tree.bind("<MouseWheel>", lambda _e: self.root.after_idle(self._on_tree_scroll))
 
     def _build_context_menu(self):
-        """构建右键弹出菜单。"""
-        self._ctx_menu = tk.Menu(self.root, tearoff=0)
+        """构建深色一致的右键菜单。"""
+        c = self.colors
+        self._ctx_menu = tk.Menu(self.root, tearoff=0, bg=c["surface_alt"], fg=c["text"],
+                                 activebackground=c["selected"], activeforeground="#FFFFFF",
+                                 bd=0, relief="flat")
         self._ctx_menu.add_command(label="打开", command=self._open_selected)
         self._ctx_menu.add_command(label="打开所在文件夹", command=self._open_file_location_selected)
+        self._ctx_menu.add_separator()
+        self._ctx_menu.add_command(label="复制", command=self._copy_path)
+        self._ctx_menu.add_command(label="剪切", command=self._cut_path)
+        self._ctx_menu.add_command(label="复制完整路径", command=self._copy_full_path_text)
         self._ctx_menu.add_separator()
         self._ctx_menu.add_command(label="重命名", command=self._rename_file_dialog)
         self._ctx_menu.add_separator()
@@ -700,24 +1097,48 @@ class FileSearcherApp:
         self._ctx_menu.add_command(label="彻底删除", command=self._delete_file_permanent)
 
     def _build_statusbar(self):
-        """构建底部状态栏。"""
-        self.status_var = tk.StringVar(value="就绪 — 请先创建索引再搜索文件")
-        statusbar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W, padding=(8, 2))
-        statusbar.pack(fill=tk.X, side=tk.BOTTOM)
+        """构建左右分区状态栏和索引进度条。"""
+        bar = ttk.Frame(self.root, style="Surface.TFrame")
+        bar.pack(fill=tk.X, side=tk.BOTTOM)
+        bar.columnconfigure(0, weight=1)
+        self.status_var = tk.StringVar(value="就绪 — 请先创建索引")
+        self.status_label = ttk.Label(bar, textvariable=self.status_var, style="Status.TLabel", anchor=tk.W)
+        self.status_label.grid(row=0, column=0, sticky="ew")
+        self.progress = ttk.Progressbar(bar, mode="indeterminate", length=120)
+        self.status_right_var = tk.StringVar(value="0 个结果")
+        ttk.Label(bar, textvariable=self.status_right_var, style="Status.TLabel", anchor=tk.E).grid(row=0, column=2, sticky="e")
+
+    def _set_status(self, text: str, kind: str = "normal"):
+        self.status_var.set(text)
+        color = {"success": self.colors["success"], "error": self.colors["error"], "warning": self.colors["warning"]}.get(kind, self.colors["muted"])
+        self.status_label.configure(foreground=color)
+
+    def _set_loading(self, loading: bool, text: str = "正在加载结果…"):
+        if loading:
+            self._set_status(text)
+            self.root.configure(cursor="watch")
+            self.root.update_idletasks()
+        else:
+            self.root.configure(cursor="")
 
     # ================================================================
     #  索引管理
     # ================================================================
 
     def _update_index_button_text(self):
-        """根据索引状态更新按钮文字。"""
+        """更新索引按钮、就绪状态、数量和更新时间。"""
         if IndexEngine.index_exists():
             count = IndexEngine.index_file_count()
+            updated = datetime.fromtimestamp(INDEX_DB.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
             self.index_btn.config(text="重建索引")
-            self.index_count_var.set(f"已索引 {count:,} 个文件")
+            self.index_status_var.set("索引就绪")
+            self.index_count_var.set(f"{count:,} 项")
+            self.index_updated_var.set(f"更新于 {updated}")
         else:
             self.index_btn.config(text="创建索引")
-            self.index_count_var.set("尚未创建索引")
+            self.index_status_var.set("尚未创建索引")
+            self.index_count_var.set("0 项")
+            self.index_updated_var.set("未更新")
 
     def _toggle_index(self):
         """点击索引按钮：创建或重建索引。"""
@@ -731,8 +1152,11 @@ class FileSearcherApp:
     def _do_index(self):
         """在后台线程中执行索引构建。"""
         self._engine_cancel = False
+        self._index_running = True
         self.index_btn.config(state=tk.DISABLED)
-        self.status_var.set("正在创建索引，扫描全盘文件…")
+        self.progress.grid(row=0, column=1, padx=(8, 0))
+        self.progress.start(12)
+        self._set_status("正在创建索引，扫描全盘文件…")
 
         engine = IndexEngine(
             progress_callback=lambda msg, n: self.root.after(0, self._on_index_progress, msg, n),
@@ -744,7 +1168,7 @@ class FileSearcherApp:
                 stats = engine.build_index()
                 self.root.after(0, lambda result=stats: self._on_index_done(result))
             except Exception as e:
-                self.root.after(0, lambda: self._on_index_error(str(e)))
+                self.root.after(0, lambda error=str(e): self._on_index_error(error))
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -756,38 +1180,47 @@ class FileSearcherApp:
 
     def _on_index_progress(self, msg: str, count: int):
         """索引进度回调。"""
-        self.status_var.set(msg)
-        self.index_count_var.set(f"已收录 {count:,} 个文件")
+        self._set_status(msg)
+        self.index_count_var.set(f"已收录 {count:,} 项")
 
     def _on_index_done(self, stats):
         """索引完成回调，显示文件数和各阶段耗时。"""
         self._engine_cancel = False
+        self._index_running = False
+        self.progress.stop()
+        self.progress.grid_remove()
         self.index_btn.config(state=tk.NORMAL)
         self._update_index_button_text()
         if stats is None:
-            self.status_var.set("索引已停止，原索引保持不变")
+            self._set_status("索引已停止，原索引保持不变", "warning")
             return
         total = stats["total_files"]
         scan_write = stats["scan_write_seconds"]
         optimize = stats["optimize_seconds"]
         elapsed = stats["total_seconds"]
-        self._load_all()
-        self.status_var.set(
-            f"索引完成 — {total:,} 个文件｜扫描写入 {scan_write:.1f} 秒｜"
-            f"优化 {optimize:.1f} 秒｜总计 {elapsed:.1f} 秒"
+        self._run_query(self._search_text())
+        self._set_status(
+            f"索引完成 — {total:,} 项｜扫描写入 {scan_write:.1f} 秒｜"
+            f"优化 {optimize:.1f} 秒｜总计 {elapsed:.1f} 秒", "success"
         )
 
     def _on_index_error(self, err: str):
         """索引出错回调。"""
         self._engine_cancel = False
+        self._index_running = False
+        self.progress.stop()
+        self.progress.grid_remove()
         self.index_btn.config(state=tk.NORMAL)
-        self.status_var.set(f"索引出错: {err}")
+        self._set_status(f"索引出错: {err}", "error")
 
     def _do_index_silent(self):
         """静默后台重建索引（自动触发，不弹确认框，不禁用按钮界面交互不受影响）。"""
         if self._engine_cancel:
             return
         self._engine_cancel = False
+        self._index_running = True
+        self.progress.grid(row=0, column=1, padx=(8, 0))
+        self.progress.start(12)
         engine = IndexEngine(
             progress_callback=lambda msg, n: self.root.after(0, self._on_index_progress, msg, n),
             cancel_check=lambda: self._engine_cancel,
@@ -798,7 +1231,7 @@ class FileSearcherApp:
                 stats = engine.build_index()
                 self.root.after(0, lambda result=stats: self._on_index_done(result))
             except Exception as e:
-                self.root.after(0, lambda: self._on_index_error(str(e)))
+                self.root.after(0, lambda error=str(e): self._on_index_error(error))
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -822,7 +1255,7 @@ class FileSearcherApp:
         dw = int(700 * s)
         dh = int(520 * s)
         dlg.minsize(int(560 * s), int(420 * s))
-        dlg.configure(bg="#f5f5f5")
+        dlg.configure(bg=self.colors["bg"])
         dlg.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
@@ -872,6 +1305,7 @@ class FileSearcherApp:
         auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
         tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
         minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
+        theme_var = tk.StringVar(value=self._settings.get("theme", "dark"))
 
         def _persist_general():
             try:
@@ -882,11 +1316,13 @@ class FileSearcherApp:
             self._settings["auto_index_on_start"] = auto_start_var.get()
             self._settings["tray_auto_index"] = tray_auto_var.get()
             self._settings["tray_auto_index_minutes"] = mins
+            self._settings["theme"] = theme_var.get()
             IndexEngine.save_settings(self._settings)
 
         auto_start_var.trace_add("write", lambda *_: _persist_general())
         tray_auto_var.trace_add("write", lambda *_: _persist_general())
         minutes_var.trace_add("write", lambda *_: _persist_general())
+        theme_var.trace_add("write", lambda *_: _persist_general())
 
         ttk.Label(page_index, text="启动时自动更新索引").pack(anchor=tk.W, pady=(0, int(8 * s)))
         cb1 = ttk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
@@ -907,6 +1343,16 @@ class FileSearcherApp:
                            textvariable=minutes_var)
         spin.pack(side=tk.LEFT, padx=(int(6 * s), int(4 * s)))
         ttk.Label(minutes_frame, text="分钟（5~120）").pack(side=tk.LEFT)
+
+        ttk.Separator(page_index, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=int(10 * s))
+        ttk.Label(page_index, text="界面主题").pack(anchor=tk.W, pady=(0, int(8 * s)))
+        theme_frame = ttk.Frame(page_index)
+        theme_frame.pack(anchor=tk.W, padx=(int(16 * s), 0))
+        for text, value in (("深色", "dark"), ("浅色", "light"), ("跟随系统", "system")):
+            ttk.Radiobutton(theme_frame, text=text, value=value, variable=theme_var).pack(side=tk.LEFT, padx=(0, int(12 * s)))
+        ttk.Label(page_index, text="主题修改已保存，重启程序后生效。", style="Muted.TLabel").pack(
+            anchor=tk.W, padx=(int(16 * s), 0), pady=(int(8 * s), 0)
+        )
 
         # ---- 排除列表页 ----
         ttk.Label(page_exclude, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）",
@@ -975,44 +1421,81 @@ class FileSearcherApp:
     # ================================================================
 
     def _load_all(self):
-        """加载首页（默认按大小降序的前 5000 个文件）。"""
-        if not IndexEngine.index_exists():
-            return
-        self._last_query = ""
-        self._sort_col = "size"
-        self._sort_asc = False
-        self._results = IndexEngine.load_all(limit=5000, offset=0, order_col=self._sort_col, order_desc=not self._sort_asc)
-        self._has_more = len(self._results) == 5000
-        self._refresh_tree()
-        self._update_sort_heading()
-        total = IndexEngine.index_file_count()
-        self.status_var.set(f"就绪 — 已索引 {total:,} 个文件，已显示 {len(self._results):,} 个（按大小降序）")
+        """按当前筛选、排序加载无关键词的第一页。"""
+        self._run_query("")
 
-    def _clear_search(self):
-        """清空搜索框，恢复显示全部文件。"""
-        self.search_var.set("")
-        self._load_all()
+    def _clear_search(self, event=None):
+        """清空搜索并恢复占位符和当前筛选下的全部结果。"""
+        if self._search_timer is not None:
+            self.root.after_cancel(self._search_timer)
+            self._search_timer = None
+        self._placeholder_visible = False
+        self._set_search_value("")
+        self.root.focus_set()
+        self._show_placeholder()
+        self._run_query("")
+        return "break"
 
     def _on_search_changed(self):
-        """搜索框内容变化时触发（300ms 防抖延迟）。"""
+        """真实搜索文字变化时触发（300ms 防抖延迟）。"""
+        if self._suppress_search_trace or self._placeholder_visible:
+            return
         if self._search_timer is not None:
             self.root.after_cancel(self._search_timer)
         self._search_timer = self.root.after(300, self._do_search)
 
-    def _do_search(self):
-        """执行搜索：从索引中按关键词查询。"""
-        query = self.search_var.get().strip()
-        if not query:
-            self._load_all()
-            return
-        if not IndexEngine.index_exists():
-            self.status_var.set("请先创建索引再搜索")
-            return
+    def _do_search(self, event=None):
+        """按当前关键词、筛选和排序执行第一页查询。"""
+        if self._search_timer is not None:
+            self.root.after_cancel(self._search_timer)
+            self._search_timer = None
+        self._run_query(self._search_text())
+        return "break" if event is not None else None
+
+    def _run_query(self, query: str, filters: dict | None = None):
+        """统一执行搜索/筛选查询，并同步计数、分页和状态。"""
+        filters = (filters if filters is not None else self._current_filters()).copy()
         self._last_query = query
-        self._results = IndexEngine.search(query, limit=5000, offset=0, order_col=self._sort_col, order_desc=not self._sort_asc)
-        self._has_more = len(self._results) == 5000
-        self._refresh_tree()
-        self.status_var.set(f"搜索「{query}」— 已显示 {len(self._results):,} 个文件")
+        self._last_filters = filters
+        if not IndexEngine.index_exists():
+            self._results = []
+            self._total_results = 0
+            self._has_more = False
+            self._refresh_tree()
+            self._update_result_status()
+            self._set_status("请先创建索引再搜索", "warning")
+            return
+
+        self._set_loading(True)
+        try:
+            self._total_results = IndexEngine.result_count(query, filters=filters)
+            if query:
+                self._results = IndexEngine.search(
+                    query, limit=PAGE_SIZE, offset=0, order_col=self._sort_col,
+                    order_desc=not self._sort_asc, filters=filters,
+                )
+            else:
+                self._results = IndexEngine.load_all(
+                    limit=PAGE_SIZE, offset=0, order_col=self._sort_col,
+                    order_desc=not self._sort_asc, filters=filters,
+                )
+            self._has_more = len(self._results) < self._total_results
+            self._refresh_tree()
+            self._update_sort_heading()
+            self._update_result_status()
+        finally:
+            self._set_loading(False)
+
+    def _update_result_status(self):
+        """统一更新顶部计数、右侧计数和底部状态文字。"""
+        shown = len(self._results)
+        total = self._total_results
+        self.result_count_var.set(f"结果 {total:,}")
+        self.status_right_var.set(f"已显示 {shown:,} / {total:,}")
+        if self._last_query:
+            self._set_status(f"搜索「{self._last_query}」— 已显示 {shown:,} / {total:,} 个结果")
+        else:
+            self._set_status(f"已显示 {shown:,} / {total:,} 个结果")
 
     # ================================================================
     #  排除列表管理
@@ -1167,21 +1650,20 @@ class FileSearcherApp:
     # ================================================================
 
     def _refresh_tree(self):
-        """清空并重新填充 Treeview（用于排序和首次加载）。"""
+        """清空并重新填充列表，保留系统图标、交替行色和空结果占位。"""
         self.tree.delete(*self.tree.get_children())
         self._item_to_result = {}
-        for f in self._results:
-            ext = os.path.splitext(f["name"])[1]
-            ext_text = ext.upper().lstrip(".") if ext else ""
-            vals = (
-                f["name"],
-                f["path"],
-                ext_text,
-                format_size(f["size"]),
-                f["modified"],
-            )
-            iid = self.tree.insert("", tk.END, values=vals)
-            self._item_to_result[iid] = f
+        if not self._results:
+            self.tree.insert("", tk.END, text="", values=("没有匹配的结果", "", "", "", ""), tags=("empty",))
+            return
+        self._append_to_tree(self._results)
+
+    def _tree_item_values(self, result: dict):
+        is_dir = bool(result.get("is_dir"))
+        ext = os.path.splitext(result["name"])[1]
+        type_text = "文件夹" if is_dir else (ext.upper().lstrip(".") if ext else "文件")
+        size_text = "" if is_dir else format_size(result["size"])
+        return (result["name"], result["path"], type_text, size_text, result["modified"])
 
     def _get_selected_path(self) -> str | None:
         """获取当前选中文件的完整路径（兼容单选）。"""
@@ -1211,6 +1693,8 @@ class FileSearcherApp:
         """右键：不丢失多选，并根据选中数量置灰部分菜单项。"""
         row = self.tree.identify_row(event.y)
         current_sel = self.tree.selection()
+        if row not in self._item_to_result:
+            return
         # 如果右键点击的行不在当前选中列表中，则只选这一行
         if row and row not in current_sel:
             self.tree.selection_set(row)
@@ -1329,9 +1813,8 @@ class FileSearcherApp:
             return
         try:
             send_to_recycle_bin(paths)
-            for p in paths:
-                self._remove_from_results(p)
-            self._refresh_tree()
+            IndexEngine.remove_paths(paths)
+            self._run_query(self._last_query)
             if count == 1:
                 self.status_var.set(f"已删除到回收站: {os.path.basename(paths[0])}")
             else:
@@ -1353,9 +1836,8 @@ class FileSearcherApp:
             return
         try:
             permanent_delete(paths)
-            for p in paths:
-                self._remove_from_results(p)
-            self._refresh_tree()
+            IndexEngine.remove_paths(paths)
+            self._run_query(self._last_query)
             if count == 1:
                 self.status_var.set(f"已彻底删除: {os.path.basename(paths[0])}")
             else:
@@ -1364,8 +1846,12 @@ class FileSearcherApp:
             messagebox.showerror("删除失败", str(e))
 
     def _remove_from_results(self, path: str):
-        """从当前结果列表中移除指定路径的文件。"""
+        """从当前结果列表中移除指定路径并同步当前计数。"""
+        before = len(self._results)
         self._results = [f for f in self._results if f["path"] != path]
+        if len(self._results) < before:
+            self._total_results = max(0, self._total_results - 1)
+            self._has_more = len(self._results) < self._total_results
 
     # ================================================================
     #  拖拽到外部程序
@@ -1411,48 +1897,43 @@ class FileSearcherApp:
         self._on_tree_scroll()
 
     def _load_more(self):
-        """加载下一页数据（5000 条），追加到列表末尾。"""
+        """按当前关键词、筛选和排序加载下一页。"""
         if not self._has_more or self._loading_more:
             return
         self._loading_more = True
-        offset = len(self._results)
-        if self._last_query:
-            more = IndexEngine.search(
-                self._last_query, limit=5000, offset=offset,
-                order_col=self._sort_col, order_desc=not self._sort_asc,
-            )
-        else:
-            more = IndexEngine.load_all(
-                limit=5000, offset=offset,
-                order_col=self._sort_col, order_desc=not self._sort_asc,
-            )
-        if more:
-            self._results.extend(more)
-            self._append_to_tree(more)
-            self._has_more = len(more) == 5000
-            if self._last_query:
-                self.status_var.set(f"搜索「{self._last_query}」— 已显示 {len(self._results):,} 个文件")
+        try:
+            offset = len(self._results)
+            query = self._last_query
+            filters = self._last_filters
+            if query:
+                more = IndexEngine.search(
+                    query, limit=PAGE_SIZE, offset=offset,
+                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
+                )
             else:
-                total = IndexEngine.index_file_count()
-                self.status_var.set(f"已显示 {len(self._results):,} / {total:,} 个文件")
-        else:
-            self._has_more = False
-        self._loading_more = False
+                more = IndexEngine.load_all(
+                    limit=PAGE_SIZE, offset=offset,
+                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
+                )
+            if more:
+                self._results.extend(more)
+                self._append_to_tree(more)
+            self._has_more = len(self._results) < self._total_results
+            self._update_result_status()
+        finally:
+            self._loading_more = False
 
     def _append_to_tree(self, items):
-        """将新加载的文件追加到 Treeview（不重建整个树，避免闪烁）。"""
-        for f in items:
-            ext = os.path.splitext(f["name"])[1]
-            ext_text = ext.upper().lstrip(".") if ext else ""
-            vals = (
-                f["name"],
-                f["path"],
-                ext_text,
-                format_size(f["size"]),
-                f["modified"],
+        """追加结果，使用 Shell 图标和基于全局行号的交替行色。"""
+        start = len(self.tree.get_children())
+        for index, result in enumerate(items, start=start):
+            icon = self._icon_cache.get(result["path"], bool(result.get("is_dir")))
+            tag = "even" if index % 2 else "odd"
+            iid = self.tree.insert(
+                "", tk.END, text="", image=icon,
+                values=self._tree_item_values(result), tags=(tag,),
             )
-            iid = self.tree.insert("", tk.END, values=vals)
-            self._item_to_result[iid] = f
+            self._item_to_result[iid] = result
 
     def _on_tree_scroll(self, *args):
         """检测滚动条是否到达底部（>= 95%），触发加载更多。"""
@@ -1477,27 +1958,46 @@ class FileSearcherApp:
             self.tree.heading(c, text=base[c] + (arrow if c == self._sort_col else ""))
 
     def _sort_by(self, col: str):
-        """点击列头排序。同列再次点击切换升降序，切换列默认升序。"""
+        """点击列头排序，并按当前关键词和筛选重新查询第一页。"""
         if self._sort_col == col:
             self._sort_asc = not self._sort_asc
         else:
             self._sort_col = col
             self._sort_asc = True
+        self._run_query(self._search_text())
 
-        query = self.search_var.get().strip()
-        if query:
-            self._results = IndexEngine.search(
-                query, limit=5000, offset=0, order_col=col, order_desc=not self._sort_asc,
-            )
-            self._has_more = len(self._results) == 5000
-        else:
-            self._results = IndexEngine.load_all(
-                limit=5000, offset=0, order_col=col, order_desc=not self._sort_asc,
-            )
-            self._has_more = len(self._results) == 5000
+    def _bind_shortcuts(self):
+        """绑定全局搜索快捷键和仅在结果列表生效的文件操作快捷键。"""
+        self.root.bind("<Control-l>", self._focus_search, add="+")
+        self.root.bind("<Control-L>", self._focus_search, add="+")
+        self.root.bind("<Control-f>", self._focus_search, add="+")
+        self.root.bind("<Control-F>", self._focus_search, add="+")
+        self.root.bind("<Escape>", self._clear_search, add="+")
+        self.tree.bind("<Return>", lambda _e: (self._open_selected(), "break")[1])
+        self.tree.bind("<Control-a>", self._select_all_results)
+        self.tree.bind("<Control-A>", self._select_all_results)
+        self.tree.bind("<Control-c>", lambda _e: (self._copy_path(), "break")[1])
+        self.tree.bind("<Control-C>", lambda _e: (self._copy_path(), "break")[1])
+        self.tree.bind("<Control-x>", lambda _e: (self._cut_path(), "break")[1])
+        self.tree.bind("<Control-X>", lambda _e: (self._cut_path(), "break")[1])
+        self.tree.bind("<Delete>", lambda _e: (self._delete_file_recycle(), "break")[1])
+        self.tree.bind("<Shift-Delete>", lambda _e: (self._delete_file_permanent(), "break")[1])
+        self.tree.bind("<Alt-Return>", lambda _e: (self._open_file_location_selected(), "break")[1])
 
-        self._refresh_tree()
-        self._update_sort_heading()
+    def _focus_search(self, _event=None):
+        """聚焦搜索框并全选真实搜索文字。"""
+        self.search_entry.focus_set()
+        self._hide_placeholder()
+        self.search_entry.selection_range(0, tk.END)
+        self.search_entry.icursor(tk.END)
+        return "break"
+
+    def _select_all_results(self, _event=None):
+        """仅在结果列表中全选有效结果行。"""
+        items = tuple(self._item_to_result)
+        if items:
+            self.tree.selection_set(items)
+        return "break"
 
     # ================================================================
     #  列宽布局持久化
@@ -1584,11 +2084,12 @@ class FileSearcherApp:
         else:
             self.root.attributes("-zoomed", True)
         self.root.focus_force()
-        # 搜索框全选文字，无文字则聚焦到搜索框
+        # 搜索框全选真实文字；占位符状态只聚焦。
         self.search_entry.focus_set()
-        if self.search_var.get().strip():
+        if self._search_text():
             self.search_entry.select_range(0, tk.END)
         else:
+            self._hide_placeholder()
             self.search_entry.icursor(0)
 
     def _start_tray_auto_index_timer(self):
@@ -1632,6 +2133,17 @@ class FileSearcherApp:
     # ================================================================
     #  复制 / 剪切路径
     # ================================================================
+
+    def _copy_full_path_text(self, event=None):
+        """将选中项的完整路径作为纯文本写入 Tk 剪贴板。"""
+        paths = self._get_selected_paths()
+        if not paths:
+            return "break" if event is not None else None
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(paths))
+        self.root.update_idletasks()
+        self._set_status(f"已复制 {len(paths):,} 个完整路径", "success")
+        return "break" if event is not None else None
 
     def _copy_path(self, event=None):
         """Ctrl+C：将选中文件复制到剪贴板（资源管理器可粘贴）。"""
