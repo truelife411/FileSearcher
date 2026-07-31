@@ -43,13 +43,14 @@ INDEX_QUEUE_SIZE = 20000
 PAGE_SIZE = 5000
 
 FONT_FAMILY = "Microsoft YaHei UI" if sys.platform == "win32" else "sans-serif"
-# 全局字号体系（Tk points，100% 缩放下 12pt ≈ 16px）
+# 全局字号体系（基础 pt，最终渲染 = base × dpi_scale × font_scale）
+# 缩放后约：SMALL=22pt 辅助 / BODY=25pt 正文·按钮·搜索·表头 / LG=27pt 空状态 / LG+2=31pt 标题
 FONT_XS = 10        # 最小辅助文字（保留兜底）
-FONT_SMALL = 11     # 筛选标签 / 类型标签
-FONT_BODY = 12      # 正文：表格、信息行、状态栏
-FONT_LG = 13        # 按钮
-FONT_INPUT = 14     # 搜索框输入
-FONT_HEADER = 12    # 表头
+FONT_SMALL = 11     # 辅助文字：徽章、筛选标签、说明
+FONT_BODY = 12      # 正文：表格、信息行、状态栏、搜索框、按钮
+FONT_LG = 13        # 空状态主文案等醒目文字
+FONT_INPUT = 12     # 搜索框输入（与正文一致）
+FONT_HEADER = 12    # 表头（加粗）
 FONT_TITLE = 12     # 标题栏标题
 ROW_HEIGHT = 56     # 结果行高
 TITLEBAR_H = 42     # 自绘标题栏高度
@@ -914,7 +915,7 @@ class RoundedButton(tk.Canvas):
                  colors=None, icon=None, kind="normal", font_size=None, **kwargs):
         self.colors = colors or THEMES["dark"]
         self._kind = kind
-        self._font_size = font_size or FONT_LG
+        self._font_size = font_size or FONT_BODY
         super().__init__(master, width=width, height=height, bd=0, highlightthickness=0,
                          bg=master.cget("bg"), cursor="hand2", **kwargs)
         self._text = text
@@ -1310,6 +1311,18 @@ class FileSearcherApp:
                         bordercolor=c["surface"], arrowcolor=c["muted_2"], width=self._s(12))
         style.configure("TProgressbar", troughcolor=c["surface_alt"], background=c["accent"], bordercolor=c["surface_alt"])
         style.configure("TCheckbutton", background=c["bg"], foreground=c["text"], font=self._f(FONT_BODY))
+        style.configure("TRadiobutton", background=c["bg"], foreground=c["text"], font=self._f(FONT_BODY))
+        style.map("TRadiobutton", background=[("active", c["bg"])])
+        style.configure("TSpinbox", fieldbackground=c["input"], background=c["surface_alt"],
+                        foreground=c["text"], arrowcolor=c["muted"], bordercolor=c["border"],
+                        lightcolor=c["border"], darkcolor=c["border"], padding=(8, 6),
+                        font=self._f(FONT_BODY))
+        style.map("TSpinbox", fieldbackground=[("focus", c["input"])],
+                  foreground=[("readonly", c["text"])], bordercolor=[("focus", c["accent"])])
+        # 下拉列表（popdown）：必须单独配置，否则用系统默认小字体
+        style.configure("Filter.TCombobox.Listbox", background=c["surface"], foreground=c["text"],
+                        font=self._f(FONT_BODY), borderwidth=0, relief="flat",
+                        selectbackground=c["selected"], selectforeground=c["text"])
         style.configure("TSeparator", background=c["border"])
 
     # ================================================================
@@ -1593,15 +1606,15 @@ class FileSearcherApp:
 
         self.filter_btn = RoundedButton(search_row, text="筛选", command=self._toggle_filters,
                                         width=self._s(104), height=self._s(58), colors=c,
-                                        font_size=self._f(FONT_LG)[1])
+                                        font_size=self._f(FONT_BODY)[1])
         self.filter_btn.grid(row=0, column=1, padx=(0, self._s(12)))
         self.index_btn = RoundedButton(search_row, text="创建索引", command=self._toggle_index,
                                        width=self._s(138), height=self._s(58), colors=c, kind="accent",
-                                       font_size=self._f(FONT_LG)[1])
+                                       font_size=self._f(FONT_BODY)[1])
         self.index_btn.grid(row=0, column=2, padx=(0, self._s(12)))
         self.settings_btn = RoundedButton(search_row, icon="⚙", command=self._open_settings,
                                           width=self._s(58), height=self._s(58), colors=c,
-                                          font_size=self._f(FONT_LG)[1])
+                                          font_size=self._f(FONT_BODY)[1])
         self.settings_btn.grid(row=0, column=3)
 
         # 信息行：左侧索引状态徽章（彩色圆点），右侧结果计数
@@ -2107,7 +2120,7 @@ class FileSearcherApp:
         nav_panel.pack_propagate(False)
 
         tk.Label(nav_panel, text="设置", bg=c["surface"], fg=c["text"],
-                 font=(FONT_FAMILY, FONT_LG + 2, "bold")).pack(anchor=tk.W, padx=20, pady=(22, 20))
+                 font=self._f(FONT_LG + 2, "bold")).pack(anchor=tk.W, padx=20, pady=(22, 20))
 
         nav_items = []
 
@@ -2132,7 +2145,7 @@ class FileSearcherApp:
                 cv.create_rectangle(0, 8, 3.5, h - 8, fill=c["accent"], outline="")
             cv.create_text(17, h / 2, anchor=tk.W, text=cv._nav_text,
                            fill=c["text"] if active else c["muted"],
-                           font=(FONT_FAMILY, FONT_BODY, "bold" if active else "normal"))
+                           font=self._f(FONT_BODY, "bold" if active else "normal"))
 
         # ====== 右侧内容卡片 ======
         content = tk.Frame(body, bg=c["surface"], highlightthickness=1,
@@ -2169,10 +2182,10 @@ class FileSearcherApp:
 
         def _section_title(text):
             tk.Label(page_index, text=text, bg=c["surface"], fg=c["text"],
-                     font=(FONT_FAMILY, FONT_BODY + 1, "bold")).pack(anchor=tk.W, pady=(0, 10))
+                     font=self._f(FONT_BODY, "bold")).pack(anchor=tk.W, pady=(0, 10))
 
         tk.Label(page_index, text="常规", bg=c["surface"], fg=c["text"],
-                 font=(FONT_FAMILY, FONT_LG + 2, "bold")).pack(anchor=tk.W, padx=pad, pady=(pad, 22))
+                 font=self._f(FONT_LG + 2, "bold")).pack(anchor=tk.W, padx=pad, pady=(pad, 22))
 
         _section_title("启动时自动更新索引")
         cb1 = ttk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
@@ -2186,11 +2199,11 @@ class FileSearcherApp:
         minutes_frame = tk.Frame(page_index, bg=c["surface"])
         minutes_frame.pack(anchor=tk.W, padx=(pad + 18, 0))
         tk.Label(minutes_frame, text="间隔", bg=c["surface"], fg=c["muted"],
-                 font=(FONT_FAMILY, FONT_BODY)).pack(side=tk.LEFT, padx=(0, 8))
+                 font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, 8))
         spin = ttk.Spinbox(minutes_frame, from_=5, to=120, width=6, textvariable=minutes_var)
         spin.pack(side=tk.LEFT, padx=(0, 8))
         tk.Label(minutes_frame, text="分钟（5~120）", bg=c["surface"], fg=c["muted"],
-                 font=(FONT_FAMILY, FONT_BODY)).pack(side=tk.LEFT)
+                 font=self._f(FONT_BODY)).pack(side=tk.LEFT)
 
         tk.Frame(page_index, bg=c["border"], height=1).pack(fill=tk.X, padx=pad, pady=20)
         _section_title("界面主题")
@@ -2200,12 +2213,12 @@ class FileSearcherApp:
             ttk.Radiobutton(theme_frame, text=text, value=value, variable=theme_var).pack(
                 side=tk.LEFT, padx=(0, 20))
         tk.Label(page_index, text="主题修改已保存，重启程序后完全生效。", bg=c["surface"],
-                 fg=c["muted_2"], font=(FONT_FAMILY, FONT_SMALL)).pack(
+                 fg=c["muted_2"], font=self._f(FONT_SMALL)).pack(
             anchor=tk.W, padx=(pad + 18, 0), pady=(10, 0))
 
         # ---- 排除列表页 ----
         tk.Label(page_exclude, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）",
-                 bg=c["surface"], fg=c["muted_2"], font=(FONT_FAMILY, FONT_BODY)).pack(
+                 bg=c["surface"], fg=c["muted_2"], font=self._f(FONT_BODY)).pack(
             anchor=tk.W, padx=pad, pady=(pad, 12))
 
         tb = tk.Frame(page_exclude, bg=c["surface"])
