@@ -1128,7 +1128,7 @@ class FileSearcherApp:
 
         # 缩放体系：Tk 8.6 在 Windows 上按 96 DPI 布局，tk scaling 对字体渲染无效且会污染
         # winfo_fpixels，因此用原生 API GetDpiForSystem 取真实系统 DPI；
-        # _dpi_scale（真实 DPI/96）放大所有 pt 字号与像素尺寸；
+        # _dpi_scale（真实 DPI/96）× _font_scale（用户字号偏好）放大所有 pt 字号与像素尺寸；
         # ui_scale 仅由窗口宽度驱动（1150 基准 0.8~1.8）
         try:
             _dpi = float(ctypes.windll.user32.GetDpiForSystem())
@@ -1137,6 +1137,7 @@ class FileSearcherApp:
             self._dpi_scale = max(1.0, _dpi / 96.0)
         except Exception:
             self._dpi_scale = 1.0
+        self._font_scale = 0.5  # 整体字号/尺寸系数（0.5 = 用户要求的一半）
         try:
             self.root.tk.call("tk", "scaling", 4 / 3)  # 固定为标准 96dpi 行为
         except Exception:
@@ -1177,10 +1178,10 @@ class FileSearcherApp:
             except Exception:
                 real_dpi = 0.0
             f = tkfont.Font(root=self.root, family=FONT_FAMILY,
-                            size=max(8, int(FONT_BODY * self.ui_scale * self._dpi_scale)))
+                            size=max(8, int(FONT_BODY * self.ui_scale * self._dpi_scale * self._font_scale)))
             line = (f"[diag] dpi_scale={self._dpi_scale:.3f} ui_scale={self.ui_scale:.3f} "
                     f"win_w={self.root.winfo_width()} sys_dpi={real_dpi:.0f} state={self.root.state()} "
-                    f"font_body_pt={max(8, int(FONT_BODY * self.ui_scale * self._dpi_scale))} "
+                    f"font_body_pt={max(8, int(FONT_BODY * self.ui_scale * self._dpi_scale * self._font_scale))} "
                     f"real_px={f.metrics('linespace')}\n")
             with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
                 fo.write(line)
@@ -1207,12 +1208,12 @@ class FileSearcherApp:
     # ---- 缩放工具 ----
 
     def _s(self, px: int) -> int:
-        """像素尺寸 × ui_scale × DPI 比例。"""
-        return max(1, int(px * self.ui_scale * self._dpi_scale))
+        """像素尺寸 × ui_scale × DPI 比例 × 字号系数。"""
+        return max(1, int(px * self.ui_scale * self._dpi_scale * self._font_scale))
 
     def _f(self, base_pt: int, weight: str = "normal"):
-        """字号 pt × ui_scale × DPI 比例的字体元组。"""
-        return (FONT_FAMILY, max(8, int(base_pt * self.ui_scale * self._dpi_scale)), weight)
+        """字号 pt × ui_scale × DPI 比例 × 字号系数的字体元组。"""
+        return (FONT_FAMILY, max(8, int(base_pt * self.ui_scale * self._dpi_scale * self._font_scale)), weight)
 
     def _compute_window_scale(self) -> float:
         """窗口宽度 → 缩放因子（1150 基准，0.8 ~ 1.8 封顶）。"""
