@@ -1126,15 +1126,19 @@ class FileSearcherApp:
         self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
         self.colors = THEMES[self._theme_name]
 
-        # 缩放体系：tk scaling 用系统 DPI/72（1pt = DPI/72 px，与 Windows 标准一致）；
-        # ui_scale 仅由窗口宽度驱动（1280 基准 0.8~1.4），字号 pt = 基础 pt × ui_scale
+        # 缩放体系：Tk 8.6 在 Windows 上按 96 DPI 布局，tk scaling 对字体渲染无效且会污染
+        # winfo_fpixels，因此用原生 API GetDpiForSystem 取真实系统 DPI；
+        # _dpi_scale（真实 DPI/96）放大所有 pt 字号与像素尺寸；
+        # ui_scale 仅由窗口宽度驱动（1150 基准 0.8~1.8）
         try:
-            _dpi = ctypes.windll.shcore.GetDpiForSystem()
-            self._base_scale = max(1.0, _dpi / 72.0)
+            _dpi = float(ctypes.windll.user32.GetDpiForSystem())
+            if _dpi < 72:
+                _dpi = 96.0
+            self._dpi_scale = max(1.0, _dpi / 96.0)
         except Exception:
-            self._base_scale = 1.0
+            self._dpi_scale = 1.0
         try:
-            self.root.tk.call("tk", "scaling", self._base_scale)
+            self.root.tk.call("tk", "scaling", 4 / 3)  # 固定为标准 96dpi 行为
         except Exception:
             pass
         self._window_scale = 1.0
@@ -1160,8 +1164,28 @@ class FileSearcherApp:
         self.root.bind("<Unmap>", self._on_minimize)
         self.root.bind("<Configure>", self._on_window_resize, add="+")
         self.root.after(150, self._ensure_maximized)
+        self.root.after(1500, self._log_diag)
         if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
             self.root.after(500, self._do_index_silent)
+
+    def _log_diag(self):
+        """启动 1.5s 后记录缩放关键参数到 debug.log，用于诊断字号问题。"""
+        try:
+            import tkinter.font as tkfont
+            try:
+                real_dpi = float(ctypes.windll.user32.GetDpiForSystem())
+            except Exception:
+                real_dpi = 0.0
+            f = tkfont.Font(root=self.root, family=FONT_FAMILY,
+                            size=max(8, int(FONT_BODY * self.ui_scale * self._dpi_scale)))
+            line = (f"[diag] dpi_scale={self._dpi_scale:.3f} ui_scale={self.ui_scale:.3f} "
+                    f"win_w={self.root.winfo_width()} sys_dpi={real_dpi:.0f} state={self.root.state()} "
+                    f"font_body_pt={max(8, int(FONT_BODY * self.ui_scale * self._dpi_scale))} "
+                    f"real_px={f.metrics('linespace')}\n")
+            with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
+                fo.write(line)
+        except Exception:
+            pass
 
     def _build_ui(self):
         """构建全部主界面控件（支持按新缩放重建）。"""
@@ -1183,22 +1207,22 @@ class FileSearcherApp:
     # ---- 缩放工具 ----
 
     def _s(self, px: int) -> int:
-        """像素尺寸 × ui_scale（四舍五入到整数）。"""
-        return max(1, int(px * self.ui_scale))
+        """像素尺寸 × ui_scale × DPI 比例。"""
+        return max(1, int(px * self.ui_scale * self._dpi_scale))
 
     def _f(self, base_pt: int, weight: str = "normal"):
-        """字号 × ui_scale 的字体元组。"""
-        return (FONT_FAMILY, max(8, int(base_pt * self.ui_scale)), weight)
+        """字号 pt × ui_scale × DPI 比例的字体元组。"""
+        return (FONT_FAMILY, max(8, int(base_pt * self.ui_scale * self._dpi_scale)), weight)
 
     def _compute_window_scale(self) -> float:
-        """窗口宽度 → 缩放因子（1280 基准，0.8 ~ 1.4 封顶）。"""
+        """窗口宽度 → 缩放因子（1150 基准，0.8 ~ 1.8 封顶）。"""
         try:
             w = self.root.winfo_width()
         except Exception:
             return 1.0
         if w < 120:
             return 1.0
-        return max(0.8, min(1.4, w / 1280.0))
+        return max(0.8, min(1.8, w / 1150.0))
 
     def _on_window_resize(self, event=None):
         """窗口尺寸变化：防抖 280ms 后重算缩放，变化明显则重建界面。"""
@@ -3174,12 +3198,8 @@ class FileSearcherApp:
 def main():
     """创建 Tkinter 根窗口并启动应用。"""
     root = tk.Tk()
-    # 告诉 Tkinter 当前系统 DPI，确保高 DPI 屏幕文字清晰不模糊
-    try:
-        dpi = root.winfo_fpixels('1i')
-        root.tk.call('tk', 'scaling', dpi / 72.0)
-    except Exception:
-        pass
+    # 注意：不在 main 里设置 tk scaling —— 它会污染 winfo_fpixels 的返回值，
+    # DPI 处理统一在 FileSearcherApp 里用原生 API 完成
     FileSearcherApp(root)
     root.mainloop()
 
