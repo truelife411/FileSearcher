@@ -1023,9 +1023,9 @@ class RoundedButton(tk.Canvas):
 
 
 class RoundedSearchBox(tk.Canvas):
-    """大号圆角搜索外壳：内嵌 Entry、搜索图标、聚焦高亮和清空热区。"""
+    """圆角搜索外壳：内嵌 Entry、搜索图标、聚焦高亮和清空热区。"""
 
-    def __init__(self, master, textvariable, colors, clear_command, height=58, font_size=None):
+    def __init__(self, master, textvariable, colors, clear_command, height=40, font_size=None):
         super().__init__(master, height=height, bd=0, highlightthickness=0,
                          bg=master.cget("bg"))
         self.colors = colors
@@ -1035,7 +1035,7 @@ class RoundedSearchBox(tk.Canvas):
         self.entry = tk.Entry(self, textvariable=textvariable, relief="flat", bd=0,
                               bg=colors["input"], fg=colors["text"],
                               insertbackground=colors["text"], font=(FONT_FAMILY, self._font_size))
-        self._entry_window = self.create_window(50, height / 2, window=self.entry, anchor=tk.W)
+        self._entry_window = self.create_window(42, height / 2, window=self.entry, anchor=tk.W)
         self._clear_command = clear_command
         self.bind("<Configure>", self._layout)
         self.bind("<Button-1>", self._click)
@@ -1046,7 +1046,9 @@ class RoundedSearchBox(tk.Canvas):
         self._draw()
 
     def _layout(self, _event=None):
-        self.itemconfigure(self._entry_window, width=max(20, self.winfo_width() - 96), height=30)
+        # entry 高度必须给足（= 壳高 - 上下留白），否则文字被裁剪
+        h = max(24, self.winfo_height() - 8)
+        self.itemconfigure(self._entry_window, width=max(20, self.winfo_width() - 84), height=h)
         self._draw()
 
     def _on_hover(self, hover: bool):
@@ -1193,10 +1195,6 @@ class FileSearcherApp:
         self._configure_theme()
         self._icon_cache = WindowsShellIconCache(self.root, self.colors["surface"], size=self._s(22))
         self._build_titlebar()
-        self.path_filter_var = tk.StringVar(value="全部")
-        self.type_filter_var = tk.StringVar(value="全部")
-        self.time_filter_var = tk.StringVar(value="全部")
-        self.size_filter_var = tk.StringVar(value="全部")
         self._build_toolbar()
         self._build_tree()
         self._build_statusbar()
@@ -1227,21 +1225,10 @@ class FileSearcherApp:
             query = self._search_text()
         except Exception:
             query = ""
-        saved = {
-            "query": query,
-            "path": self.path_filter_var.get() if hasattr(self, "path_filter_var") else "全部",
-            "type": self.type_filter_var.get() if hasattr(self, "type_filter_var") else "全部",
-            "time": self.time_filter_var.get() if hasattr(self, "time_filter_var") else "全部",
-            "size": self.size_filter_var.get() if hasattr(self, "size_filter_var") else "全部",
-        }
+        saved = {"query": query}
         for w in self.root.winfo_children():
             w.destroy()
         self._build_ui()
-        if hasattr(self, "path_filter_var"):
-            self.path_filter_var.set(saved["path"])
-            self.type_filter_var.set(saved["type"])
-            self.time_filter_var.set(saved["time"])
-            self.size_filter_var.set(saved["size"])
         self._placeholder_visible = False
         if saved["query"]:
             self._set_search_value(saved["query"])
@@ -1251,12 +1238,18 @@ class FileSearcherApp:
         self._refresh_tree()
         self._update_sort_heading()
         self._update_result_status()
-        self._update_filter_button()
 
     def _ensure_maximized(self):
         """启动后强制铺满工作区（无边框模式）。"""
         if self._frameless and self._normal_rect is None:
             self._maximize_to_workarea()
+
+    def _apply_theme(self):
+        """主题切换立即生效：换配色并重建主界面（保留搜索词与结果）。"""
+        self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
+        self.colors = THEMES[self._theme_name]
+        self._configure_theme()
+        self._rebuild_ui()
 
     def _resolve_theme(self, theme: str) -> str:
         if theme != "system":
@@ -1581,21 +1574,23 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """构建大号搜索行、带状态徽章的信息行和卡片式筛选面板。"""
+        """构建单行搜索区：搜索框 + 索引状态 + 索引/设置按钮。"""
         c = self.colors
         header = tk.Frame(self.root, bg=c["bg"])
-        header.pack(fill=tk.X, padx=self._s(24), pady=(self._s(20), self._s(12)))
+        header.pack(fill=tk.X, padx=self._s(24), pady=(self._s(16), self._s(10)))
         header.columnconfigure(0, weight=1)
 
-        search_row = tk.Frame(header, bg=c["bg"], height=self._s(58))
+        row_h = self._s(40)
+        search_row = tk.Frame(header, bg=c["bg"], height=row_h)
         search_row.grid(row=0, column=0, sticky="ew")
         search_row.grid_propagate(False)
         search_row.columnconfigure(0, weight=1)
+
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
         self.search_box = RoundedSearchBox(search_row, self.search_var, c, self._clear_search,
-                                           height=self._s(58), font_size=self._f(FONT_INPUT)[1])
-        self.search_box.grid(row=0, column=0, sticky="nsew", padx=(0, self._s(12)))
+                                           height=row_h, font_size=self._f(FONT_INPUT)[1])
+        self.search_box.grid(row=0, column=0, sticky="nsew", padx=(0, self._s(14)))
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
         self.search_entry.bind("<FocusIn>", self._hide_placeholder, add="+")
@@ -1604,76 +1599,26 @@ class FileSearcherApp:
         self._placeholder_visible = False
         self._show_placeholder()
 
-        self.filter_btn = RoundedButton(search_row, text="筛选", command=self._toggle_filters,
-                                        width=self._s(104), height=self._s(58), colors=c,
-                                        font_size=self._f(FONT_BODY)[1])
-        self.filter_btn.grid(row=0, column=1, padx=(0, self._s(12)))
-        self.index_btn = RoundedButton(search_row, text="创建索引", command=self._toggle_index,
-                                       width=self._s(138), height=self._s(58), colors=c, kind="accent",
-                                       font_size=self._f(FONT_BODY)[1])
-        self.index_btn.grid(row=0, column=2, padx=(0, self._s(12)))
-        self.settings_btn = RoundedButton(search_row, icon="⚙", command=self._open_settings,
-                                          width=self._s(58), height=self._s(58), colors=c,
-                                          font_size=self._f(FONT_BODY)[1])
-        self.settings_btn.grid(row=0, column=3)
-
-        # 信息行：左侧索引状态徽章（彩色圆点），右侧结果计数
-        info_row = tk.Frame(header, bg=c["bg"], height=self._s(30))
-        info_row.grid(row=1, column=0, sticky="ew", pady=(self._s(12), 0))
-        info_row.grid_propagate(False)
-        info_row.columnconfigure(0, weight=1)
+        # 索引状态（搜索框右侧，原信息行内容）
         self.index_status_var = tk.StringVar(value="尚未创建索引")
         self.index_count_var = tk.StringVar(value="0 项")
         self.index_updated_var = tk.StringVar(value="未更新")
-        self.index_info_var = tk.StringVar(value="尚未创建索引 · 0 项 · 未更新")
-        self.result_count_var = tk.StringVar(value="0 个结果")
-        self._status_dot = tk.Label(info_row, text="●", bg=c["bg"], fg=c["muted_2"],
+        self.index_info_var = tk.StringVar(value="尚未创建索引")
+        self._status_dot = tk.Label(search_row, text="●", bg=c["bg"], fg=c["muted_2"],
                                     font=self._f(FONT_SMALL))
-        self._status_dot.grid(row=0, column=0, sticky="w")
-        tk.Label(info_row, textvariable=self.index_info_var, bg=c["bg"], fg=c["muted"],
-                 font=self._f(FONT_BODY), anchor=tk.W).grid(row=0, column=1, sticky="w", padx=(self._s(8), 0))
-        tk.Label(info_row, textvariable=self.result_count_var, bg=c["bg"], fg=c["muted"],
-                 font=self._f(FONT_BODY), anchor=tk.E).grid(row=0, column=2, sticky="e")
+        self._status_dot.grid(row=0, column=1, sticky="e")
+        tk.Label(search_row, textvariable=self.index_info_var, bg=c["bg"], fg=c["muted"],
+                 font=self._f(FONT_BODY), anchor=tk.E).grid(row=0, column=2, sticky="e",
+                                                             padx=(self._s(6), self._s(14)))
 
-        # 筛选面板：卡片式四列
-        self.filter_panel = tk.Frame(header, bg=c["surface"], highlightthickness=1,
-                                     highlightbackground=c["border"], padx=self._s(16), pady=self._s(14))
-        for column in range(4):
-            self.filter_panel.columnconfigure(column, weight=1, uniform="filter")
-        specs = (
-            ("位置", self.path_filter_var, list(self._path_options)),
-            ("类型", self.type_filter_var, ["全部", "文件夹", "文档", "图片", "视频", "音频", "压缩包", "代码"]),
-            ("时间", self.time_filter_var, ["全部", "今天", "近7天", "近30天"]),
-            ("大小", self.size_filter_var, ["全部", "<1MB", "1-100MB", ">100MB"]),
-        )
-        for column, (label, variable, values) in enumerate(specs):
-            cell = tk.Frame(self.filter_panel, bg=c["surface"])
-            cell.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else self._s(8), self._s(8) if column < 3 else 0))
-            tk.Label(cell, text=label, bg=c["surface"], fg=c["muted_2"],
-                     font=self._f(FONT_SMALL)).pack(anchor=tk.W, pady=(0, self._s(6)))
-            box = ttk.Combobox(cell, textvariable=variable, values=values, state="readonly",
-                               style="Filter.TCombobox", height=8)
-            box.pack(fill=tk.X)
-            box.bind("<<ComboboxSelected>>", self._on_filter_changed)
-        self._filters_visible = False
-        self._update_filter_button()
-
-    def _toggle_filters(self):
-        self._filters_visible = not self._filters_visible
-        if self._filters_visible:
-            self.filter_panel.grid(row=2, column=0, sticky="ew", pady=(10, 0))
-        else:
-            self.filter_panel.grid_remove()
-
-    def _on_filter_changed(self, _event=None):
-        self._update_filter_button()
-        self._do_search()
-
-    def _update_filter_button(self):
-        count = sum(var.get() != "全部" for var in (
-            self.path_filter_var, self.type_filter_var, self.time_filter_var, self.size_filter_var
-        ))
-        self.filter_btn.config(text=f"筛选 {count}" if count else "筛选")
+        self.index_btn = RoundedButton(search_row, text="创建索引", command=self._toggle_index,
+                                       width=self._s(126), height=row_h, colors=c, kind="accent",
+                                       font_size=self._f(FONT_BODY)[1])
+        self.index_btn.grid(row=0, column=3, padx=(0, self._s(10)))
+        self.settings_btn = RoundedButton(search_row, icon="⚙", command=self._open_settings,
+                                          width=self._s(44), height=row_h, colors=c,
+                                          font_size=self._f(FONT_BODY)[1])
+        self.settings_btn.grid(row=0, column=4)
 
     def _set_search_value(self, value: str):
         """更新搜索变量但不触发查询，用于占位符和程序化清空。"""
@@ -1699,12 +1644,8 @@ class FileSearcherApp:
         return "" if self._placeholder_visible else self.search_var.get().strip()
 
     def _current_filters(self):
-        return {
-            "path_prefix": self._path_options.get(self.path_filter_var.get()),
-            "type": self.type_filter_var.get(),
-            "time": self.time_filter_var.get(),
-            "size": self.size_filter_var.get(),
-        }
+        """筛选功能已从界面移除，查询不带过滤条件。"""
+        return {}
 
     def _build_tree(self):
         """构建圆角结果容器、自绘表头、hover 高亮与保留原生交互的 Treeview。"""
@@ -2099,9 +2040,9 @@ class FileSearcherApp:
         except Exception:
             scale = 1.0
         s = max(1.0, scale)
-        dw = int(780 * s)
-        dh = int(560 * s)
-        dlg.minsize(int(620 * s), int(460 * s))
+        dw = int(980 * s)
+        dh = int(700 * s)
+        dlg.minsize(int(760 * s), int(560 * s))
         dlg.configure(bg=self.colors["bg"])
         dlg.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
@@ -2176,7 +2117,7 @@ class FileSearcherApp:
         auto_start_var.trace_add("write", lambda *_: _persist_general())
         tray_auto_var.trace_add("write", lambda *_: _persist_general())
         minutes_var.trace_add("write", lambda *_: _persist_general())
-        theme_var.trace_add("write", lambda *_: _persist_general())
+        theme_var.trace_add("write", lambda *_: (_persist_general(), self._apply_theme()))
 
         pad = int(30 * s)
 
@@ -2188,19 +2129,29 @@ class FileSearcherApp:
                  font=self._f(FONT_LG + 2, "bold")).pack(anchor=tk.W, padx=pad, pady=(pad, 22))
 
         _section_title("启动时自动更新索引")
-        cb1 = ttk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
-                              variable=auto_start_var)
+        cb1 = tk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
+                             variable=auto_start_var, bg=c["surface"], fg=c["text"],
+                             activebackground=c["surface"], activeforeground=c["text"],
+                             selectcolor=c["input"], font=self._f(FONT_BODY),
+                             highlightthickness=0, bd=0, anchor=tk.W, padx=6, pady=4)
         cb1.pack(anchor=tk.W, padx=(pad + 18, 0), pady=(0, 20))
 
         _section_title("托盘自动更新")
-        cb2 = ttk.Checkbutton(page_index, text="最小化到托盘后，自动更新索引",
-                              variable=tray_auto_var)
+        cb2 = tk.Checkbutton(page_index, text="最小化到托盘后，自动更新索引",
+                             variable=tray_auto_var, bg=c["surface"], fg=c["text"],
+                             activebackground=c["surface"], activeforeground=c["text"],
+                             selectcolor=c["input"], font=self._f(FONT_BODY),
+                             highlightthickness=0, bd=0, anchor=tk.W, padx=6, pady=4)
         cb2.pack(anchor=tk.W, padx=(pad + 18, 0), pady=(0, 8))
         minutes_frame = tk.Frame(page_index, bg=c["surface"])
         minutes_frame.pack(anchor=tk.W, padx=(pad + 18, 0))
         tk.Label(minutes_frame, text="间隔", bg=c["surface"], fg=c["muted"],
                  font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, 8))
-        spin = ttk.Spinbox(minutes_frame, from_=5, to=120, width=6, textvariable=minutes_var)
+        spin = tk.Spinbox(minutes_frame, from_=5, to=120, width=6, textvariable=minutes_var,
+                          font=self._f(FONT_BODY), bg=c["input"], fg=c["text"],
+                          insertbackground=c["text"], buttonbackground=c["surface_alt"],
+                          relief="flat", highlightthickness=1,
+                          highlightbackground=c["border"], highlightcolor=c["accent"])
         spin.pack(side=tk.LEFT, padx=(0, 8))
         tk.Label(minutes_frame, text="分钟（5~120）", bg=c["surface"], fg=c["muted"],
                  font=self._f(FONT_BODY)).pack(side=tk.LEFT)
@@ -2210,9 +2161,12 @@ class FileSearcherApp:
         theme_frame = tk.Frame(page_index, bg=c["surface"])
         theme_frame.pack(anchor=tk.W, padx=(pad + 18, 0))
         for text, value in (("深色", "dark"), ("浅色", "light"), ("跟随系统", "system")):
-            ttk.Radiobutton(theme_frame, text=text, value=value, variable=theme_var).pack(
-                side=tk.LEFT, padx=(0, 20))
-        tk.Label(page_index, text="主题修改已保存，重启程序后完全生效。", bg=c["surface"],
+            tk.Radiobutton(theme_frame, text=text, value=value, variable=theme_var,
+                           bg=c["surface"], fg=c["text"], activebackground=c["surface"],
+                           activeforeground=c["text"], selectcolor=c["input"],
+                           font=self._f(FONT_BODY), highlightthickness=0, bd=0,
+                           anchor=tk.W, padx=6, pady=2).pack(side=tk.LEFT, padx=(0, 20))
+        tk.Label(page_index, text="主题修改立即生效，无需重启。", bg=c["surface"],
                  fg=c["muted_2"], font=self._f(FONT_SMALL)).pack(
             anchor=tk.W, padx=(pad + 18, 0), pady=(10, 0))
 
@@ -2224,11 +2178,14 @@ class FileSearcherApp:
         tb = tk.Frame(page_exclude, bg=c["surface"])
         tb.pack(fill=tk.X, padx=pad, pady=(0, 10))
         RoundedButton(tb, text="＋ 添加", command=lambda: self._exclude_add(ex_list, dlg),
-                      width=96, height=36, colors=c).pack(side=tk.LEFT, padx=(0, 8))
+                      width=96, height=36, colors=c, font_size=self._f(FONT_BODY)[1]).pack(
+            side=tk.LEFT, padx=(0, 8))
         RoundedButton(tb, text="✎ 编辑", command=lambda: self._exclude_edit(ex_list, dlg),
-                      width=96, height=36, colors=c).pack(side=tk.LEFT, padx=(0, 8))
+                      width=96, height=36, colors=c, font_size=self._f(FONT_BODY)[1]).pack(
+            side=tk.LEFT, padx=(0, 8))
         RoundedButton(tb, text="✕ 删除", command=lambda: self._exclude_delete(ex_list),
-                      width=96, height=36, colors=c, kind="danger").pack(side=tk.LEFT)
+                      width=96, height=36, colors=c, kind="danger",
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT)
 
         ex_frame = tk.Frame(page_exclude, bg=c["surface"])
         ex_frame.pack(fill=tk.BOTH, expand=True, padx=pad, pady=(0, pad))
@@ -2350,10 +2307,9 @@ class FileSearcherApp:
             self._set_loading(False)
 
     def _update_result_status(self):
-        """统一更新顶部计数、右侧计数和底部状态文字。"""
+        """统一更新状态栏计数与状态文字。"""
         shown = len(self._results)
         total = self._total_results
-        self.result_count_var.set(f"{total:,} 个结果")
         self.status_right_var.set(f"已显示 {shown:,} / {total:,}")
         if self._last_query:
             self._set_status(f"搜索「{self._last_query}」— 已显示 {shown:,} / {total:,} 个结果")
@@ -2412,22 +2368,29 @@ class FileSearcherApp:
         """添加排除项子对话框。"""
         sub = tk.Toplevel(parent)
         sub.title("添加排除项")
-        sub.geometry("500x200")
+        sub.geometry("560x240")
         sub.transient(parent)
         sub.grab_set()
         sub.resizable(True, True)
-        sub.minsize(400, 180)
+        sub.minsize(480, 220)
+        c = self.colors
+        sub.configure(bg=c["bg"])
 
-        f = ttk.Frame(sub, padding=(12, 12))
-        f.pack(fill=tk.BOTH, expand=True)
+        f = tk.Frame(sub, bg=c["bg"])
+        f.pack(fill=tk.BOTH, expand=True, padx=20, pady=18)
 
-        ttk.Label(f, text="类型:").grid(row=0, column=0, sticky=tk.W, pady=(0, 8))
+        tk.Label(f, text="类型:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
+            row=0, column=0, sticky=tk.W, pady=(0, 12))
         type_var = tk.StringVar(value="路径包含")
-        cb = ttk.Combobox(f, textvariable=type_var, values=["目录名", "路径包含"], state="readonly", width=12)
-        cb.grid(row=0, column=1, sticky=tk.W, pady=(0, 8))
+        cb = ttk.Combobox(f, textvariable=type_var, values=["目录名", "路径包含"], state="readonly",
+                          width=14, style="Filter.TCombobox")
+        cb.grid(row=0, column=1, sticky=tk.W, pady=(0, 12))
 
-        ttk.Label(f, text="内容:").grid(row=1, column=0, sticky=tk.W)
-        val_entry = ttk.Entry(f, width=40)
+        tk.Label(f, text="内容:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
+            row=1, column=0, sticky=tk.W)
+        val_entry = tk.Entry(f, width=40, bg=c["input"], fg=c["text"], insertbackground=c["text"],
+                             font=self._f(FONT_BODY), relief="flat", highlightthickness=1,
+                             highlightbackground=c["border"], highlightcolor=c["accent"])
         val_entry.grid(row=1, column=1, sticky=tk.EW, padx=(4, 0))
         val_entry.focus_set()
 
@@ -2440,10 +2403,12 @@ class FileSearcherApp:
                 self._exclude_save(ex_list)
             sub.destroy()
 
-        btn_f = ttk.Frame(sub, padding=(12, 0, 12, 8))
-        btn_f.pack(fill=tk.X)
-        ttk.Button(btn_f, text="取消", command=sub.destroy).pack(side=tk.RIGHT, padx=(4, 0))
-        ttk.Button(btn_f, text="确定", command=ok).pack(side=tk.RIGHT)
+        btn_f = tk.Frame(sub, bg=c["bg"])
+        btn_f.pack(fill=tk.X, padx=20, pady=(0, 16))
+        RoundedButton(btn_f, text="取消", command=sub.destroy, width=88, height=36, colors=c,
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(8, 0))
+        RoundedButton(btn_f, text="确定", command=ok, width=88, height=36, colors=c, kind="accent",
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT)
         val_entry.bind("<Return>", lambda e: ok())
 
     def _exclude_edit(self, ex_list, parent):
@@ -2454,22 +2419,29 @@ class FileSearcherApp:
         vals = ex_list.item(sel[0], "values")
         sub = tk.Toplevel(parent)
         sub.title("编辑排除项")
-        sub.geometry("500x200")
+        sub.geometry("560x240")
         sub.transient(parent)
         sub.grab_set()
         sub.resizable(True, True)
-        sub.minsize(400, 180)
+        sub.minsize(480, 220)
+        c = self.colors
+        sub.configure(bg=c["bg"])
 
-        f = ttk.Frame(sub, padding=(12, 12))
-        f.pack(fill=tk.BOTH, expand=True)
+        f = tk.Frame(sub, bg=c["bg"])
+        f.pack(fill=tk.BOTH, expand=True, padx=20, pady=18)
 
-        ttk.Label(f, text="类型:").grid(row=0, column=0, sticky=tk.W, pady=(0, 8))
+        tk.Label(f, text="类型:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
+            row=0, column=0, sticky=tk.W, pady=(0, 12))
         type_var = tk.StringVar(value=vals[0])
-        cb = ttk.Combobox(f, textvariable=type_var, values=["目录名", "路径包含"], state="readonly", width=12)
-        cb.grid(row=0, column=1, sticky=tk.W, pady=(0, 8))
+        cb = ttk.Combobox(f, textvariable=type_var, values=["目录名", "路径包含"], state="readonly",
+                          width=14, style="Filter.TCombobox")
+        cb.grid(row=0, column=1, sticky=tk.W, pady=(0, 12))
 
-        ttk.Label(f, text="内容:").grid(row=1, column=0, sticky=tk.W)
-        val_entry = ttk.Entry(f, width=40)
+        tk.Label(f, text="内容:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
+            row=1, column=0, sticky=tk.W)
+        val_entry = tk.Entry(f, width=40, bg=c["input"], fg=c["text"], insertbackground=c["text"],
+                             font=self._f(FONT_BODY), relief="flat", highlightthickness=1,
+                             highlightbackground=c["border"], highlightcolor=c["accent"])
         val_entry.insert(0, vals[1])
         val_entry.grid(row=1, column=1, sticky=tk.EW, padx=(4, 0))
         val_entry.focus_set()
@@ -2484,10 +2456,12 @@ class FileSearcherApp:
                 self._exclude_save(ex_list)
             sub.destroy()
 
-        btn_f = ttk.Frame(sub, padding=(12, 0, 12, 8))
-        btn_f.pack(fill=tk.X)
-        ttk.Button(btn_f, text="取消", command=sub.destroy).pack(side=tk.RIGHT, padx=(4, 0))
-        ttk.Button(btn_f, text="确定", command=ok).pack(side=tk.RIGHT)
+        btn_f = tk.Frame(sub, bg=c["bg"])
+        btn_f.pack(fill=tk.X, padx=20, pady=(0, 16))
+        RoundedButton(btn_f, text="取消", command=sub.destroy, width=88, height=36, colors=c,
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(8, 0))
+        RoundedButton(btn_f, text="确定", command=ok, width=88, height=36, colors=c, kind="accent",
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT)
         val_entry.bind("<Return>", lambda e: ok())
 
     def _exclude_save(self, ex_list):
