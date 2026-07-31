@@ -866,7 +866,7 @@ def _rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
 class RoundedButton(tk.Canvas):
     """支持 hover、pressed、disabled 且兼容 config(text/state) 的圆角按钮。"""
 
-    def __init__(self, master, text="", command=None, width=120, height=42, radius=9,
+    def __init__(self, master, text="", command=None, width=120, height=48, radius=9,
                  colors=None, icon=None, **kwargs):
         self.colors = colors or THEMES["dark"]
         super().__init__(master, width=width, height=height, bd=0, highlightthickness=0,
@@ -912,7 +912,7 @@ class RoundedButton(tk.Canvas):
                       fill=fill, outline=outline, width=1)
         label = self._icon if self._icon and not self._text else self._text
         self.create_text(width / 2, height / 2, text=label, fill=fg,
-                         font=(FONT_FAMILY, 10, "bold" if self._text else "normal"))
+                         font=(FONT_FAMILY, 11, "bold" if self._text else "normal"))
 
     def configure(self, cnf=None, **kwargs):
         if cnf is None and not kwargs:
@@ -953,14 +953,14 @@ class RoundedButton(tk.Canvas):
 class RoundedSearchBox(tk.Canvas):
     """圆角搜索外壳，内嵌 Entry、搜索图标和清空热区。"""
 
-    def __init__(self, master, textvariable, colors, clear_command, height=42):
+    def __init__(self, master, textvariable, colors, clear_command, height=48):
         super().__init__(master, height=height, bd=0, highlightthickness=0,
                          bg=master.cget("bg"))
         self.colors = colors
         self._focused = False
         self.entry = tk.Entry(self, textvariable=textvariable, relief="flat", bd=0,
                               bg=colors["input"], fg=colors["text"],
-                              insertbackground=colors["text"], font=(FONT_FAMILY, 11))
+                              insertbackground=colors["text"], font=(FONT_FAMILY, 12))
         self._entry_window = self.create_window(42, height / 2, window=self.entry, anchor=tk.W)
         self._clear_command = clear_command
         self.bind("<Configure>", self._layout)
@@ -1031,6 +1031,16 @@ class FileSearcherApp:
         self._settings = IndexEngine.load_settings()
         self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
         self.colors = THEMES[self._theme_name]
+        # 系统 DPI / 缩放自适应：让 Tk 几何与字体统一跟随系统缩放，跨分辨率一致
+        try:
+            _dpi = ctypes.windll.shcore.GetDpiForSystem()
+            self.ui_scale = max(1.0, _dpi / 96.0)
+        except Exception:
+            self.ui_scale = 1.0
+        try:
+            self.root.tk.call("tk", "scaling", self.ui_scale)
+        except Exception:
+            pass
         self._configure_theme()
         self._icon_cache = WindowsShellIconCache(self.root, self.colors["surface"], size=19)
 
@@ -1093,7 +1103,7 @@ class FileSearcherApp:
         style.map("Filter.TCombobox", fieldbackground=[("readonly", c["input"])],
                   foreground=[("readonly", c["text"])], bordercolor=[("focus", c["accent"])])
         style.configure("Results.Treeview", background=c["surface"], fieldbackground=c["surface"],
-                        foreground=c["text"], borderwidth=0, relief="flat", rowheight=42,
+                        foreground=c["text"], borderwidth=0, relief="flat", rowheight=48,
                         font=(FONT_FAMILY, 10))
         style.map("Results.Treeview", background=[("selected", c["selected"])], foreground=[("selected", c["text"])])
         style.layout("Results.Treeview.Heading", [])
@@ -1122,16 +1132,16 @@ class FileSearcherApp:
         """构建固定搜索行、轻量状态行和按需展开的筛选面板。"""
         c = self.colors
         header = tk.Frame(self.root, bg=c["bg"])
-        header.pack(fill=tk.X, padx=18, pady=(18, 10))
+        header.pack(fill=tk.X, padx=24, pady=(24, 16))
         header.columnconfigure(0, weight=1)
 
-        search_row = tk.Frame(header, bg=c["bg"], height=42)
+        search_row = tk.Frame(header, bg=c["bg"], height=48)
         search_row.grid(row=0, column=0, sticky="ew")
         search_row.grid_propagate(False)
         search_row.columnconfigure(0, weight=1)
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
-        self.search_box = RoundedSearchBox(search_row, self.search_var, c, self._clear_search, height=42)
+        self.search_box = RoundedSearchBox(search_row, self.search_var, c, self._clear_search, height=48)
         self.search_box.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
@@ -1142,17 +1152,17 @@ class FileSearcherApp:
         self._show_placeholder()
 
         self.filter_btn = RoundedButton(search_row, text="筛选", command=self._toggle_filters,
-                                        width=88, height=42, colors=c)
-        self.filter_btn.grid(row=0, column=1, padx=(0, 8))
+                                        width=88, height=48, colors=c)
+        self.filter_btn.grid(row=0, column=1, padx=(0, 12))
         self.index_btn = RoundedButton(search_row, text="创建索引", command=self._toggle_index,
-                                       width=112, height=42, colors=c)
-        self.index_btn.grid(row=0, column=2, padx=(0, 8))
+                                       width=112, height=48, colors=c)
+        self.index_btn.grid(row=0, column=2, padx=(0, 12))
         self.settings_btn = RoundedButton(search_row, icon="⚙", command=self._open_settings,
-                                          width=42, height=42, colors=c)
+                                          width=48, height=48, colors=c)
         self.settings_btn.grid(row=0, column=3)
 
-        info_row = tk.Frame(header, bg=c["bg"], height=24)
-        info_row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        info_row = tk.Frame(header, bg=c["bg"], height=28)
+        info_row.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         info_row.grid_propagate(False)
         info_row.columnconfigure(0, weight=1)
         self.index_status_var = tk.StringVar(value="尚未创建索引")
@@ -1161,9 +1171,9 @@ class FileSearcherApp:
         self.index_info_var = tk.StringVar(value="尚未创建索引 · 0 项 · 未更新")
         self.result_count_var = tk.StringVar(value="0 个结果")
         tk.Label(info_row, textvariable=self.index_info_var, bg=c["bg"], fg=c["muted"],
-                 font=(FONT_FAMILY, 9), anchor=tk.W).grid(row=0, column=0, sticky="w")
+                 font=(FONT_FAMILY, 10), anchor=tk.W).grid(row=0, column=0, sticky="w")
         tk.Label(info_row, textvariable=self.result_count_var, bg=c["bg"], fg=c["muted"],
-                 font=(FONT_FAMILY, 9), anchor=tk.E).grid(row=0, column=1, sticky="e")
+                 font=(FONT_FAMILY, 10), anchor=tk.E).grid(row=0, column=1, sticky="e")
 
         self.filter_panel = tk.Frame(header, bg=c["surface"], highlightthickness=1,
                                      highlightbackground=c["border"], padx=12, pady=10)
@@ -1179,7 +1189,7 @@ class FileSearcherApp:
             cell = tk.Frame(self.filter_panel, bg=c["surface"])
             cell.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 6, 6 if column < 3 else 0))
             tk.Label(cell, text=label, bg=c["surface"], fg=c["muted"],
-                     font=(FONT_FAMILY, 9)).pack(anchor=tk.W, pady=(0, 5))
+                     font=(FONT_FAMILY, 10)).pack(anchor=tk.W, pady=(0, 5))
             box = ttk.Combobox(cell, textvariable=variable, values=values, state="readonly",
                                style="Filter.TCombobox")
             box.pack(fill=tk.X)
@@ -1239,7 +1249,7 @@ class FileSearcherApp:
         """构建圆角结果容器、自绘表头和保留原生交互的 Treeview。"""
         c = self.colors
         outer = tk.Frame(self.root, bg=c["bg"])
-        outer.pack(fill=tk.BOTH, expand=True, padx=18, pady=(0, 10))
+        outer.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 16))
         self.result_canvas = tk.Canvas(outer, bd=0, highlightthickness=0, bg=c["bg"])
         self.result_canvas.pack(fill=tk.BOTH, expand=True)
         self.result_surface = tk.Frame(self.result_canvas, bg=c["surface"])
@@ -1247,7 +1257,7 @@ class FileSearcherApp:
         self.result_surface.bind("<Configure>", lambda _e: self._draw_tree_header())
         self.result_canvas.bind("<Configure>", self._layout_result_container)
 
-        self.header_canvas = tk.Canvas(self.result_surface, height=34, bd=0, highlightthickness=0,
+        self.header_canvas = tk.Canvas(self.result_surface, height=40, bd=0, highlightthickness=0,
                                        bg=c["surface_alt"], cursor="hand2")
         self.header_canvas.pack(fill=tk.X, padx=1, pady=(1, 0))
         self.header_canvas.bind("<Configure>", lambda _e: self._draw_tree_header())
@@ -1263,12 +1273,12 @@ class FileSearcherApp:
         self.tree.heading("#0", text="")
         for col in columns:
             self.tree.heading(col, text="")
-        self.tree.column("#0", width=34, minwidth=34, stretch=False, anchor=tk.CENTER)
-        self.tree.column("name", width=250, minwidth=140)
-        self.tree.column("path", width=520, minwidth=220)
-        self.tree.column("type", width=100, minwidth=70, anchor=tk.CENTER)
-        self.tree.column("size", width=110, minwidth=80, anchor=tk.E)
-        self.tree.column("modified", width=165, minwidth=130, anchor=tk.CENTER)
+        self.tree.column("#0", width=40, minwidth=40, stretch=False, anchor=tk.CENTER)
+        self.tree.column("name", width=280, minwidth=180)
+        self.tree.column("path", width=560, minwidth=260)
+        self.tree.column("type", width=120, minwidth=92, anchor=tk.CENTER)
+        self.tree.column("size", width=130, minwidth=100, anchor=tk.E)
+        self.tree.column("modified", width=185, minwidth=150, anchor=tk.CENTER)
         self.tree.grid(row=0, column=0, sticky="nsew")
         scrollbar_y = ttk.Scrollbar(body, orient=tk.VERTICAL, style="Vertical.TScrollbar",
                                     command=self._on_tree_scroll_wrapper)
@@ -1327,7 +1337,7 @@ class FileSearcherApp:
                 text_x = x + 14
             label = labels[col] + (("  ▲" if self._sort_asc else "  ▼") if col == self._sort_col else "")
             self.header_canvas.create_text(text_x, 17, text=label, anchor=anchor, fill=c["muted"],
-                                           font=(FONT_FAMILY, 9, "bold"))
+                                           font=(FONT_FAMILY, 10, "bold"))
             if x:
                 self.header_canvas.create_line(x, 9, x, 25, fill=c["border"])
             x += width
@@ -1363,22 +1373,22 @@ class FileSearcherApp:
     def _build_statusbar(self):
         """构建固定 40px、顶部细分隔线的左右状态栏。"""
         c = self.colors
-        bar = tk.Frame(self.root, bg=c["surface"], height=40,
+        bar = tk.Frame(self.root, bg=c["surface"], height=46,
                        highlightthickness=1, highlightbackground=c["border"])
         bar.pack(fill=tk.X, side=tk.BOTTOM)
         bar.pack_propagate(False)
         bar.columnconfigure(0, weight=1)
         self.status_var = tk.StringVar(value="就绪 — 请先创建索引")
         self.status_label = tk.Label(bar, textvariable=self.status_var, bg=c["surface"], fg=c["muted"],
-                                     font=(FONT_FAMILY, 9), anchor=tk.W, padx=18)
+                                     font=(FONT_FAMILY, 10), anchor=tk.W, padx=24)
         self.status_label.grid(row=0, column=0, sticky="nsew")
-        self.progress_slot = tk.Frame(bar, bg=c["surface"], width=132, height=38)
+        self.progress_slot = tk.Frame(bar, bg=c["surface"], width=140, height=44)
         self.progress_slot.grid(row=0, column=1, sticky="ns")
         self.progress_slot.grid_propagate(False)
-        self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate", length=112)
+        self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate", length=120)
         self.status_right_var = tk.StringVar(value="0 个结果")
         tk.Label(bar, textvariable=self.status_right_var, bg=c["surface"], fg=c["muted"],
-                 font=(FONT_FAMILY, 9), anchor=tk.E, padx=18).grid(row=0, column=2, sticky="nsew")
+                 font=(FONT_FAMILY, 10), anchor=tk.E, padx=24).grid(row=0, column=2, sticky="nsew")
         bar.rowconfigure(0, weight=1)
 
     def _set_status(self, text: str, kind: str = "normal"):
