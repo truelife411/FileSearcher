@@ -1101,6 +1101,301 @@ class RoundedSearchBox(tk.Canvas):
         self._draw()
 
 
+class FileTable(tk.Canvas):
+    """自绘网格表格：行/列网格线、列宽鼠标拖动、排序表头、行选中/悬停。
+
+    行数据结构：rows = [{"result": dict, "icon": PhotoImage, "values": tuple}]
+    values 顺序与列顺序对应（不含图标列）。
+    """
+
+    HEADER_H = 44
+
+    def __init__(self, master, colors, icon_cache, font_body, font_header,
+                 on_header_click=None, on_double=None, on_right=None,
+                 on_scroll_page=None, on_col_resize=None):
+        super().__init__(master, bd=0, highlightthickness=0, bg=colors["surface"],
+                         cursor="")
+        self.colors = colors
+        self._icon_cache = icon_cache
+        self._font_body = font_body
+        self._font_header = font_header
+        self._on_header_click = on_header_click
+        self._on_double = on_double
+        self._on_right = on_right
+        self._on_scroll_page = on_scroll_page
+        self._on_col_resize = on_col_resize
+        self._cols = []            # [(key, width)]
+        self._rows = []
+        self._selected = []
+        self._hover_row = None
+        self._hover_col = None
+        self._sort_col = None
+        self._sort_asc = True
+        self._drag_key = None
+        self._drag_start_x = 0
+        self._drag_orig_w = 0
+        self._row_h = 56
+        self._labels = {}
+        try:
+            import tkinter.font as tkfont
+            self._font_body_obj = tkfont.Font(root=master.winfo_toplevel(), font=font_body)
+        except Exception:
+            self._font_body_obj = None
+        self.bind("<Configure>", lambda _e: self.redraw())
+        self.bind("<Button-1>", self._on_click)
+        self.bind("<Double-Button-1>", self._on_double_click)
+        self.bind("<Button-3>", self._on_btn3)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<ButtonRelease-1>", lambda _e: setattr(self, "_drag_key", None))
+        self.bind("<MouseWheel>", self._on_wheel)
+        self.bind("<Motion>", self._on_motion)
+        self.bind("<Leave>", lambda _e: self._set_hover(None, None))
+
+    # ============ 公共接口 ============
+
+    def set_columns(self, cols):
+        self._cols = list(cols)
+        self.redraw()
+
+    def column_width(self, key):
+        for k, w in self._cols:
+            if k == key:
+                return w
+        return 0
+
+    def set_column_width(self, key, w):
+        self._cols = [(k, max(40, w) if k == key else cw) for k, cw in self._cols]
+        if self._on_col_resize:
+            self._on_col_resize()
+        self.redraw()
+
+    def set_sort(self, col, asc):
+        self._sort_col = col
+        self._sort_asc = asc
+        self.redraw()
+
+    def set_rows(self, rows):
+        self._rows = rows
+        self._selected = []
+        self.redraw()
+
+    def set_row_h(self, h):
+        self._row_h = max(28, h)
+        self.redraw()
+
+    def selected_results(self):
+        return [self._rows[i]["result"] for i in self._selected if 0 <= i < len(self._rows)]
+
+    def select_all(self):
+        self._selected = list(range(len(self._rows)))
+        self.redraw()
+
+    # ============ 布局与命中 ============
+
+    def _col_layout(self):
+        x = 0
+        layout = []
+        for key, w in self._cols:
+            layout.append((key, x, x + w))
+            x += w
+        return layout
+
+    def _hit(self, x, y):
+        if y < self.HEADER_H:
+            for key, x0, x1 in self._col_layout():
+                if x0 <= x < x1:
+                    return ("header", key)
+            return None
+        row = (y - self.HEADER_H) // self._row_h
+        if 0 <= row < len(self._rows):
+            return ("cell", row)
+        return None
+
+    def _resize_handle_at(self, x, y):
+        """列宽拖动手柄：表头内列间竖线 ±4px（图标列除外）。"""
+        if y >= self.HEADER_H:
+            return None
+        layout = self._col_layout()
+        for i, (key, _x0, x1) in enumerate(layout):
+            if i < len(self._cols) - 1 and key != "icon" and abs(x - x1) <= 4:
+                return key
+        return None
+
+    def _truncate(self, text, max_w):
+        if self._font_body_obj is None or max_w < 20:
+            return text
+        if self._font_body_obj.measure(text) <= max_w:
+            return text
+        t = text
+        while t and self._font_body_obj.measure(t + "…") > max_w:
+            t = t[:-1]
+        return (t + "…") if t else ""
+
+    # ============ 事件 ============
+
+    def _on_click(self, event):
+        self.focus_set()
+        handle = self._resize_handle_at(event.x, event.y)
+        if handle:
+            self._drag_key = handle
+            self._drag_start_x = event.x
+            self._drag_orig_w = self.column_width(handle)
+            return
+        hit = self._hit(event.x, event.y)
+        if hit is None:
+            return
+        kind, val = hit
+        if kind == "header":
+            if self._on_header_click:
+                self._on_header_click(val)
+            return
+        row = val
+        ctrl = bool(event.state & 0x0004)
+        shift = bool(event.state & 0x0001)
+        if ctrl:
+            if row in self._selected:
+                self._selected.remove(row)
+            else:
+                self._selected.append(row)
+        elif shift and self._selected:
+            anchor = self._selected[-1]
+            lo, hi = sorted((anchor, row))
+            self._selected = list(range(lo, hi + 1))
+        else:
+            self._selected = [row]
+        self.redraw()
+
+    def _on_double_click(self, event):
+        hit = self._hit(event.x, event.y)
+        if hit and hit[0] == "cell" and self._on_double:
+            self._on_double(hit[1])
+
+    def _on_btn3(self, event):
+        hit = self._hit(event.x, event.y)
+        if hit and hit[0] == "cell":
+            row = hit[1]
+            if row not in self._selected:
+                self._selected = [row]
+                self.redraw()
+            if self._on_right:
+                self._on_right(event, row)
+
+    def _on_drag(self, event):
+        if self._drag_key:
+            delta = event.x - self._drag_start_x
+            self.set_column_width(self._drag_key, self._drag_orig_w + delta)
+
+    def _on_wheel(self, event):
+        if self._on_scroll_page:
+            self._on_scroll_page(1 if event.delta < 0 else -1)
+
+    def _on_motion(self, event):
+        if self._resize_handle_at(event.x, event.y):
+            self.configure(cursor="sb_h_double_arrow")
+        else:
+            self.configure(cursor="")
+        hit = self._hit(event.x, event.y)
+        if hit and hit[0] == "cell":
+            self._set_hover(hit[1], None)
+        else:
+            self._set_hover(None, hit[1] if hit and hit[0] == "header" else None)
+
+    def _set_hover(self, row, col):
+        if row != self._hover_row or col != self._hover_col:
+            self._hover_row = row
+            self._hover_col = col
+            self.redraw()
+
+    # ============ 绘制 ============
+
+    def redraw(self):
+        try:
+            self.winfo_exists()
+        except Exception:
+            return
+        self.delete("all")
+        w = max(2, self.winfo_width())
+        h = max(2, self.winfo_height())
+        c = self.colors
+        layout = self._col_layout()
+        self.create_rectangle(0, 0, w, h, fill=c["surface"], outline="")
+
+        # ---- 数据行 ----
+        row_h = self._row_h
+        align_map = {"name": "w", "path": "w", "type": "center", "size": "e", "modified": "center"}
+        for i, row in enumerate(self._rows):
+            y0 = self.HEADER_H + i * row_h
+            if y0 >= h:
+                break
+            y1 = y0 + row_h
+            if i in self._selected:
+                bg = c["selected"]
+            elif i == self._hover_row:
+                bg = c["hover"]
+            elif i % 2:
+                bg = c["row_alt"]
+            else:
+                bg = c["surface"]
+            self.create_rectangle(0, y0, w, y1, fill=bg, outline="")
+            if i in self._selected:
+                self.create_rectangle(0, y0, 3, y1, fill=c["accent"], outline="")
+            self.create_line(0, y1, w, y1, fill=c["border"])
+            vals = row.get("values", ())
+            icon = row.get("icon")
+            cy = (y0 + y1) / 2
+            for j, (key, x0, x1) in enumerate(layout):
+                self.create_line(x1, self.HEADER_H, x1, y1, fill=c["border"])
+                if j == 0:
+                    if icon:
+                        self.create_image((x0 + x1) / 2, cy, image=icon)
+                    continue
+                idx = j - 1
+                text = self._truncate(str(vals[idx]), max(10, x1 - x0 - 18)) if idx < len(vals) else ""
+                if not text:
+                    continue
+                anchor = align_map.get(key, "w")
+                if anchor == "w":
+                    tx = x0 + 14
+                    fg = c["text"] if key == "name" else c["muted"]
+                    font = self._font_body
+                elif anchor == "e":
+                    tx = x1 - 14
+                    fg = c["muted"]
+                    font = self._font_body
+                else:
+                    tx = (x0 + x1) / 2
+                    fg = c["muted"]
+                    font = self._font_body
+                self.create_text(tx, cy, text=text, anchor=anchor, fill=fg, font=font)
+
+        # ---- 表头 ----
+        self.create_rectangle(0, 0, w, self.HEADER_H, fill=c["surface_alt"], outline="")
+        self.create_line(0, self.HEADER_H, w, self.HEADER_H, fill=c["border"])
+        header_align = {"name": "w", "path": "w", "type": "center", "size": "e", "modified": "center"}
+        for j, (key, x0, x1) in enumerate(layout):
+            self.create_line(x1, 0, x1, self.HEADER_H, fill=c["border"])
+            if j == 0:
+                continue
+            label = self._labels.get(key, key)
+            if key == self._sort_col:
+                label = label + ("  ▲" if self._sort_asc else "  ▼")
+                fg = c["accent_hover"]
+            elif key == self._hover_col:
+                fg = c["text"]
+            else:
+                fg = c["muted"]
+            anchor = header_align.get(key, "w")
+            if anchor == "w":
+                tx = x0 + 14
+            elif anchor == "e":
+                tx = x1 - 14
+            else:
+                tx = (x0 + x1) / 2
+            self.create_text(tx, self.HEADER_H / 2, text=label, anchor=anchor, fill=fg,
+                             font=self._font_header)
+        self.configure(scrollregion=(0, 0, w, h))
+
+
 # ================================================================
 #  FileSearcherApp — GUI 主应用
 # ================================================================
@@ -1119,7 +1414,6 @@ class FileSearcherApp:
         self._results: list[dict] = []
         self._sort_col = "size"
         self._sort_asc = False
-        self._has_more = False
         self._last_query = ""
         self._last_filters = {}
         self._total_results = 0
@@ -1163,9 +1457,16 @@ class FileSearcherApp:
         self._setup_frameless()
         self._setup_tray()
 
+        # 分页状态：页大小按可视行数自适应
+        self._page = 1
+        self._page_size = self._compute_page_size()
+        self._view_resize_timer = None
+        self._layout_save_timer = None
+
         self.root.after(100, self._load_all)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.bind("<Unmap>", self._on_minimize)
+        self.root.bind("<Configure>", self._on_view_resize, add="+")
         self.root.after(150, self._ensure_maximized)
         self.root.after(1500, self._log_diag)
         if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
@@ -1574,23 +1875,23 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """构建单行搜索区：搜索框 + 索引状态 + 索引/设置按钮。"""
+        """构建单行搜索区：半宽搜索框 + 索引状态紧跟其后 + 索引/设置按钮。"""
         c = self.colors
         header = tk.Frame(self.root, bg=c["bg"])
         header.pack(fill=tk.X, padx=self._s(24), pady=(self._s(16), self._s(10)))
         header.columnconfigure(0, weight=1)
+        self._header = header
 
         row_h = self._s(40)
         search_row = tk.Frame(header, bg=c["bg"], height=row_h)
         search_row.grid(row=0, column=0, sticky="ew")
         search_row.grid_propagate(False)
-        search_row.columnconfigure(0, weight=1)
 
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
         self.search_box = RoundedSearchBox(search_row, self.search_var, c, self._clear_search,
                                            height=row_h, font_size=self._f(FONT_INPUT)[1])
-        self.search_box.grid(row=0, column=0, sticky="nsew", padx=(0, self._s(14)))
+        self.search_box.grid(row=0, column=0, sticky="w")
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
         self.search_entry.bind("<FocusIn>", self._hide_placeholder, add="+")
@@ -1598,17 +1899,18 @@ class FileSearcherApp:
         self._placeholder = "搜索文件名或完整路径…"
         self._placeholder_visible = False
         self._show_placeholder()
+        header.bind("<Configure>", lambda _e: self.root.after_idle(self._update_search_width))
 
-        # 索引状态（搜索框右侧，原信息行内容）
+        # 索引状态（紧跟在搜索框后面）
         self.index_status_var = tk.StringVar(value="尚未创建索引")
         self.index_count_var = tk.StringVar(value="0 项")
         self.index_updated_var = tk.StringVar(value="未更新")
         self.index_info_var = tk.StringVar(value="尚未创建索引")
         self._status_dot = tk.Label(search_row, text="●", bg=c["bg"], fg=c["muted_2"],
                                     font=self._f(FONT_SMALL))
-        self._status_dot.grid(row=0, column=1, sticky="e")
+        self._status_dot.grid(row=0, column=1, sticky="w", padx=(self._s(14), 0))
         tk.Label(search_row, textvariable=self.index_info_var, bg=c["bg"], fg=c["muted"],
-                 font=self._f(FONT_BODY), anchor=tk.E).grid(row=0, column=2, sticky="e",
+                 font=self._f(FONT_BODY), anchor=tk.W).grid(row=0, column=2, sticky="w",
                                                              padx=(self._s(6), self._s(14)))
 
         self.index_btn = RoundedButton(search_row, text="创建索引", command=self._toggle_index,
@@ -1619,6 +1921,15 @@ class FileSearcherApp:
                                           width=self._s(44), height=row_h, colors=c,
                                           font_size=self._f(FONT_BODY)[1])
         self.settings_btn.grid(row=0, column=4)
+
+    def _update_search_width(self):
+        """搜索框固定为界面宽度的一半（随窗口宽度联动）。"""
+        try:
+            w = max(200, self._header.winfo_width() // 2)
+            if abs(w - self.search_box.winfo_width()) > 8:
+                self.search_box.configure(width=w)
+        except Exception:
+            pass
 
     def _set_search_value(self, value: str):
         """更新搜索变量但不触发查询，用于占位符和程序化清空。"""
@@ -1648,61 +1959,53 @@ class FileSearcherApp:
         return {}
 
     def _build_tree(self):
-        """构建圆角结果容器、自绘表头、hover 高亮与保留原生交互的 Treeview。"""
+        """构建圆角结果容器、自绘网格表格（FileTable）和底部固定分页栏。"""
         c = self.colors
         outer = tk.Frame(self.root, bg=c["bg"])
-        outer.pack(fill=tk.BOTH, expand=True, padx=self._s(24), pady=(0, self._s(14)))
+        outer.pack(fill=tk.BOTH, expand=True, padx=self._s(24), pady=(0, self._s(8)))
         self.result_canvas = tk.Canvas(outer, bd=0, highlightthickness=0, bg=c["bg"])
         self.result_canvas.pack(fill=tk.BOTH, expand=True)
         self.result_surface = tk.Frame(self.result_canvas, bg=c["surface"])
         self._result_window = self.result_canvas.create_window(1, 1, window=self.result_surface, anchor=tk.NW)
-        self.result_surface.bind("<Configure>", lambda _e: self._draw_tree_header())
         self.result_canvas.bind("<Configure>", self._layout_result_container)
 
-        self.header_canvas = tk.Canvas(self.result_surface, height=self._s(44), bd=0, highlightthickness=0,
-                                       bg=c["surface_alt"], cursor="hand2")
-        self.header_canvas.pack(fill=tk.X, padx=1, pady=(1, 0))
-        self.header_canvas.bind("<Configure>", lambda _e: self._draw_tree_header(True))
-        self.header_canvas.bind("<Button-1>", self._on_header_click)
-        self.header_canvas.bind("<Motion>", self._on_header_motion)
-        self.header_canvas.bind("<Leave>", lambda _e: self._set_header_hover(None))
-        self._header_hover_col = None
+        # 自绘网格表格
+        self.table = FileTable(self.result_surface, c, self._icon_cache,
+                               self._f(FONT_BODY), self._f(FONT_HEADER, "bold"),
+                               on_header_click=self._sort_by,
+                               on_double=self._on_double_click,
+                               on_right=self._on_right_click,
+                               on_scroll_page=self._goto_page_relative,
+                               on_col_resize=self._on_col_resize)
+        self.table.pack(fill=tk.BOTH, expand=True, padx=1, pady=(1, 0))
+        self.table._labels = {"name": "文件名", "path": "路径", "type": "类型",
+                              "size": "大小", "modified": "修改时间"}
+        self.table._row_h = self._s(56)
+        self._default_cols = [("name", self._s(360)), ("path", self._s(640)),
+                              ("type", self._s(140)), ("size", self._s(150)),
+                              ("modified", self._s(200))]
+        self.table._cols = [("icon", self._s(44))] + list(self._default_cols)
 
-        body = tk.Frame(self.result_surface, bg=c["surface"])
-        body.pack(fill=tk.BOTH, expand=True, padx=1, pady=(0, 1))
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(0, weight=1)
-        columns = ("name", "path", "type", "size", "modified")
-        self.tree = ttk.Treeview(body, columns=columns, show="tree headings", selectmode="extended",
-                                 style="Results.Treeview")
-        self.tree.heading("#0", text="")
-        for col in columns:
-            self.tree.heading(col, text="")
-        self.tree.column("#0", width=self._s(44), minwidth=self._s(44), stretch=False, anchor=tk.CENTER)
-        self.tree.column("name", width=self._s(320), minwidth=self._s(200))
-        self.tree.column("path", width=self._s(600), minwidth=self._s(280))
-        self.tree.column("type", width=self._s(130), minwidth=self._s(100), anchor=tk.CENTER)
-        self.tree.column("size", width=self._s(150), minwidth=self._s(110), anchor=tk.E)
-        self.tree.column("modified", width=self._s(200), minwidth=self._s(160), anchor=tk.CENTER)
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        scrollbar_y = ttk.Scrollbar(body, orient=tk.VERTICAL, style="Vertical.TScrollbar",
-                                    command=self._on_tree_scroll_wrapper)
-        scrollbar_y.grid(row=0, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=scrollbar_y.set)
-        self.tree.tag_configure("odd", background=c["surface"])
-        self.tree.tag_configure("even", background=c["row_alt"])
-        self.tree.tag_configure("hover", background=c["hover"])
-        self.tree.bind("<Double-1>", self._on_double_click)
-        self.tree.bind("<Button-3>", self._on_right_click)
-        self.tree.bind("<MouseWheel>", lambda _e: self.root.after_idle(self._on_tree_scroll))
-        self.tree.bind("<Configure>", lambda _e: self._draw_tree_header(True))
-        self._hover_iid = None
-        self._hover_tag = "odd"
-        self.tree.bind("<Motion>", self._on_tree_motion)
-        self.tree.bind("<Leave>", self._on_tree_leave)
+        # 底部固定分页栏
+        pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(42))
+        pager.pack(fill=tk.X, padx=1, pady=(1, 1))
+        pager.pack_propagate(False)
+        self.pager_prev = RoundedButton(pager, text="‹ 上一页",
+                                        command=lambda: self._goto_page_relative(-1),
+                                        width=self._s(108), height=self._s(32), colors=c,
+                                        font_size=self._f(FONT_BODY)[1])
+        self.pager_prev.pack(side=tk.LEFT, padx=self._s(8))
+        self.page_info_var = tk.StringVar(value="第 1 / 1 页")
+        tk.Label(pager, textvariable=self.page_info_var, bg=c["surface"], fg=c["muted"],
+                 font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=self._s(6))
+        self.pager_next = RoundedButton(pager, text="下一页 ›",
+                                        command=lambda: self._goto_page_relative(1),
+                                        width=self._s(108), height=self._s(32), colors=c,
+                                        font_size=self._f(FONT_BODY)[1])
+        self.pager_next.pack(side=tk.LEFT, padx=self._s(6))
 
         # 空状态：放大镜图标 + 主文案 + 副文案
-        empty_frame = tk.Frame(body, bg=c["surface"])
+        empty_frame = tk.Frame(self.result_surface, bg=c["surface"])
         icon_size = self._s(56)
         self._empty_icon = tk.Canvas(empty_frame, width=icon_size, height=icon_size, bd=0,
                                      highlightthickness=0, bg=c["surface"])
@@ -1714,54 +2017,77 @@ class FileSearcherApp:
                                      width=max(3, 4 * s), capstyle=tk.ROUND)
         tk.Label(empty_frame, text="没有匹配的结果", bg=c["surface"], fg=c["muted"],
                  font=self._f(FONT_LG)).pack(pady=(self._s(14), self._s(4)))
-        tk.Label(empty_frame, text="换个关键词或调整筛选条件试试", bg=c["surface"], fg=c["muted_2"],
+        tk.Label(empty_frame, text="换个关键词试试", bg=c["surface"], fg=c["muted_2"],
                  font=self._f(FONT_SMALL)).pack()
         self.empty_state = empty_frame
 
-    def _on_tree_motion(self, event):
-        """鼠标悬停行高亮（基于 tag 的 hover 效果）。"""
-        iid = self.tree.identify_row(event.y)
-        if iid == self._hover_iid:
+    def _show_empty_state(self, show: bool):
+        if show:
+            self.empty_state.place(in_=self.table, relx=0.5, rely=0.45, anchor=tk.CENTER)
+        else:
+            self.empty_state.place_forget()
+
+    # ---- 分页 ----
+
+    def _compute_page_size(self) -> int:
+        """页大小 = 可视行数（表头下方可容纳的行数），保证无页内滚动。"""
+        try:
+            h = self.table.winfo_height() - FileTable.HEADER_H
+            return max(5, h // self.table._row_h)
+        except Exception:
+            return 20
+
+    def _total_pages(self) -> int:
+        if self._total_results <= 0:
+            return 1
+        return max(1, (self._total_results + self._page_size - 1) // self._page_size)
+
+    def _goto_page(self, page: int):
+        total_pages = self._total_pages()
+        page = max(1, min(total_pages, page))
+        if page != self._page:
+            self._page = page
+            self._run_query(self._search_text())
+        else:
+            self._update_result_status()
+
+    def _goto_page_relative(self, delta: int):
+        self._goto_page(self._page + delta)
+
+    def _on_col_resize(self):
+        """列宽拖动后防抖保存布局。"""
+        if getattr(self, "_layout_save_timer", None) is not None:
+            try:
+                self.root.after_cancel(self._layout_save_timer)
+            except Exception:
+                pass
+        self._layout_save_timer = self.root.after(500, self._save_layout)
+
+    def _on_view_resize(self, event=None):
+        """窗口尺寸变化：页大小自适应（不动字号，只重查当前页）。"""
+        if event is not None and getattr(event, "widget", None) is not self.root:
             return
-        self._restore_hover()
-        if iid:
+        if getattr(self, "_view_resize_timer", None) is not None:
             try:
-                tags = self.tree.item(iid, "tags")
-                self._hover_tag = tags[0] if tags else "odd"
-                self.tree.item(iid, tags=("hover",))
+                self.root.after_cancel(self._view_resize_timer)
             except Exception:
                 pass
-        self._hover_iid = iid
+        self._view_resize_timer = self.root.after(300, self._apply_view_resize)
 
-    def _on_tree_leave(self, _event=None):
-        self._restore_hover()
-
-    def _restore_hover(self):
-        if self._hover_iid:
-            try:
-                self.tree.item(self._hover_iid, tags=(self._hover_tag,))
-            except Exception:
-                pass
-        self._hover_iid = None
-
-    def _on_header_motion(self, event):
-        """表头悬停列高亮。"""
-        x = event.x + self.header_canvas.canvasx(0)
-        current = 0
-        col = None
-        for c, width in self._tree_column_layout():
-            if current <= x < current + width:
-                col = c
-                break
-            current += width
-        if col != self._header_hover_col:
-            self._header_hover_col = col
-            self._draw_tree_header()
-
-    def _set_header_hover(self, col):
-        """表头鼠标移出时清除悬停高亮。"""
-        self._header_hover_col = col
-        self._draw_tree_header()
+    def _apply_view_resize(self):
+        self._view_resize_timer = None
+        try:
+            if self.root.state() in ("withdrawn", "iconic"):
+                return
+        except Exception:
+            pass
+        new_ps = self._compute_page_size()
+        if new_ps != getattr(self, "_page_size", 0):
+            self._page_size = new_ps
+            if IndexEngine.index_exists():
+                self._run_query(self._search_text())
+            else:
+                self._update_result_status()
 
     def _layout_result_container(self, event):
         if event.width < 4 or event.height < 4:
@@ -1772,65 +2098,6 @@ class FileSearcherApp:
                               fill=self.colors["surface"], outline=self.colors["border"],
                               width=1, tags="container")
         self.result_canvas.tag_lower(shape)
-
-    def _tree_column_layout(self, force: bool = False):
-        """计算列布局；hover 重绘等非布局变化时使用缓存，避免列宽抖动。"""
-        if force or getattr(self, "_col_layout", None) is None:
-            available = max(1, self.header_canvas.winfo_width() - 11)
-            fixed = {
-                "type": self.tree.column("type", "width"),
-                "size": self.tree.column("size", "width"),
-                "modified": self.tree.column("modified", "width"),
-            }
-            flexible = max(420, available - sum(fixed.values()))
-            name_width = max(200, int(flexible * 0.34))
-            path_width = max(240, flexible - name_width)
-            self.tree.column("name", width=name_width - self.tree.column("#0", "width"))
-            self.tree.column("path", width=path_width)
-            self._col_layout = [("name", name_width), ("path", path_width), *fixed.items()]
-        return self._col_layout
-
-    def _draw_tree_header(self, force: bool = False):
-        if not hasattr(self, "header_canvas"):
-            return
-        c = self.colors
-        self.header_canvas.delete("all")
-        labels = {"name": "文件名", "path": "路径", "type": "类型", "size": "大小", "modified": "修改时间"}
-        x = 0
-        for col, width in self._tree_column_layout(force):
-            anchor = tk.E if col == "size" else (tk.CENTER if col in ("type", "modified") else tk.W)
-            if col == "name":
-                text_x = x + self.tree.column("#0", "width") + 16
-            elif anchor == tk.E:
-                text_x = x + width - 16
-            elif anchor == tk.CENTER:
-                text_x = x + width / 2
-            else:
-                text_x = x + 16
-            if col == self._sort_col:
-                fg = c["accent_hover"]
-                label = labels[col] + ("  ▲" if self._sort_asc else "  ▼")
-            else:
-                fg = c["muted"]
-                label = labels[col]
-            if col == self._header_hover_col:
-                fg = c["text"]
-            cy = self._s(22)
-            self.header_canvas.create_text(text_x, cy, text=label, anchor=anchor, fill=fg,
-                                           font=self._f(FONT_HEADER, "bold"))
-            if x:
-                self.header_canvas.create_line(x, self._s(10), x, self._s(34), fill=c["border"])
-            x += width
-        self.header_canvas.configure(scrollregion=(0, 0, x, self._s(44)))
-
-    def _on_header_click(self, event):
-        x = event.x + self.header_canvas.canvasx(0)
-        current = 0
-        for col, width in self._tree_column_layout():
-            if current <= x < current + width:
-                self._sort_by(col)
-                return
-            current += width
 
     def _build_context_menu(self):
         """构建与主题一致的右键菜单。"""
@@ -2273,14 +2540,14 @@ class FileSearcherApp:
         return "break" if event is not None else None
 
     def _run_query(self, query: str, filters: dict | None = None):
-        """统一执行搜索/筛选查询，并同步计数、分页和状态。"""
+        """统一执行搜索查询：分页拉取当前页并刷新表格与分页栏。"""
         filters = (filters if filters is not None else self._current_filters()).copy()
         self._last_query = query
         self._last_filters = filters
         if not IndexEngine.index_exists():
             self._results = []
             self._total_results = 0
-            self._has_more = False
+            self._page = 1
             self._refresh_tree()
             self._update_result_status()
             self._set_status("请先创建索引再搜索", "warning")
@@ -2289,17 +2556,19 @@ class FileSearcherApp:
         self._set_loading(True)
         try:
             self._total_results = IndexEngine.result_count(query, filters=filters)
+            total_pages = self._total_pages()
+            self._page = max(1, min(self._page, total_pages))
+            offset = (self._page - 1) * self._page_size
             if query:
                 self._results = IndexEngine.search(
-                    query, limit=PAGE_SIZE, offset=0, order_col=self._sort_col,
-                    order_desc=not self._sort_asc, filters=filters,
+                    query, limit=self._page_size, offset=offset,
+                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
                 )
             else:
                 self._results = IndexEngine.load_all(
-                    limit=PAGE_SIZE, offset=0, order_col=self._sort_col,
-                    order_desc=not self._sort_asc, filters=filters,
+                    limit=self._page_size, offset=offset,
+                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
                 )
-            self._has_more = len(self._results) < self._total_results
             self._refresh_tree()
             self._update_sort_heading()
             self._update_result_status()
@@ -2307,14 +2576,16 @@ class FileSearcherApp:
             self._set_loading(False)
 
     def _update_result_status(self):
-        """统一更新状态栏计数与状态文字。"""
+        """统一更新状态栏计数、分页信息与状态文字。"""
         shown = len(self._results)
         total = self._total_results
-        self.status_right_var.set(f"已显示 {shown:,} / {total:,}")
+        total_pages = self._total_pages()
+        self.page_info_var.set(f"第 {self._page} / {total_pages} 页 · 共 {total:,} 个结果")
+        self.status_right_var.set(f"第 {self._page} / {total_pages} 页")
         if self._last_query:
-            self._set_status(f"搜索「{self._last_query}」— 已显示 {shown:,} / {total:,} 个结果")
+            self._set_status(f"搜索「{self._last_query}」— 第 {self._page} / {total_pages} 页，共 {total:,} 个结果")
         else:
-            self._set_status(f"已显示 {shown:,} / {total:,} 个结果")
+            self._set_status(f"第 {self._page} / {total_pages} 页，共 {total:,} 个结果")
 
     # ================================================================
     #  排除列表管理
@@ -2487,14 +2758,13 @@ class FileSearcherApp:
     # ================================================================
 
     def _refresh_tree(self):
-        """清空并重新填充列表，空结果使用容器中央的真实空状态。"""
-        self.tree.delete(*self.tree.get_children())
-        self._item_to_result = {}
-        if not self._results:
-            self.empty_state.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-            return
-        self.empty_state.place_forget()
-        self._append_to_tree(self._results)
+        """将当前页结果填充到自绘表格，空结果显示空状态。"""
+        rows = []
+        for result in self._results:
+            icon = self._icon_cache.get(result["path"], bool(result.get("is_dir")))
+            rows.append({"result": result, "icon": icon, "values": self._tree_item_values(result)})
+        self.table.set_rows(rows)
+        self._show_empty_state(not self._results)
 
     def _tree_item_values(self, result: dict):
         is_dir = bool(result.get("is_dir"))
@@ -2510,44 +2780,29 @@ class FileSearcherApp:
 
     def _get_selected_paths(self) -> list[str]:
         """获取所有选中文件的完整路径列表。"""
-        sel = self.tree.selection()
-        paths = []
-        for iid in sel:
-            result = self._item_to_result.get(iid)
-            if result:
-                paths.append(result["path"])
-        return paths
+        return [r["path"] for r in self.table.selected_results()]
 
-    def _on_double_click(self, event):
+    def _on_double_click(self, row_idx: int):
         """双击文件名：检查文件是否存在后打开。"""
-        path = self._get_selected_path()
-        if path:
+        if 0 <= row_idx < len(self._results):
+            path = self._results[row_idx]["path"]
             if not os.path.exists(path):
                 messagebox.showwarning("文件不存在", "文件可能已被移动或删除：\n" + path)
                 return
             open_with_default(path)
 
-    def _on_right_click(self, event):
-        """右键：不丢失多选，并根据选中数量置灰部分菜单项。"""
-        row = self.tree.identify_row(event.y)
-        current_sel = self.tree.selection()
-        if row not in self._item_to_result:
+    def _on_right_click(self, event, row_idx: int):
+        """右键：选中行已由表格处理，根据选中数量置灰部分菜单项。"""
+        if not (0 <= row_idx < len(self._results)):
             return
-        # 如果右键点击的行不在当前选中列表中，则只选这一行
-        if row and row not in current_sel:
-            self.tree.selection_set(row)
-            current_sel = (row,)
-
-        # 根据选中数量设置菜单项状态
-        multi = len(current_sel) > 1
+        multi = len(self.table.selected_results()) > 1
         self._ctx_menu.entryconfig("打开", state="disabled" if multi else "normal")
         self._ctx_menu.entryconfig("打开所在文件夹", state="disabled" if multi else "normal")
         self._ctx_menu.entryconfig("重命名", state="disabled" if multi else "normal")
         # 删除类始终可用
         self._ctx_menu.entryconfig("删除到回收站", state="normal")
         self._ctx_menu.entryconfig("彻底删除", state="normal")
-
-        if current_sel:
+        if self.table.selected_results():
             self._ctx_menu.post(event.x_root, event.y_root)
 
     def _open_selected(self):
@@ -2611,12 +2866,11 @@ class FileSearcherApp:
             return
         try:
             new_path = rename_file(path, new_name)
-            sel = self.tree.selection()
-            if sel:
-                r = self._item_to_result.get(sel[0])
-                if r:
-                    r["name"] = new_name
-                    r["path"] = new_path
+            selected = self.table.selected_results()
+            if selected:
+                r = selected[0]
+                r["name"] = new_name
+                r["path"] = new_path
             self._refresh_tree()
             self.status_var.set(f"已重命名: {old_name} → {new_name}")
         except Exception as e:
@@ -2689,7 +2943,6 @@ class FileSearcherApp:
         self._results = [f for f in self._results if f["path"] != path]
         if len(self._results) < before:
             self._total_results = max(0, self._total_results - 1)
-            self._has_more = len(self._results) < self._total_results
 
     # ================================================================
     #  拖拽到外部程序
@@ -2699,13 +2952,13 @@ class FileSearcherApp:
         """设置文件拖拽功能（依赖 tkdnd 库）。"""
         try:
             self.root.tk.call("package", "require", "tkdnd")
-            self.root.tk.eval(f"tkdnd::drag_source register {self.tree._w} DND_Files")
+            self.root.tk.eval(f"tkdnd::drag_source register {self.table._w} DND_Files")
             self._dnd_cb = self.root.register(self._on_dnd_data)
-            self.root.tk.eval(f"tkdnd::drag_source handler {self.tree._w} drag {self._dnd_cb}")
+            self.root.tk.eval(f"tkdnd::drag_source handler {self.table._w} drag {self._dnd_cb}")
             self._dnd_ok = True
         except tk.TclError:
             self._dnd_ok = False
-            self.tree.bind("<B1-Motion>", self._on_drag_fallback)
+            self.table.bind("<B1-Motion>", self._on_drag_fallback)
 
     def _on_dnd_data(self, *args):
         """拖拽时返回文件路径（格式化为 tkdnd 需要的格式）。"""
@@ -2726,80 +2979,21 @@ class FileSearcherApp:
         self._drag_started = False
 
     # ================================================================
-    #  无限滚动加载
-    # ================================================================
-
-    def _on_tree_scroll_wrapper(self, *args):
-        """拦截滚动条事件，同时调用原始滚动和加载更多检测。"""
-        self.tree.yview(*args)
-        self._on_tree_scroll()
-
-    def _load_more(self):
-        """按当前关键词、筛选和排序加载下一页。"""
-        if not self._has_more or self._loading_more:
-            return
-        self._loading_more = True
-        try:
-            offset = len(self._results)
-            query = self._last_query
-            filters = self._last_filters
-            if query:
-                more = IndexEngine.search(
-                    query, limit=PAGE_SIZE, offset=offset,
-                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
-                )
-            else:
-                more = IndexEngine.load_all(
-                    limit=PAGE_SIZE, offset=offset,
-                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
-                )
-            if more:
-                self._results.extend(more)
-                self._append_to_tree(more)
-            self._has_more = len(self._results) < self._total_results
-            self._update_result_status()
-        finally:
-            self._loading_more = False
-
-    def _append_to_tree(self, items):
-        """追加结果，使用 Shell 图标和基于全局行号的交替行色。"""
-        self.empty_state.place_forget()
-        start = len(self._item_to_result)
-        for index, result in enumerate(items, start=start):
-            icon = self._icon_cache.get(result["path"], bool(result.get("is_dir")))
-            tag = "even" if index % 2 else "odd"
-            iid = self.tree.insert(
-                "", tk.END, text="", image=icon,
-                values=self._tree_item_values(result), tags=(tag,),
-            )
-            self._item_to_result[iid] = result
-
-    def _on_tree_scroll(self, *args):
-        """检测滚动条是否到达底部（>= 95%），触发加载更多。"""
-        if not self._has_more or self._loading_more:
-            return
-        try:
-            _, bottom = self.tree.yview()
-            if bottom >= 0.95:
-                self.root.after(100, self._load_more)
-        except Exception:
-            pass
-
-    # ================================================================
     #  排序
     # ================================================================
 
     def _update_sort_heading(self):
-        """刷新自绘表头的当前排序箭头。"""
-        self._draw_tree_header()
+        """刷新表格表头的当前排序箭头。"""
+        self.table.set_sort(self._sort_col, self._sort_asc)
 
     def _sort_by(self, col: str):
-        """点击列头排序，并按当前关键词和筛选重新查询第一页。"""
+        """点击列头排序，并按当前关键词重新查询第一页。"""
         if self._sort_col == col:
             self._sort_asc = not self._sort_asc
         else:
             self._sort_col = col
             self._sort_asc = True
+        self._page = 1
         self._run_query(self._search_text())
 
     def _bind_shortcuts(self):
@@ -2809,16 +3003,16 @@ class FileSearcherApp:
         self.root.bind("<Control-f>", self._focus_search, add="+")
         self.root.bind("<Control-F>", self._focus_search, add="+")
         self.root.bind("<Escape>", self._clear_search, add="+")
-        self.tree.bind("<Return>", lambda _e: (self._open_selected(), "break")[1])
-        self.tree.bind("<Control-a>", self._select_all_results)
-        self.tree.bind("<Control-A>", self._select_all_results)
-        self.tree.bind("<Control-c>", lambda _e: (self._copy_path(), "break")[1])
-        self.tree.bind("<Control-C>", lambda _e: (self._copy_path(), "break")[1])
-        self.tree.bind("<Control-x>", lambda _e: (self._cut_path(), "break")[1])
-        self.tree.bind("<Control-X>", lambda _e: (self._cut_path(), "break")[1])
-        self.tree.bind("<Delete>", lambda _e: (self._delete_file_recycle(), "break")[1])
-        self.tree.bind("<Shift-Delete>", lambda _e: (self._delete_file_permanent(), "break")[1])
-        self.tree.bind("<Alt-Return>", lambda _e: (self._open_file_location_selected(), "break")[1])
+        self.table.bind("<Return>", lambda _e: (self._open_selected(), "break")[1])
+        self.table.bind("<Control-a>", self._select_all_results)
+        self.table.bind("<Control-A>", self._select_all_results)
+        self.table.bind("<Control-c>", lambda _e: (self._copy_path(), "break")[1])
+        self.table.bind("<Control-C>", lambda _e: (self._copy_path(), "break")[1])
+        self.table.bind("<Control-x>", lambda _e: (self._cut_path(), "break")[1])
+        self.table.bind("<Control-X>", lambda _e: (self._cut_path(), "break")[1])
+        self.table.bind("<Delete>", lambda _e: (self._delete_file_recycle(), "break")[1])
+        self.table.bind("<Shift-Delete>", lambda _e: (self._delete_file_permanent(), "break")[1])
+        self.table.bind("<Alt-Return>", lambda _e: (self._open_file_location_selected(), "break")[1])
 
     def _focus_search(self, _event=None):
         """聚焦搜索框并全选真实搜索文字。"""
@@ -2830,9 +3024,7 @@ class FileSearcherApp:
 
     def _select_all_results(self, _event=None):
         """仅在结果列表中全选有效结果行。"""
-        items = tuple(self._item_to_result)
-        if items:
-            self.tree.selection_set(items)
+        self.table.select_all()
         return "break"
 
     # ================================================================
@@ -2841,21 +3033,24 @@ class FileSearcherApp:
 
     def _load_layout(self):
         """从 JSON 文件恢复上次的列宽。"""
-        if not IndexEngine.LAYOUT_FILE.exists():
+        if not IndexEngine.LAYOUT_FILE.exists() or not hasattr(self, "table"):
             return
         try:
             data = json.loads(IndexEngine.LAYOUT_FILE.read_text(encoding="utf-8"))
-            for col in ("name", "path", "type", "size", "modified"):
-                if col in data:
-                    self.tree.column(col, width=data[col])
+            cols = [("icon", self._s(44))]
+            for key, default_w in self._default_cols:
+                cols.append((key, int(data.get(key, default_w))))
+            self.table._cols = cols
+            self.table.redraw()
         except Exception:
             pass
 
     def _save_layout(self):
-        """将当前列宽保存到 JSON 文件。"""
+        """将当前列宽保存到 JSON 文件（拖动列宽后防抖调用）。"""
         data = {}
-        for col in ("name", "path", "type", "size", "modified"):
-            data[col] = self.tree.column(col, "width")
+        for key, w in self.table._cols:
+            if key != "icon":
+                data[key] = w
         try:
             IndexEngine.LAYOUT_FILE.write_text(
                 json.dumps(data, ensure_ascii=False), encoding="utf-8")
