@@ -1137,7 +1137,8 @@ class FileSearcherApp:
             self._dpi_scale = max(1.0, _dpi / 96.0)
         except Exception:
             self._dpi_scale = 1.0
-        self._font_scale = 0.5  # 整体字号/尺寸系数（0.5 = 用户要求的一半）
+        # 固定字号：正文固定 25pt（当前最大化 27pt 再小 2 号），不再随窗口缩放
+        self._font_scale = 25 / (FONT_BODY * self._dpi_scale)
         try:
             self.root.tk.call("tk", "scaling", 4 / 3)  # 固定为标准 96dpi 行为
         except Exception:
@@ -1152,7 +1153,6 @@ class FileSearcherApp:
         self._tb_hit_rects = []
         self._dbl_click_flag = False
         self._orig_wndproc = None
-        self._resize_timer = None
 
         self._path_options = self._build_path_options()
         self._build_ui()
@@ -1163,7 +1163,6 @@ class FileSearcherApp:
         self.root.after(100, self._load_all)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.bind("<Unmap>", self._on_minimize)
-        self.root.bind("<Configure>", self._on_window_resize, add="+")
         self.root.after(150, self._ensure_maximized)
         self.root.after(1500, self._log_diag)
         if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
@@ -1214,40 +1213,6 @@ class FileSearcherApp:
     def _f(self, base_pt: int, weight: str = "normal"):
         """字号 pt × ui_scale × DPI 比例 × 字号系数的字体元组。"""
         return (FONT_FAMILY, max(8, int(base_pt * self.ui_scale * self._dpi_scale * self._font_scale)), weight)
-
-    def _compute_window_scale(self) -> float:
-        """窗口宽度 → 缩放因子（1150 基准，0.8 ~ 1.8 封顶）。"""
-        try:
-            w = self.root.winfo_width()
-        except Exception:
-            return 1.0
-        if w < 120:
-            return 1.0
-        return max(0.8, min(1.8, w / 1150.0))
-
-    def _on_window_resize(self, event=None):
-        """窗口尺寸变化：防抖 280ms 后重算缩放，变化明显则重建界面。"""
-        if event is not None and getattr(event, "widget", None) is not self.root:
-            return
-        if self._resize_timer is not None:
-            try:
-                self.root.after_cancel(self._resize_timer)
-            except Exception:
-                pass
-        self._resize_timer = self.root.after(280, self._apply_window_scale)
-
-    def _apply_window_scale(self):
-        self._resize_timer = None
-        try:
-            if self.root.state() in ("withdrawn", "iconic"):
-                return
-        except Exception:
-            pass
-        factor = self._compute_window_scale()
-        new_scale = factor
-        if abs(new_scale - self.ui_scale) / max(0.01, self.ui_scale) > 0.03:
-            self.ui_scale = new_scale
-            self._rebuild_ui()
 
     def _rebuild_ui(self):
         """按新的 ui_scale 重建全部主界面，保留搜索词、筛选与结果。"""
@@ -1386,9 +1351,8 @@ class FileSearcherApp:
             self._tb_buttons.append(btn)
             return btn
 
-        # 右侧按钮从右往左：关闭 → 最大化/还原 → 最小化
+        # 右侧按钮从右往左：关闭 → 最小化（程序启动即最大化，无需最大化按钮）
         _make_tb_btn("✕", hover_bg="#C42B2B", command=self._on_close)
-        _make_tb_btn("□", command=self._toggle_maximize)
         _make_tb_btn("—", command=self._on_close)
         # 双击标题栏空白处：铺满/还原
         bar.bind("<Double-Button-1>", self._toggle_maximize)
