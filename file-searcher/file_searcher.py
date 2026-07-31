@@ -1258,7 +1258,7 @@ class FileSearcherApp:
         body.rowconfigure(0, weight=1)
         body.columnconfigure(0, weight=1)
         columns = ("name", "path", "type", "size", "modified")
-        self.tree = ttk.Treeview(body, columns=columns, show="tree", selectmode="extended",
+        self.tree = ttk.Treeview(body, columns=columns, show="tree headings", selectmode="extended",
                                  style="Results.Treeview")
         self.tree.heading("#0", text="")
         for col in columns:
@@ -1317,7 +1317,14 @@ class FileSearcherApp:
         x = 0
         for col, width in self._tree_column_layout():
             anchor = tk.E if col == "size" else (tk.CENTER if col in ("type", "modified") else tk.W)
-            text_x = x + width - 12 if anchor == tk.E else (x + width / 2 if anchor == tk.CENTER else x + 14)
+            if col == "name":
+                text_x = x + self.tree.column("#0", "width") + 14
+            elif anchor == tk.E:
+                text_x = x + width - 12
+            elif anchor == tk.CENTER:
+                text_x = x + width / 2
+            else:
+                text_x = x + 14
             label = labels[col] + (("  ▲" if self._sort_asc else "  ▼") if col == self._sort_col else "")
             self.header_canvas.create_text(text_x, 17, text=label, anchor=anchor, fill=c["muted"],
                                            font=(FONT_FAMILY, 9, "bold"))
