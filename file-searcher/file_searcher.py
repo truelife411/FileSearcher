@@ -1126,10 +1126,11 @@ class FileSearcherApp:
         self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
         self.colors = THEMES[self._theme_name]
 
-        # 缩放体系：基础 DPI 因子启动时固定；ui_scale = DPI × 窗口宽度因子（字体随窗口缩放）
+        # 缩放体系：tk scaling 用系统 DPI/72（1pt = DPI/72 px，与 Windows 标准一致）；
+        # ui_scale 仅由窗口宽度驱动（1280 基准 0.8~1.4），字号 pt = 基础 pt × ui_scale
         try:
             _dpi = ctypes.windll.shcore.GetDpiForSystem()
-            self._base_scale = max(1.0, _dpi / 96.0)
+            self._base_scale = max(1.0, _dpi / 72.0)
         except Exception:
             self._base_scale = 1.0
         try:
@@ -1137,7 +1138,7 @@ class FileSearcherApp:
         except Exception:
             pass
         self._window_scale = 1.0
-        self.ui_scale = self._base_scale
+        self.ui_scale = 1.0
 
         # 自绘标题栏 + 无边框窗口（Windows 专属，失败自动回退原生标题栏）
         self._frameless = False
@@ -1212,8 +1213,13 @@ class FileSearcherApp:
 
     def _apply_window_scale(self):
         self._resize_timer = None
+        try:
+            if self.root.state() in ("withdrawn", "iconic"):
+                return
+        except Exception:
+            pass
         factor = self._compute_window_scale()
-        new_scale = self._base_scale * factor
+        new_scale = factor
         if abs(new_scale - self.ui_scale) / max(0.01, self.ui_scale) > 0.03:
             self.ui_scale = new_scale
             self._rebuild_ui()
@@ -1499,7 +1505,7 @@ class FileSearcherApp:
             pass
 
     def _maximize_to_workarea(self):
-        """将窗口铺满工作区（排除任务栏）。"""
+        """将窗口铺满工作区（排除任务栏）。用 Tk geometry 设置，避免被内部布局重置。"""
         if sys.platform != "win32":
             return
         try:
@@ -1507,10 +1513,10 @@ class FileSearcherApp:
             user32 = ctypes.windll.user32
             rect = wintypes.RECT()
             user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
-            hwnd = self.root.winfo_id()
-            user32.SetWindowPos(hwnd, 0, rect.left, rect.top,
-                                rect.right - rect.left, rect.bottom - rect.top,
-                                0x0040)  # SWP_SHOWWINDOW
+            w = rect.right - rect.left
+            h = rect.bottom - rect.top
+            self.root.geometry(f"{w}x{h}+{rect.left}+{rect.top}")
+            self.root.update_idletasks()
             self._normal_rect = None
         except Exception:
             pass
@@ -1528,7 +1534,8 @@ class FileSearcherApp:
             h = int(min(800, wa_h * 0.88))
             x = rect.left + (wa_w - w) // 2
             y = rect.top + (wa_h - h) // 2
-            user32.SetWindowPos(self.root.winfo_id(), 0, x, y, w, h, 0x0040)
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+            self.root.update_idletasks()
             self._normal_rect = (x, y, w, h)
         except Exception:
             pass
