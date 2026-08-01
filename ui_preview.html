@@ -3,471 +3,799 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>File Searcher · 新界面设计稿</title>
+<title>File Searcher · 全新界面设计稿「霁青」</title>
 <style>
-  :root {
-    --bg: #0E1116;
-    --surface: #171B22;
-    --surface-2: #1F252E;
-    --surface-3: #262D38;
-    --border: #2A3140;
-    --border-strong: #374052;
-    --text: #ECF0F7;
-    --muted: #8B94A7;
-    --muted-2: #5F6A7E;
-    --accent: #5B7CFA;
-    --accent-hover: #7A93FC;
-    --accent-deep: #4058C4;
-    --selected: #2E4570;
-    --row-alt: #1A1F28;
-    --success: #4ADE80;
-    --warning: #F5B84C;
-    --error: #F26D6D;
-    --radius: 12px;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; }
+  html { background: #06080A; }
   body {
     font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
-    background: #08090D;
-    color: var(--text);
-    display: flex; align-items: center; justify-content: center;
-    padding: 28px;
+    color: #E9F0F3;
+    padding: 48px 40px 80px;
     -webkit-font-smoothing: antialiased;
   }
+  .mono { font-family: Consolas, "Cascadia Mono", monospace; }
 
-  /* ============ 窗口 ============ */
-  .win {
-    width: 1180px; height: 760px;
-    background: var(--bg);
-    border-radius: 14px;
-    box-shadow: 0 24px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
+  /* ================= 页面结构 ================= */
+  .page-head { max-width: 1440px; margin: 0 auto 40px; }
+  .page-head h1 { font-size: 30px; font-weight: 600; letter-spacing: .5px; }
+  .page-head h1 em { font-style: normal; color: #3FC1B0; }
+  .page-head p { margin-top: 12px; font-size: 14px; color: #8B99A5; line-height: 1.8; max-width: 860px; }
+  .spec-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .spec { font-size: 12px; color: #9AA8B4; background: #12181E; border: 1px solid #232E38; border-radius: 8px; padding: 6px 12px; }
+  .spec b { color: #DCE5EA; font-weight: 600; }
+
+  section { max-width: 1440px; margin: 0 auto 64px; }
+  .sec-title { font-size: 19px; font-weight: 600; margin-bottom: 6px; }
+  .sec-desc { font-size: 13px; color: #7E8C98; margin-bottom: 22px; }
+
+  /* ================= 方向备选 ================= */
+  .dirs { display: flex; gap: 22px; flex-wrap: wrap; }
+  .dir-card { width: 360px; background: #0C1014; border: 1px solid #1F2932; border-radius: 16px; overflow: hidden; }
+  .dir-card.recommended { border-color: rgba(63,193,176,.55); box-shadow: 0 0 0 3px rgba(63,193,176,.12), 0 18px 50px rgba(0,0,0,.45); }
+  .dir-view { height: 210px; padding: 14px 16px; position: relative; }
+  .mini-bar { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+  .mini-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .mini-search { height: 34px; border-radius: 9px; display: flex; align-items: center; padding: 0 12px; font-size: 11px; margin-bottom: 10px; }
+  .mini-row { display: flex; align-items: center; gap: 8px; height: 30px; border-radius: 7px; padding: 0 8px; font-size: 11px; }
+  .mini-ico { width: 13px; height: 13px; border-radius: 3.5px; flex: 0 0 auto; }
+  .mini-name { width: 108px; }
+  .mini-path { flex: 1; opacity: .45; font-size: 10px; }
+  .mini-badge { font-size: 9px; padding: 2px 7px; border-radius: 5px; }
+  .dir-meta { padding: 14px 18px 16px; border-top: 1px solid #1B242D; }
+  .dir-name { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .dir-tag { font-size: 10px; padding: 2px 8px; border-radius: 20px; background: rgba(63,193,176,.14); color: #3FC1B0; font-weight: 600; }
+  .dir-desc { font-size: 12px; color: #7E8C98; margin-top: 5px; line-height: 1.6; }
+
+  /* ================= 应用窗口 ================= */
+  .app {
+    border-radius: 16px; overflow: hidden;
     display: flex; flex-direction: column;
-    overflow: hidden;
+    height: 860px;
+    box-shadow: 0 30px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.05);
   }
 
-  /* ============ 标题栏 ============ */
+  /* ---- 标题栏 ---- */
   .titlebar {
-    height: 42px; flex: 0 0 42px;
-    background: linear-gradient(180deg, #1A1F28, #141820);
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center;
-    padding-left: 16px;
+    height: 40px; flex: 0 0 40px;
+    display: flex; align-items: center; padding: 0 6px 0 14px;
     user-select: none;
-    -webkit-app-region: drag;
   }
-  .titlebar .logo {
-    width: 22px; height: 22px; margin-right: 10px;
-  }
-  .titlebar .app-name {
-    font-size: 12.5px; font-weight: 600; color: var(--text);
-    letter-spacing: .3px;
-  }
-  .titlebar .app-name .sub {
-    color: var(--muted-2); font-weight: 400; margin-left: 8px;
-    font-size: 11px;
-  }
-  .titlebar .spacer { flex: 1; }
-  .tb-btn {
-    width: 46px; height: 42px;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--muted);
-    font-size: 15px;
-    cursor: pointer;
-    -webkit-app-region: no-drag;
-    transition: background .12s, color .12s;
-  }
-  .tb-btn:hover { background: var(--surface-2); color: var(--text); }
-  .tb-btn.close:hover { background: #C42B2B; color: #fff; }
+  .tb-logo { width: 20px; height: 20px; border-radius: 6px; margin-right: 10px;
+    display: flex; align-items: center; justify-content: center; }
+  .tb-name { font-size: 12.5px; font-weight: 600; letter-spacing: .3px; }
+  .tb-sub { font-size: 11px; margin-left: 9px; font-weight: 400; }
+  .tb-spacer { flex: 1; }
+  .tb-btn { width: 42px; height: 40px; display: flex; align-items: center; justify-content: center;
+    font-size: 14px; cursor: pointer; }
+  .tb-btn.close:hover { background: #D64545; color: #fff; }
 
-  /* ============ 内容区 ============ */
-  .content { flex: 1; display: flex; flex-direction: column; padding: 22px 24px 0; overflow: hidden; }
-
-  /* ---- 搜索行 ---- */
-  .search-row { display: flex; gap: 12px; align-items: stretch; }
+  /* ---- 搜索区 ---- */
+  .search-zone { padding: 20px 26px 0; }
   .search-box {
-    flex: 1; height: 58px;
-    background: var(--surface);
-    border: 1.5px solid var(--border);
-    border-radius: 14px;
-    display: flex; align-items: center;
-    padding: 0 18px;
-    transition: border-color .15s, box-shadow .15s, background .15s;
+    height: 60px; border-radius: 16px;
+    display: flex; align-items: center; padding: 0 16px 0 20px;
+    position: relative;
   }
-  .search-box:focus-within {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(91,124,250,.18), 0 4px 18px rgba(0,0,0,.25);
-    background: var(--surface-2);
-  }
-  .search-box svg { flex: 0 0 auto; opacity: .55; margin-right: 14px; }
-  .search-box input {
-    flex: 1; height: 100%;
-    background: transparent; border: none; outline: none;
-    color: var(--text);
-    font-family: inherit; font-size: 15px;
-  }
-  .search-box input::placeholder { color: var(--muted-2); }
-  .search-clear {
-    width: 24px; height: 24px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--muted); font-size: 14px;
-    background: var(--surface-3);
-    cursor: pointer;
-    opacity: 0; transition: opacity .12s, background .12s;
-  }
-  .search-box:hover .search-clear, .search-clear.visible { opacity: 1; }
-  .search-clear:hover { background: var(--border-strong); color: var(--text); }
+  .search-box.focused { box-shadow: 0 0 0 3.5px var(--ring); }
+  .search-ico { width: 21px; height: 21px; flex: 0 0 auto; margin-right: 14px; }
+  .search-input { flex: 1; font-size: 16.5px; background: transparent; border: none; outline: none; font-family: inherit; }
+  .search-kbd { display: flex; gap: 5px; align-items: center; margin-right: 12px; }
+  .kbd { font-size: 10.5px; font-family: Consolas, monospace; padding: 3.5px 8px; border-radius: 6px; }
+  .search-clear { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 13px; cursor: pointer; }
 
-  .btn {
-    height: 58px; border-radius: 14px;
-    display: flex; align-items: center; justify-content: center;
-    font-family: inherit; font-size: 14px; font-weight: 600;
-    cursor: pointer; border: 1.5px solid transparent;
-    transition: all .14s;
-  }
-  .btn-filter {
-    width: 104px;
-    background: var(--surface); border-color: var(--border);
-    color: var(--text);
-  }
-  .btn-filter:hover { background: var(--surface-2); border-color: var(--border-strong); }
-  .btn-filter .badge {
-    background: var(--accent); color: #fff; font-size: 11px; font-weight: 700;
-    min-width: 18px; height: 18px; border-radius: 9px;
-    display: inline-flex; align-items: center; justify-content: center;
-    margin-left: 7px; padding: 0 5px;
-  }
-  .btn-primary {
-    width: 138px;
-    background: linear-gradient(135deg, #6A8BFF 0%, #4A66E8 100%);
-    color: #fff;
-    box-shadow: 0 4px 14px rgba(74,102,232,.35);
-  }
-  .btn-primary:hover { filter: brightness(1.1); box-shadow: 0 6px 20px rgba(74,102,232,.45); }
-  .btn-primary:active { filter: brightness(.95); }
-  .btn-icon {
-    width: 58px;
-    background: var(--surface); border-color: var(--border);
-    color: var(--muted); font-size: 19px;
-  }
-  .btn-icon:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+  .tool-row { display: flex; align-items: center; margin-top: 14px; height: 36px; }
+  .status-pill { display: inline-flex; align-items: center; gap: 9px; padding: 7px 14px;
+    border-radius: 20px; font-size: 12px; }
+  .pill-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .tool-spacer { flex: 1; }
+  .ghost-btn { font-size: 12.5px; padding: 8px 14px; border-radius: 9px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+  .icon-btn { width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 16px; cursor: pointer; margin-left: 8px; }
 
-  /* ---- 信息行 ---- */
-  .info-row {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-top: 14px; padding: 0 4px;
-  }
-  .chip {
-    display: inline-flex; align-items: center; gap: 7px;
-    font-size: 12px; color: var(--muted);
-  }
-  .chip .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--success);
-    box-shadow: 0 0 6px rgba(74,222,128,.6);
-  }
-  .chip .dot.working { background: var(--warning); box-shadow: 0 0 6px rgba(245,184,76,.6); }
-  .chip b { color: var(--text); font-weight: 600; }
-  .count { font-size: 12px; color: var(--muted); }
-  .count b { color: var(--accent-hover); font-weight: 700; font-size: 13px; }
+  /* ---- 结果卡片 ---- */
+  .result-card { margin: 14px 26px 16px; flex: 1; border-radius: 14px; overflow: hidden;
+    display: flex; flex-direction: column; min-height: 0; }
+  .thead { display: flex; align-items: center; height: 42px; flex: 0 0 42px; padding: 0 18px 0 22px;
+    font-size: 11.5px; letter-spacing: .4px; }
+  .col-name { width: 300px; display: flex; align-items: center; gap: 10px; }
+  .col-path { flex: 1; min-width: 0; }
+  .col-type { width: 96px; }
+  .col-size { width: 110px; text-align: right; }
+  .col-time { width: 165px; text-align: right; padding-right: 6px; }
+  .sort-arrow { font-size: 9px; margin-left: 4px; }
 
-  /* ---- 筛选面板 ---- */
-  .filter-panel {
-    margin-top: 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
-  }
-  .filter-field label {
-    display: block; font-size: 11.5px; color: var(--muted-2);
-    margin-bottom: 7px; font-weight: 500;
-  }
-  .select-wrap { position: relative; }
-  .select-wrap select {
-    width: 100%; height: 38px;
-    appearance: none; -webkit-appearance: none;
-    background: var(--surface-2); border: 1px solid var(--border);
-    border-radius: 9px;
-    color: var(--text); font-family: inherit; font-size: 13px;
-    padding: 0 12px; padding-right: 32px;
-    cursor: pointer; outline: none;
-    transition: border-color .12s, box-shadow .12s;
-  }
-  .select-wrap select:hover { border-color: var(--border-strong); }
-  .select-wrap select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,124,250,.15); }
-  .select-wrap::after {
-    content: "▾"; position: absolute; right: 12px; top: 50%;
-    transform: translateY(-52%);
-    color: var(--muted); pointer-events: none; font-size: 12px;
-  }
+  .rows { flex: 1; overflow: hidden; }
+  .row { display: flex; align-items: center; height: 49px; padding: 0 18px 0 22px;
+    font-size: 13px; position: relative; cursor: default; }
+  .row .f-ico { width: 21px; height: 21px; border-radius: 5px; flex: 0 0 auto; }
+  .row .col-name { font-weight: 500; }
+  .row .col-path { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 6.5px; letter-spacing: .3px; }
+  .row .col-size, .row .col-time { font-family: Consolas, monospace; font-size: 12px; }
+  .row.selected::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3.5px;
+    border-radius: 0 4px 4px 0; }
 
-  /* ---- 结果表格 ---- */
-  .table-wrap {
-    flex: 1; margin-top: 16px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    display: flex; flex-direction: column;
-    min-height: 0;
-  }
-  .thead {
-    display: grid;
-    grid-template-columns: 44px 1.1fr 1.6fr 88px 118px 168px;
-    background: var(--surface-2);
-    border-bottom: 1px solid var(--border);
-    flex: 0 0 44px;
-    user-select: none;
-  }
-  .thead .th {
-    display: flex; align-items: center;
-    font-size: 12px; font-weight: 600; color: var(--muted);
-    padding: 0 14px;
-    cursor: pointer;
-    transition: color .12s, background .12s;
-  }
-  .thead .th:hover { color: var(--text); background: rgba(255,255,255,.03); }
-  .thead .th.sorted { color: var(--accent-hover); }
-  .thead .th .arrow { font-size: 10px; margin-left: 5px; }
-  .thead .th.center { justify-content: center; }
-  .thead .th.right { justify-content: flex-end; }
-  .thead .th:not(:first-child) { border-left: 1px solid var(--border); }
-  .tbody { flex: 1; overflow-y: auto; }
-  .row {
-    display: grid;
-    grid-template-columns: 44px 1.1fr 1.6fr 88px 118px 168px;
-    height: 56px;
-    align-items: center;
-    border-bottom: 1px solid rgba(42,49,64,.5);
-    cursor: default;
-    transition: background .1s;
-  }
-  .row:nth-child(odd) { background: transparent; }
-  .row:nth-child(even) { background: var(--row-alt); }
-  .row:hover { background: var(--surface-3); }
-  .row.selected { background: var(--selected); box-shadow: inset 3px 0 0 var(--accent); }
-  .row.selected:hover { background: #365080; }
-  .cell {
-    padding: 0 14px; font-size: 13px; color: var(--text);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .cell.center { text-align: center; }
-  .cell.right { text-align: right; font-variant-numeric: tabular-nums; }
-  .cell.muted { color: var(--muted); font-size: 12.5px; }
-  .cell .fname { display: flex; align-items: center; gap: 10px; }
-  .cell .fname .fname-text { font-weight: 500; }
-  .f-icon { width: 22px; height: 22px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
-  .f-icon.pdf { background: rgba(242,109,109,.15); color: #F26D6D; }
-  .f-icon.img { background: rgba(91,124,250,.16); color: #7A93FC; }
-  .f-icon.doc { background: rgba(74,222,128,.14); color: #4ADE80; }
-  .f-icon.zip { background: rgba(245,184,76,.15); color: #F5B84C; }
-  .f-icon.dir { background: rgba(139,148,167,.15); color: #B7C0D2; }
-  .f-icon.vid { background: rgba(191,90,242,.15); color: #C77BFF; }
-  .f-icon.music { background: rgba(76,201,240,.14); color: #5BC9F0; }
-  .f-icon.code { background: rgba(76,240,214,.13); color: #52E0C0; }
-  .f-icon span { font-size: 13px; font-weight: 600; }
-  .type-tag {
-    display: inline-block; padding: 2.5px 9px;
-    border-radius: 7px; font-size: 11px; font-weight: 600;
-    background: var(--surface-3); color: var(--muted);
-  }
-  .type-tag.folder { background: rgba(139,148,167,.16); color: #C6CEDA; }
-  .type-tag.pdf { background: rgba(242,109,109,.14); color: #F88; }
-  .type-tag.png { background: rgba(91,124,250,.15); color: #8FA6FF; }
-  .type-tag.zip { background: rgba(245,184,76,.14); color: #F8C968; }
-  .type-tag.mp4 { background: rgba(191,90,242,.14); color: #D79BFF; }
+  /* ---- 分页条 ---- */
+  .pager { display: flex; align-items: center; height: 46px; flex: 0 0 46px; padding: 0 18px; }
+  .pager-total { font-size: 12px; }
+  .pager-spacer { flex: 1; }
+  .page-btn { min-width: 30px; height: 30px; border-radius: 8px; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 14px; cursor: pointer; padding: 0 8px; }
+  .page-info { font-size: 12px; margin: 0 10px; font-family: Consolas, monospace; }
 
-  /* 空状态 */
-  .empty {
-    flex: 1; display: none; align-items: center; justify-content: center;
-    flex-direction: column; gap: 10px; color: var(--muted-2);
-  }
-  .empty .big { font-size: 34px; opacity: .6; }
-  .empty .text { font-size: 14px; }
+  /* ---- 状态栏 ---- */
+  .statusbar { height: 36px; flex: 0 0 36px; display: flex; align-items: center; padding: 0 22px;
+    font-size: 11.5px; }
+  .sb-dot { width: 6.5px; height: 6.5px; border-radius: 50%; margin-right: 9px; }
+  .sb-spacer { flex: 1; }
 
-  /* ============ 状态栏 ============ */
-  .statusbar {
-    height: 46px; flex: 0 0 46px;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 24px;
-    font-size: 12px; color: var(--muted);
+  /* ================= 深色主题（霁青） ================= */
+  .dark {
+    --bg: #0C1014; --surface: #131A21; --surface-2: #19222B; --surface-3: #212D38;
+    --input: #0F151B; --border: #222D38; --border-strong: #31404E;
+    --text: #E9F0F3; --muted: #8E9CAA; --muted-2: #5E6C79;
+    --accent: #3FC1B0; --accent-hover: #59D2C2; --accent-deep: #2CA295;
+    --ring: rgba(63,193,176,.16);
+    --sel-bg: rgba(63,193,176,.13); --hover-bg: rgba(255,255,255,.045);
+    background: var(--bg); color: var(--text);
   }
-  .statusbar .left { display: flex; align-items: center; gap: 8px; }
-  .statusbar .left .ok { color: var(--success); }
-  .statusbar .right b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dark .titlebar { background: #10161C; border-bottom: 1px solid #1C2630; }
+  .dark .tb-logo { background: linear-gradient(135deg, #46C9B6, #2B9C8E); }
+  .dark .tb-sub { color: var(--muted-2); }
+  .dark .tb-btn { color: var(--muted-2); }
+  .dark .tb-btn:hover { background: var(--surface-2); color: var(--text); }
+  .dark .search-box { background: var(--surface); border: 1.5px solid var(--border); }
+  .dark .search-box.focused { border-color: var(--accent); background: var(--input); }
+  .dark .search-input { color: var(--text); }
+  .dark .search-input::placeholder { color: var(--muted-2); }
+  .dark .search-ico { color: var(--muted); }
+  .dark .kbd { background: var(--surface-3); color: var(--muted); }
+  .dark .search-clear { background: var(--surface-3); color: var(--muted); }
+  .dark .status-pill { background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .dark .pill-dot { background: #3ED598; box-shadow: 0 0 7px rgba(62,213,152,.8); }
+  .dark .ghost-btn { color: var(--accent); }
+  .dark .ghost-btn:hover { background: rgba(63,193,176,.1); }
+  .dark .icon-btn { background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .dark .icon-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .dark .result-card { background: var(--surface); border: 1px solid var(--border); }
+  .dark .thead { color: var(--muted-2); border-bottom: 1px solid var(--border); }
+  .dark .row { border-bottom: 1px solid rgba(255,255,255,.035); }
+  .dark .row:hover { background: var(--hover-bg); }
+  .dark .row.selected { background: var(--sel-bg); }
+  .dark .row.selected::before { background: var(--accent); }
+  .dark .row.selected .col-name { color: var(--accent-hover); }
+  .dark .row .col-path { color: var(--muted); }
+  .dark .row .col-size, .dark .row .col-time { color: var(--muted); }
+  .dark .pager { border-top: 1px solid var(--border); }
+  .dark .pager-total, .dark .page-info { color: var(--muted); }
+  .dark .page-btn { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .dark .page-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .dark .statusbar { background: #10161C; border-top: 1px solid #1C2630; color: var(--muted-2); }
+  .dark .sb-dot { background: #3ED598; }
+
+  /* ================= 浅色主题（霁青） ================= */
+  .light {
+    --bg: #F2F5F4; --surface: #FFFFFF; --surface-2: #EFF3F2; --surface-3: #E2E9E7;
+    --input: #FFFFFF; --border: #DFE6E3; --border-strong: #C3CFCB;
+    --text: #182228; --muted: #61727B; --muted-2: #93A1A8;
+    --accent: #0F9C8B; --accent-hover: #23B3A1; --accent-deep: #0B8577;
+    --ring: rgba(15,156,139,.14);
+    --sel-bg: rgba(15,156,139,.09); --hover-bg: rgba(20,40,38,.04);
+    background: var(--bg); color: var(--text);
+  }
+  .light.app { box-shadow: 0 30px 90px rgba(30,50,48,.25), 0 0 0 1px rgba(0,0,0,.05); }
+  .light .titlebar { background: #E9EEEC; border-bottom: 1px solid #D9E1DE; }
+  .light .tb-logo { background: linear-gradient(135deg, #23B3A1, #0B8577); }
+  .light .tb-sub { color: var(--muted-2); }
+  .light .tb-btn { color: var(--muted-2); }
+  .light .tb-btn:hover { background: #DCE4E1; color: var(--text); }
+  .light .search-box { background: var(--surface); border: 1.5px solid var(--border); }
+  .light .search-box.focused { border-color: var(--accent); }
+  .light .search-input { color: var(--text); }
+  .light .search-input::placeholder { color: var(--muted-2); }
+  .light .search-ico { color: var(--muted); }
+  .light .kbd { background: var(--surface-3); color: var(--muted); }
+  .light .search-clear { background: var(--surface-3); color: var(--muted); }
+  .light .status-pill { background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .light .pill-dot { background: #18A058; }
+  .light .ghost-btn { color: var(--accent); }
+  .light .ghost-btn:hover { background: rgba(15,156,139,.08); }
+  .light .icon-btn { background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .light .icon-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .light .result-card { background: var(--surface); border: 1px solid var(--border); }
+  .light .thead { color: var(--muted-2); border-bottom: 1px solid var(--border); }
+  .light .row { border-bottom: 1px solid rgba(20,40,38,.05); }
+  .light .row:hover { background: var(--hover-bg); }
+  .light .row.selected { background: var(--sel-bg); }
+  .light .row.selected::before { background: var(--accent); }
+  .light .row.selected .col-name { color: var(--accent-deep); }
+  .light .row .col-path { color: var(--muted); }
+  .light .row .col-size, .light .row .col-time { color: var(--muted); }
+  .light .pager { border-top: 1px solid var(--border); }
+  .light .pager-total, .light .page-info { color: var(--muted); }
+  .light .page-btn { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .light .page-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .light .statusbar { background: #E9EEEC; border-top: 1px solid #D9E1DE; color: var(--muted-2); }
+  .light .sb-dot { background: #18A058; }
+
+  /* ================= 类型徽章配色 ================= */
+  .t-doc   { color: #6FA8EF; background: rgba(111,168,239,.13); }
+  .t-pdf   { color: #E4747E; background: rgba(228,116,126,.13); }
+  .t-xls   { color: #7CC784; background: rgba(124,199,132,.13); }
+  .t-ppt   { color: #E8A569; background: rgba(232,165,105,.14); }
+  .t-img   { color: #BE8FE0; background: rgba(190,143,224,.13); }
+  .t-code  { color: #5AC8C8; background: rgba(90,200,200,.13); }
+  .t-zip   { color: #D1A26B; background: rgba(209,162,107,.14); }
+  .t-audio { color: #7FD4A8; background: rgba(127,212,168,.13); }
+  .t-dir   { color: #E5C56F; background: rgba(229,197,111,.14); }
+  .light .t-doc   { color: #2F6FD0; background: rgba(47,111,208,.09); }
+  .light .t-pdf   { color: #C94F5A; background: rgba(201,79,90,.09); }
+  .light .t-xls   { color: #3E9B4F; background: rgba(62,155,79,.09); }
+  .light .t-ppt   { color: #C97A2B; background: rgba(201,122,43,.1); }
+  .light .t-img   { color: #9A5BC4; background: rgba(154,91,196,.09); }
+  .light .t-code  { color: #1D9B9B; background: rgba(29,155,155,.09); }
+  .light .t-zip   { color: #B07E3F; background: rgba(176,126,63,.1); }
+  .light .t-audio { color: #3FA873; background: rgba(63,168,115,.09); }
+  .light .t-dir   { color: #B08F2E; background: rgba(176,143,46,.1); }
+
+  /* ================= 设置窗口 ================= */
+  .settings-win { width: 920px; height: 620px; border-radius: 16px; overflow: hidden;
+    display: flex; box-shadow: 0 30px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.05);
+    background: #0C1014; }
+  .st-nav { width: 208px; flex: 0 0 208px; background: #10161C; border-right: 1px solid #1C2630;
+    padding: 22px 12px; }
+  .st-nav-title { font-size: 19px; font-weight: 600; padding: 0 12px; margin-bottom: 18px; }
+  .st-nav-item { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px;
+    border-radius: 10px; font-size: 13px; color: #8E9CAA; cursor: pointer; margin-bottom: 4px; }
+  .st-nav-item:hover { background: rgba(255,255,255,.04); }
+  .st-nav-item.active { background: rgba(63,193,176,.13); color: #59D2C2; font-weight: 500; }
+  .st-content { flex: 1; padding: 30px 32px; overflow: hidden; }
+  .st-page-title { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .st-page-desc { font-size: 12.5px; color: #5E6C79; margin-bottom: 22px; }
+  .st-card { background: #131A21; border: 1px solid #222D38; border-radius: 14px;
+    padding: 20px 22px; margin-bottom: 16px; }
+  .st-card-title { font-size: 13px; font-weight: 600; margin-bottom: 14px; }
+  .st-opt { display: flex; align-items: center; padding: 7px 0; }
+  .st-opt-text { flex: 1; }
+  .st-opt-name { font-size: 13.5px; }
+  .st-opt-desc { font-size: 11.5px; color: #5E6C79; margin-top: 3px; }
+  .toggle { width: 44px; height: 25px; border-radius: 13px; position: relative; cursor: pointer; flex: 0 0 auto; }
+  .toggle.on { background: linear-gradient(90deg, #46C9B6, #2B9C8E); }
+  .toggle.off { background: #2A3742; }
+  .toggle::after { content: ""; position: absolute; top: 3px; width: 19px; height: 19px;
+    border-radius: 50%; background: #fff; transition: left .15s; }
+  .toggle.on::after { left: 22px; }
+  .toggle.off::after { left: 3px; }
+  .stepper { display: flex; align-items: center; gap: 8px; }
+  .step-btn { width: 28px; height: 28px; border-radius: 8px; background: #212D38; border: 1px solid #31404E;
+    color: #8E9CAA; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; }
+  .step-val { font-family: Consolas, monospace; font-size: 13px; min-width: 66px; text-align: center;
+    background: #0F151B; border: 1px solid #222D38; border-radius: 8px; padding: 5px 8px; }
+  .theme-cards { display: flex; gap: 12px; }
+  .theme-card { flex: 1; border-radius: 12px; border: 2px solid #222D38; overflow: hidden; cursor: pointer; }
+  .theme-card.active { border-color: #3FC1B0; box-shadow: 0 0 0 3px rgba(63,193,176,.15); }
+  .theme-preview { height: 74px; padding: 8px; position: relative; }
+  .tp-bar { height: 10px; border-radius: 3px; margin-bottom: 6px; }
+  .tp-search { height: 16px; border-radius: 5px; margin-bottom: 6px; }
+  .tp-row { height: 9px; border-radius: 3px; margin-bottom: 4px; }
+  .theme-name { font-size: 12px; text-align: center; padding: 8px 0; background: #10161C; color: #8E9CAA; }
+  .theme-card.active .theme-name { color: #59D2C2; font-weight: 600; }
+
+  /* ================= 弹窗组件 ================= */
+  .comps { display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start; }
+  .comp-block { }
+  .comp-label { font-size: 12px; color: #5E6C79; margin-bottom: 12px; letter-spacing: .5px; }
+
+  .ctx-menu { width: 252px; background: #151D25; border: 1px solid #2A3742; border-radius: 12px;
+    padding: 6px; box-shadow: 0 16px 50px rgba(0,0,0,.5); }
+  .ctx-item { display: flex; align-items: center; gap: 11px; height: 36px; padding: 0 12px;
+    border-radius: 8px; font-size: 13px; color: #D5DEE4; cursor: pointer; }
+  .ctx-item .ci { width: 17px; text-align: center; opacity: .75; font-size: 13px; }
+  .ctx-item:hover { background: rgba(63,193,176,.13); color: #59D2C2; }
+  .ctx-sep { height: 1px; background: #222D38; margin: 6px 10px; }
+  .ctx-item.danger { color: #E4747E; }
+  .ctx-item.danger:hover { background: rgba(228,116,126,.12); color: #EF8A93; }
+
+  .dialog { width: 400px; background: #151D25; border: 1px solid #2A3742; border-radius: 18px;
+    padding: 26px 26px 20px; box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+  .dlg-icon { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 20px; margin-bottom: 16px; }
+  .dlg-icon.warn { background: rgba(240,180,76,.14); color: #F0B44C; }
+  .dlg-icon.danger { background: rgba(228,116,126,.13); color: #E4747E; }
+  .dlg-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+  .dlg-desc { font-size: 12.5px; color: #8E9CAA; line-height: 1.7; margin-bottom: 22px; }
+  .dlg-desc b { color: #D5DEE4; font-weight: 600; }
+  .dlg-btns { display: flex; justify-content: flex-end; gap: 10px; }
+  .btn { height: 38px; padding: 0 20px; border-radius: 10px; font-size: 13px; font-weight: 500;
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+  .btn-normal { background: #212D38; color: #D5DEE4; border: 1px solid #31404E; }
+  .btn-normal:hover { background: #2A3742; }
+  .btn-accent { background: linear-gradient(135deg, #46C9B6, #2B9C8E); color: #fff; border: none; }
+  .btn-accent:hover { filter: brightness(1.1); }
+  .btn-danger { background: linear-gradient(135deg, #E2636E, #C94854); color: #fff; border: none; }
+  .btn-danger:hover { filter: brightness(1.08); }
+
+  .empty-state { width: 400px; height: 240px; background: #131A21; border: 1px solid #222D38;
+    border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .empty-title { font-size: 15px; color: #8E9CAA; margin-top: 18px; font-weight: 500; }
+  .empty-sub { font-size: 12px; color: #5E6C79; margin-top: 6px; }
+
+  .input-demo { width: 400px; background: #151D25; border: 1px solid #2A3742; border-radius: 18px;
+    padding: 24px 26px; box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+  .input-field { height: 44px; background: #0F151B; border: 1.5px solid #3FC1B0; border-radius: 11px;
+    display: flex; align-items: center; padding: 0 14px; font-size: 13.5px; color: #E9F0F3;
+    box-shadow: 0 0 0 3px rgba(63,193,176,.14); margin: 12px 0 22px; }
 </style>
 </head>
 <body>
 
-<div class="win">
-  <!-- 自绘标题栏 -->
-  <div class="titlebar">
-    <svg class="logo" viewBox="0 0 24 24" fill="none">
-      <circle cx="10" cy="10" r="6.5" stroke="url(#g1)" stroke-width="2.2"/>
-      <line x1="15.2" y1="15.2" x2="21" y2="21" stroke="url(#g1)" stroke-width="2.8" stroke-linecap="round"/>
-      <defs>
-        <linearGradient id="g1" x1="0" y1="0" x2="24" y2="24">
-          <stop offset="0" stop-color="#6A8BFF"/><stop offset="1" stop-color="#4A66E8"/>
-        </linearGradient>
-      </defs>
-    </svg>
-    <span class="app-name">File Searcher <span class="sub">全盘文件搜索</span></span>
-    <div class="spacer"></div>
-    <div class="tb-btn" title="最小化到托盘">—</div>
-    <div class="tb-btn close" title="关闭到托盘">✕</div>
-  </div>
-
-  <!-- 内容区 -->
-  <div class="content">
-    <!-- 搜索行 -->
-    <div class="search-row">
-      <div class="search-box">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8B94A7" stroke-width="2.4" stroke-linecap="round">
-          <circle cx="10.5" cy="10.5" r="7"/><line x1="15.8" y1="15.8" x2="21.5" y2="21.5"/>
-        </svg>
-        <input type="text" placeholder="搜索文件名或完整路径…" value="报告">
-        <div class="search-clear">✕</div>
-      </div>
-      <div class="btn btn-filter">筛选 <span class="badge">2</span></div>
-      <div class="btn btn-primary">重建索引</div>
-      <div class="btn btn-icon" title="设置">⚙</div>
-    </div>
-
-    <!-- 信息行 -->
-    <div class="info-row">
-      <span class="chip"><span class="dot"></span>索引就绪 · <b>258,431</b> 个文件 · 更新于 2026-07-31 21:59</span>
-      <span class="count">共 <b>12,384</b> 个结果</span>
-    </div>
-
-    <!-- 筛选面板 -->
-    <div class="filter-panel">
-      <div class="filter-field">
-        <label>位置</label>
-        <div class="select-wrap">
-          <select><option>全部</option><option>桌面</option><option>文档</option><option>下载</option></select>
-        </div>
-      </div>
-      <div class="filter-field">
-        <label>类型</label>
-        <div class="select-wrap">
-          <select><option>全部</option><option selected>文档</option><option>文件夹</option><option>图片</option><option>视频</option><option>音频</option><option>压缩包</option><option>代码</option></select>
-        </div>
-      </div>
-      <div class="filter-field">
-        <label>时间</label>
-        <div class="select-wrap">
-          <select><option>全部</option><option selected>近 7 天</option><option>今天</option><option>近 30 天</option></select>
-        </div>
-      </div>
-      <div class="filter-field">
-        <label>大小</label>
-        <div class="select-wrap">
-          <select><option>全部</option><option>&lt;1MB</option><option>1-100MB</option><option>&gt;100MB</option></select>
-        </div>
-      </div>
-    </div>
-
-    <!-- 结果表格 -->
-    <div class="table-wrap">
-      <div class="thead">
-        <div class="th"></div>
-        <div class="th sorted">文件名 <span class="arrow">▲</span></div>
-        <div class="th">路径</div>
-        <div class="th center">类型</div>
-        <div class="th right">大小</div>
-        <div class="th center">修改时间</div>
-      </div>
-      <div class="tbody">
-        <div class="row selected">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon doc"><span>D</span></span><span class="fname-text">2026-07-31 月报.docx</span></div></div>
-          <div class="cell muted">C:\Users\hjf\Documents\工作报告</div>
-          <div class="cell center"><span class="type-tag doc">DOCX</span></div>
-          <div class="cell right">2.4 MB</div>
-          <div class="cell center muted">2026-07-31 21:40</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon pdf"><span>P</span></span><span class="fname-text">季度财务分析报告.pdf</span></div></div>
-          <div class="cell muted">C:\Users\hjf\Documents\财务报表</div>
-          <div class="cell center"><span class="type-tag pdf">PDF</span></div>
-          <div class="cell right">8.7 MB</div>
-          <div class="cell center muted">2026-07-30 18:22</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon img"><span>I</span></span><span class="fname-text">产品截图-最终版.png</span></div></div>
-          <div class="cell muted">C:\Users\hjf\Pictures\截图</div>
-          <div class="cell center"><span class="type-tag png">PNG</span></div>
-          <div class="cell right">1.1 MB</div>
-          <div class="cell center muted">2026-07-29 09:15</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon dir"><span>▸</span></span><span class="fname-text">项目资料-2026</span></div></div>
-          <div class="cell muted">C:\Users\hjf\Documents\工作项目</div>
-          <div class="cell center"><span class="type-tag folder">文件夹</span></div>
-          <div class="cell right">—</div>
-          <div class="cell center muted">2026-07-28 16:05</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon zip"><span>Z</span></span><span class="fname-text">素材包-设计资源.zip</span></div></div>
-          <div class="cell muted">C:\Users\hjf\Downloads\设计素材</div>
-          <div class="cell center"><span class="type-tag zip">ZIP</span></div>
-          <div class="cell right">256.3 MB</div>
-          <div class="cell center muted">2026-07-25 14:48</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon vid"><span>V</span></span><span class="fname-text">培训录像-第二期.mp4</span></div></div>
-          <div class="cell muted">D:\公司资料\培训视频</div>
-          <div class="cell center"><span class="type-tag mp4">MP4</span></div>
-          <div class="cell right">1.2 GB</div>
-          <div class="cell center muted">2026-07-20 11:30</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon doc"><span>D</span></span><span class="fname-text">需求评审会议纪要.docx</span></div></div>
-          <div class="cell muted">C:\Users\hjf\Documents\会议记录</div>
-          <div class="cell center"><span class="type-tag doc">DOCX</span></div>
-          <div class="cell right">1.8 MB</div>
-          <div class="cell center muted">2026-07-18 17:52</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon img"><span>I</span></span><span class="fname-text">壁纸-星空4k.jpg</span></div></div>
-          <div class="cell muted">D:\图片库\壁纸</div>
-          <div class="cell center"><span class="type-tag png">JPG</span></div>
-          <div class="cell right">5.6 MB</div>
-          <div class="cell center muted">2026-07-15 08:10</div>
-        </div>
-        <div class="row">
-          <div class="cell"></div>
-          <div class="cell"><div class="fname"><span class="f-icon music"><span>M</span></span><span class="fname-text">会议录音-07-10.wav</span></div></div>
-          <div class="cell muted">D:\公司资料\录音</div>
-          <div class="cell center"><span class="type-tag mp4">WAV</span></div>
-          <div class="cell right">48.2 MB</div>
-          <div class="cell center muted">2026-07-10 15:33</div>
-        </div>
-      </div>
-      <div class="empty">
-        <div class="big">🔍</div>
-        <div class="text">没有匹配的结果,换个关键词试试</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 状态栏 -->
-  <div class="statusbar">
-    <div class="left"><span class="ok">●</span> 搜索「报告」— 已显示 500 / 12,384 个结果</div>
-    <div class="right">已显示 <b>500</b> / <b>12,384</b></div>
+<div class="page-head">
+  <h1>File Searcher 全新界面 · <em>「霁青」</em>设计稿</h1>
+  <p>设计语言：低饱和青玉色 accent（克制东方感）、无网格线呼吸式表格、类型徽章、等宽数字列、全自绘弹窗组件。
+     深色「墨青」/ 浅色「晴白」双主题同构。下方案例均为实现级高保真，所见即所得。</p>
+  <div class="spec-row">
+    <span class="spec">字号层级 · 表头/胶囊 <b>20pt</b></span>
+    <span class="spec">辅助文字 <b>21pt</b></span>
+    <span class="spec">正文/文件名 <b>25pt</b></span>
+    <span class="spec">搜索输入 <b>27pt</b></span>
+    <span class="spec">弹窗标题 <b>29pt</b></span>
+    <span class="spec">数字列 <b>Consolas 等宽</b></span>
   </div>
 </div>
+
+<!-- ================= 方向备选 ================= -->
+<section>
+  <div class="sec-title">一、Accent 方向三选一</div>
+  <div class="sec-desc">布局完全相同，仅主色调不同。主推「霁青」——独特、克制、耐看。</div>
+  <div class="dirs">
+
+    <div class="dir-card recommended">
+      <div class="dir-view" style="background:#0C1014;">
+        <div class="mini-search" style="background:#131A21;border:1.5px solid #3FC1B0;color:#5E6C79;box-shadow:0 0 0 3px rgba(63,193,176,.14);">搜索文件名或完整路径…</div>
+        <div class="mini-row" style="background:rgba(63,193,176,.13);">
+          <span class="mini-ico" style="background:#6FA8EF;"></span>
+          <span class="mini-name" style="color:#59D2C2;">季度报告.docx</span>
+          <span class="mini-path" style="color:#8E9CAA;">C:\Users\hjf\Documents</span>
+          <span class="mini-badge t-doc">DOCX</span>
+        </div>
+        <div class="mini-row">
+          <span class="mini-ico" style="background:#E4747E;"></span>
+          <span class="mini-name" style="color:#E9F0F3;">旅行规划.pdf</span>
+          <span class="mini-path" style="color:#8E9CAA;">C:\Users\hjf\Desktop</span>
+          <span class="mini-badge t-pdf">PDF</span>
+        </div>
+        <div class="mini-row">
+          <span class="mini-ico" style="background:#E5C56F;"></span>
+          <span class="mini-name" style="color:#E9F0F3;">家庭照片</span>
+          <span class="mini-path" style="color:#8E9CAA;">D:\Photos</span>
+          <span class="mini-badge t-dir">文件夹</span>
+        </div>
+      </div>
+      <div class="dir-meta">
+        <div class="dir-name" style="color:#E9F0F3;">霁青 <span class="dir-tag">推荐</span></div>
+        <div class="dir-desc">青玉色 #3FC1B0。克制东方感，工具软件里少见，深色浅色都高级。</div>
+      </div>
+    </div>
+
+    <div class="dir-card">
+      <div class="dir-view" style="background:#0D1017;">
+        <div class="mini-search" style="background:#141924;border:1.5px solid #6B93F5;color:#5E6C79;box-shadow:0 0 0 3px rgba(107,147,245,.15);">搜索文件名或完整路径…</div>
+        <div class="mini-row" style="background:rgba(107,147,245,.15);">
+          <span class="mini-ico" style="background:#6FA8EF;"></span>
+          <span class="mini-name" style="color:#8FADFF;">季度报告.docx</span>
+          <span class="mini-path" style="color:#8E9CAA;">C:\Users\hjf\Documents</span>
+          <span class="mini-badge t-doc">DOCX</span>
+        </div>
+        <div class="mini-row">
+          <span class="mini-ico" style="background:#E4747E;"></span>
+          <span class="mini-name" style="color:#E9F0F3;">旅行规划.pdf</span>
+          <span class="mini-path" style="color:#8E9CAA;">C:\Users\hjf\Desktop</span>
+          <span class="mini-badge t-pdf">PDF</span>
+        </div>
+        <div class="mini-row">
+          <span class="mini-ico" style="background:#E5C56F;"></span>
+          <span class="mini-name" style="color:#E9F0F3;">家庭照片</span>
+          <span class="mini-path" style="color:#8E9CAA;">D:\Photos</span>
+          <span class="mini-badge t-dir">文件夹</span>
+        </div>
+      </div>
+      <div class="dir-meta">
+        <div class="dir-name" style="color:#E9F0F3;">黛蓝</div>
+        <div class="dir-desc">霁蓝 #6B93F5。现有靛蓝的精致化升级版，稳妥不易出错，但缺新鲜感。</div>
+      </div>
+    </div>
+
+    <div class="dir-card">
+      <div class="dir-view" style="background:#100E16;">
+        <div class="mini-search" style="background:#171522;border:1.5px solid #A78BFA;color:#5E6C79;box-shadow:0 0 0 3px rgba(167,139,250,.15);">搜索文件名或完整路径…</div>
+        <div class="mini-row" style="background:rgba(167,139,250,.15);">
+          <span class="mini-ico" style="background:#6FA8EF;"></span>
+          <span class="mini-name" style="color:#C4B0FF;">季度报告.docx</span>
+          <span class="mini-path" style="color:#8E9CAA;">C:\Users\hjf\Documents</span>
+          <span class="mini-badge t-doc">DOCX</span>
+        </div>
+        <div class="mini-row">
+          <span class="mini-ico" style="background:#E4747E;"></span>
+          <span class="mini-name" style="color:#E9F0F3;">旅行规划.pdf</span>
+          <span class="mini-path" style="color:#8E9CAA;">C:\Users\hjf\Desktop</span>
+          <span class="mini-badge t-pdf">PDF</span>
+        </div>
+        <div class="mini-row">
+          <span class="mini-ico" style="background:#E5C56F;"></span>
+          <span class="mini-name" style="color:#E9F0F3;">家庭照片</span>
+          <span class="mini-path" style="color:#8E9CAA;">D:\Photos</span>
+          <span class="mini-badge t-dir">文件夹</span>
+        </div>
+      </div>
+      <div class="dir-meta">
+        <div class="dir-name" style="color:#E9F0F3;">紫檀</div>
+        <div class="dir-desc">紫檀色 #A78BFA。个性最强、最具辨识度，深色尤佳；浅色下略挑眼。</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ================= 深色主界面 ================= -->
+<section>
+  <div class="sec-title">二、主界面 · 深色「墨青」</div>
+  <div class="sec-desc">大搜索框为主角；表格去网格线，选中行 = 霁青淡底 + 左侧指示条；类型徽章区分文件类别；数字列等宽对齐。</div>
+
+  <div class="app dark">
+    <div class="titlebar">
+      <div class="tb-logo">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/>
+        </svg>
+      </div>
+      <span class="tb-name">File Searcher</span><span class="tb-sub">全盘文件搜索</span>
+      <div class="tb-spacer"></div>
+      <div class="tb-btn">—</div>
+      <div class="tb-btn close">✕</div>
+    </div>
+
+    <div class="search-zone">
+      <div class="search-box focused">
+        <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/>
+        </svg>
+        <input class="search-input" placeholder="搜索文件名或完整路径…" value="报告">
+        <div class="search-kbd"><span class="kbd">Ctrl</span><span class="kbd">F</span></div>
+        <div class="search-clear">✕</div>
+      </div>
+      <div class="tool-row">
+        <span class="status-pill"><span class="pill-dot"></span>索引就绪 · 128,340 个文件 · 更新于 08-01 07:30</span>
+        <div class="tool-spacer"></div>
+        <span class="ghost-btn">⟳&nbsp;&nbsp;重建索引</span>
+        <span class="icon-btn">⚙</span>
+      </div>
+    </div>
+
+    <div class="result-card">
+      <div class="thead">
+        <div class="col-name">文件名<span class="sort-arrow" style="color:#3FC1B0;">▲</span></div>
+        <div class="col-path">路径</div>
+        <div class="col-type">类型</div>
+        <div class="col-size">大小</div>
+        <div class="col-time">修改时间</div>
+      </div>
+      <div class="rows">
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#5B93E8,#3D6FC4);"></span>2026 上半年工作总结.docx</div>
+          <div class="col-path">C:\Users\hjf\Documents\工作总结</div>
+          <div class="col-type"><span class="badge t-doc">DOCX</span></div>
+          <div class="col-size">2.4 MB</div>
+          <div class="col-time">2026-07-30 18:42</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#E8C56F,#C9A23F);"></span>年度报告归档</div>
+          <div class="col-path">D:\Backup\Reports</div>
+          <div class="col-type"><span class="badge t-dir">文件夹</span></div>
+          <div class="col-size">—</div>
+          <div class="col-time">2026-07-28 09:15</div>
+        </div>
+        <div class="row selected">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#E4747E,#C44854);"></span>董事会年度报告-终版.pdf</div>
+          <div class="col-path">C:\Users\hjf\Desktop</div>
+          <div class="col-type"><span class="badge t-pdf">PDF</span></div>
+          <div class="col-size">8.1 MB</div>
+          <div class="col-time">2026-07-25 22:03</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#5AC8C8,#38989B);"></span>report_generator.py</div>
+          <div class="col-path">C:\Users\hjf\Documents\代码\FileSearcher</div>
+          <div class="col-type"><span class="badge t-code">PY</span></div>
+          <div class="col-size">156 KB</div>
+          <div class="col-time">2026-07-31 23:41</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#7CC784,#4E9A58);"></span>季度预算报告.xlsx</div>
+          <div class="col-path">C:\Users\hjf\Documents\财务</div>
+          <div class="col-type"><span class="badge t-xls">XLSX</span></div>
+          <div class="col-size">480 KB</div>
+          <div class="col-time">2026-07-20 14:26</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#E8A569,#C97A2B);"></span>年度报告演讲稿.pptx</div>
+          <div class="col-path">C:\Users\hjf\Documents\演示</div>
+          <div class="col-type"><span class="badge t-ppt">PPTX</span></div>
+          <div class="col-size">12.6 MB</div>
+          <div class="col-time">2026-07-18 16:50</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#BE8FE0,#9655C4);"></span>报告封面设计.png</div>
+          <div class="col-path">C:\Users\hjf\Pictures</div>
+          <div class="col-type"><span class="badge t-img">PNG</span></div>
+          <div class="col-size">3.2 MB</div>
+          <div class="col-time">2026-07-15 11:08</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#D1A26B,#A87B45);"></span>报告素材打包.zip</div>
+          <div class="col-path">C:\Users\hjf\Downloads</div>
+          <div class="col-type"><span class="badge t-zip">ZIP</span></div>
+          <div class="col-size">86 MB</div>
+          <div class="col-time">2026-07-12 20:34</div>
+        </div>
+      </div>
+      <div class="pager">
+        <span class="pager-total">共 1,234 个结果</span>
+        <div class="pager-spacer"></div>
+        <span class="page-btn">‹</span>
+        <span class="page-info">1 / 12</span>
+        <span class="page-btn">›</span>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span class="sb-dot"></span>搜索「报告」— 0.08 秒
+      <div class="sb-spacer"></div>
+      第 1 / 12 页
+    </div>
+  </div>
+</section>
+
+<!-- ================= 浅色主界面 ================= -->
+<section>
+  <div class="sec-title">三、主界面 · 浅色「晴白」</div>
+  <div class="sec-desc">同一套结构，accent 加深为 #0F9C8B 保证对比度；暖白背景，层次分明。</div>
+
+  <div class="app light">
+    <div class="titlebar">
+      <div class="tb-logo">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/>
+        </svg>
+      </div>
+      <span class="tb-name">File Searcher</span><span class="tb-sub">全盘文件搜索</span>
+      <div class="tb-spacer"></div>
+      <div class="tb-btn">—</div>
+      <div class="tb-btn close">✕</div>
+    </div>
+
+    <div class="search-zone">
+      <div class="search-box focused">
+        <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/>
+        </svg>
+        <input class="search-input" placeholder="搜索文件名或完整路径…" value="报告">
+        <div class="search-kbd"><span class="kbd">Ctrl</span><span class="kbd">F</span></div>
+        <div class="search-clear">✕</div>
+      </div>
+      <div class="tool-row">
+        <span class="status-pill"><span class="pill-dot"></span>索引就绪 · 128,340 个文件 · 更新于 08-01 07:30</span>
+        <div class="tool-spacer"></div>
+        <span class="ghost-btn">⟳&nbsp;&nbsp;重建索引</span>
+        <span class="icon-btn">⚙</span>
+      </div>
+    </div>
+
+    <div class="result-card">
+      <div class="thead">
+        <div class="col-name">文件名<span class="sort-arrow" style="color:#0F9C8B;">▲</span></div>
+        <div class="col-path">路径</div>
+        <div class="col-type">类型</div>
+        <div class="col-size">大小</div>
+        <div class="col-time">修改时间</div>
+      </div>
+      <div class="rows">
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#5B93E8,#3D6FC4);"></span>2026 上半年工作总结.docx</div>
+          <div class="col-path">C:\Users\hjf\Documents\工作总结</div>
+          <div class="col-type"><span class="badge t-doc">DOCX</span></div>
+          <div class="col-size">2.4 MB</div>
+          <div class="col-time">2026-07-30 18:42</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#E8C56F,#C9A23F);"></span>年度报告归档</div>
+          <div class="col-path">D:\Backup\Reports</div>
+          <div class="col-type"><span class="badge t-dir">文件夹</span></div>
+          <div class="col-size">—</div>
+          <div class="col-time">2026-07-28 09:15</div>
+        </div>
+        <div class="row selected">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#E4747E,#C44854);"></span>董事会年度报告-终版.pdf</div>
+          <div class="col-path">C:\Users\hjf\Desktop</div>
+          <div class="col-type"><span class="badge t-pdf">PDF</span></div>
+          <div class="col-size">8.1 MB</div>
+          <div class="col-time">2026-07-25 22:03</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#5AC8C8,#38989B);"></span>report_generator.py</div>
+          <div class="col-path">C:\Users\hjf\Documents\代码\FileSearcher</div>
+          <div class="col-type"><span class="badge t-code">PY</span></div>
+          <div class="col-size">156 KB</div>
+          <div class="col-time">2026-07-31 23:41</div>
+        </div>
+        <div class="row">
+          <div class="col-name"><span class="f-ico" style="background:linear-gradient(135deg,#7CC784,#4E9A58);"></span>季度预算报告.xlsx</div>
+          <div class="col-path">C:\Users\hjf\Documents\财务</div>
+          <div class="col-type"><span class="badge t-xls">XLSX</span></div>
+          <div class="col-size">480 KB</div>
+          <div class="col-time">2026-07-20 14:26</div>
+        </div>
+      </div>
+      <div class="pager">
+        <span class="pager-total">共 1,234 个结果</span>
+        <div class="pager-spacer"></div>
+        <span class="page-btn">‹</span>
+        <span class="page-info">1 / 12</span>
+        <span class="page-btn">›</span>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span class="sb-dot"></span>搜索「报告」— 0.08 秒
+      <div class="sb-spacer"></div>
+      第 1 / 12 页
+    </div>
+  </div>
+</section>
+
+<!-- ================= 设置窗口 ================= -->
+<section>
+  <div class="sec-title">四、设置窗口</div>
+  <div class="sec-desc">左侧圆角导航（选中 = 霁青淡底）+ 右侧分组卡片；开关换成自绘 Toggle；主题选择带实时预览卡。</div>
+
+  <div class="settings-win">
+    <div class="st-nav">
+      <div class="st-nav-title">设置</div>
+      <div class="st-nav-item active"><span>◉</span>常规</div>
+      <div class="st-nav-item"><span>⊘</span>排除列表</div>
+      <div class="st-nav-item"><span>ℹ</span>关于</div>
+    </div>
+    <div class="st-content">
+      <div class="st-page-title">常规</div>
+      <div class="st-page-desc">所有修改即时保存，无需重启。</div>
+
+      <div class="st-card">
+        <div class="st-card-title">索引</div>
+        <div class="st-opt">
+          <div class="st-opt-text">
+            <div class="st-opt-name">启动时自动更新索引</div>
+            <div class="st-opt-desc">每次启动软件后在后台静默重建全盘索引</div>
+          </div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="st-opt">
+          <div class="st-opt-text">
+            <div class="st-opt-name">托盘自动更新</div>
+            <div class="st-opt-desc">最小化到系统托盘后按固定间隔更新索引</div>
+          </div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="st-opt">
+          <div class="st-opt-text">
+            <div class="st-opt-name">更新间隔</div>
+            <div class="st-opt-desc">5 ~ 120 分钟</div>
+          </div>
+          <div class="stepper">
+            <span class="step-btn">−</span><span class="step-val">30 分钟</span><span class="step-btn">＋</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="st-card">
+        <div class="st-card-title">外观</div>
+        <div class="theme-cards">
+          <div class="theme-card active">
+            <div class="theme-preview" style="background:#0C1014;">
+              <div class="tp-bar" style="background:#1C2630;width:60%;"></div>
+              <div class="tp-search" style="background:#131A21;border:1px solid #3FC1B0;"></div>
+              <div class="tp-row" style="background:rgba(63,193,176,.25);width:85%;"></div>
+              <div class="tp-row" style="background:#1A222B;width:70%;"></div>
+            </div>
+            <div class="theme-name">深色</div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-preview" style="background:#F2F5F4;">
+              <div class="tp-bar" style="background:#DFE6E3;width:60%;"></div>
+              <div class="tp-search" style="background:#fff;border:1px solid #DFE6E3;"></div>
+              <div class="tp-row" style="background:rgba(15,156,139,.18);width:85%;"></div>
+              <div class="tp-row" style="background:#EFF3F2;width:70%;"></div>
+            </div>
+            <div class="theme-name">浅色</div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-preview" style="background:linear-gradient(90deg,#0C1014 50%,#F2F5F4 50%);">
+              <div class="tp-bar" style="background:rgba(128,140,148,.5);width:60%;"></div>
+              <div class="tp-search" style="background:rgba(128,140,148,.25);"></div>
+              <div class="tp-row" style="background:rgba(63,193,176,.25);width:85%;"></div>
+              <div class="tp-row" style="background:rgba(128,140,148,.25);width:70%;"></div>
+            </div>
+            <div class="theme-name">跟随系统</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 弹窗组件 ================= -->
+<section>
+  <div class="sec-title">五、弹出框与组件</div>
+  <div class="sec-desc">右键菜单、确认弹窗、输入弹窗全部自绘，替代系统原生样式，风格全局统一。</div>
+
+  <div class="comps">
+    <div class="comp-block">
+      <div class="comp-label">右键菜单</div>
+      <div class="ctx-menu">
+        <div class="ctx-item"><span class="ci">↗</span>打开</div>
+        <div class="ctx-item"><span class="ci">⌂</span>打开所在文件夹</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item"><span class="ci">⧉</span>复制</div>
+        <div class="ctx-item"><span class="ci">✂</span>剪切</div>
+        <div class="ctx-item"><span class="ci">⎘</span>复制完整路径</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item"><span class="ci">✎</span>重命名</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item"><span class="ci">🗑</span>删除到回收站</div>
+        <div class="ctx-item danger"><span class="ci">✕</span>彻底删除</div>
+      </div>
+    </div>
+
+    <div class="comp-block">
+      <div class="comp-label">确认弹窗（删除/重建索引）</div>
+      <div class="dialog">
+        <div class="dlg-icon danger">🗑</div>
+        <div class="dlg-title">确认删除</div>
+        <div class="dlg-desc">确定将 <b>「董事会年度报告-终版.pdf」</b> 移动到回收站吗？可以在系统回收站中恢复。</div>
+        <div class="dlg-btns">
+          <span class="btn btn-normal">取消</span>
+          <span class="btn btn-danger">删除</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="comp-block">
+      <div class="comp-label">输入弹窗（重命名 / 排除项）</div>
+      <div class="input-demo">
+        <div class="dlg-title">重命名</div>
+        <div class="dlg-desc" style="margin-bottom:4px;">输入新的文件名：</div>
+        <div class="input-field">董事会年度报告-终版.pdf</div>
+        <div class="dlg-btns">
+          <span class="btn btn-normal">取消</span>
+          <span class="btn btn-accent">确定</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="comp-block">
+      <div class="comp-label">空状态</div>
+      <div class="empty-state">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <circle cx="32" cy="32" r="30" stroke="#212D38" stroke-width="2"/>
+          <circle cx="32" cy="32" r="22" stroke="#2A3742" stroke-width="1.5" stroke-dasharray="3 5"/>
+          <circle cx="28" cy="28" r="9" stroke="#5E6C79" stroke-width="2.5"/>
+          <line x1="35" y1="35" x2="43" y2="43" stroke="#5E6C79" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <div class="empty-title">没有匹配的结果</div>
+        <div class="empty-sub">换个关键词试试，或检查拼写</div>
+      </div>
+    </div>
+  </div>
+</section>
 
 </body>
 </html>

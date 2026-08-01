@@ -25,7 +25,7 @@ if sys.platform == "win32":
             pass
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 from pathlib import Path
 
 import pystray
@@ -43,41 +43,71 @@ INDEX_QUEUE_SIZE = 20000
 PAGE_SIZE = 5000
 
 FONT_FAMILY = "Microsoft YaHei UI" if sys.platform == "win32" else "sans-serif"
-# 全局字号体系（基础 pt，最终渲染 = base × dpi_scale × font_scale）
-# 缩放后约：SMALL=22pt 辅助 / BODY=25pt 正文·按钮·搜索·表头 / LG=27pt 空状态 / LG+2=31pt 标题
-FONT_XS = 10        # 最小辅助文字（保留兜底）
-FONT_SMALL = 11     # 辅助文字：徽章、筛选标签、说明
-FONT_BODY = 12      # 正文：表格、信息行、状态栏、搜索框、按钮
-FONT_LG = 13        # 空状态主文案等醒目文字
-FONT_INPUT = 12     # 搜索框输入（与正文一致）
-FONT_HEADER = 12    # 表头（加粗）
-FONT_TITLE = 12     # 标题栏标题
-ROW_HEIGHT = 56     # 结果行高
-TITLEBAR_H = 42     # 自绘标题栏高度
+FONT_MONO = "Consolas" if sys.platform == "win32" else "monospace"
+# 全局字号体系（基础 pt，最终渲染 = base × dpi_scale × font_scale ≈ base × 2.08）
+# MICRO≈19pt 表头·胶囊·徽章·状态栏 / SMALL≈21pt 辅助·路径·说明 / BODY≈25pt 正文·文件名·按钮
+# INPUT≈27pt 搜索框（主角稍大）/ LG≈29pt 弹窗标题·空状态 / XL≈31pt 设置页大标题
+FONT_MICRO = 9
+FONT_SMALL = 10     # 辅助文字：路径列、说明、副文案
+FONT_BODY = 12      # 正文：文件名、按钮、菜单项、状态文字
+FONT_INPUT = 13     # 搜索框输入（视觉主角，比正文大一号）
+FONT_LG = 14        # 弹窗标题、空状态主文案
+FONT_XL = 15        # 设置页大标题
+FONT_HEADER = FONT_MICRO   # 表头
+FONT_TITLE = FONT_SMALL    # 标题栏标题
+ROW_HEIGHT = 50     # 结果行高
+TITLEBAR_H = 40     # 自绘标题栏高度
 SPACING = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24}
 THEMES = {
+    # 深色「墨青」：近黑石墨底 + 青玉 accent
     "dark": {
-        "bg": "#0E1116", "surface": "#171B22", "surface_alt": "#1F252E",
-        "surface_3": "#262D38", "input": "#14181F", "border": "#2A3140",
-        "border_strong": "#374052", "text": "#ECF0F7", "muted": "#8B94A7",
-        "muted_2": "#5F6A7E", "accent": "#5B7CFA", "accent_hover": "#7A93FC",
-        "accent_pressed": "#3D57C8", "accent_grad_a": "#6A8BFF", "accent_grad_b": "#4A66E8",
-        "selected": "#2E4570", "selected_hover": "#365080", "row_alt": "#1A1F28",
-        "success": "#4ADE80", "warning": "#F5B84C", "error": "#F26D6D",
-        "title_bg": "#141820", "hover": "#262D38",
+        "bg": "#0C1014", "surface": "#131A21", "surface_alt": "#19222B",
+        "surface_3": "#212D38", "input": "#0F151B", "border": "#222D38",
+        "border_strong": "#31404E", "text": "#E9F0F3", "muted": "#8E9CAA",
+        "muted_2": "#5E6C79", "accent": "#3FC1B0", "accent_hover": "#59D2C2",
+        "accent_pressed": "#2CA295", "accent_grad_a": "#46C9B6", "accent_grad_b": "#2B9C8E",
+        "selected": "#193034", "selected_hover": "#1E3A3E", "row_alt": "#151D24",
+        "row_line": "#1B232B", "title_bg": "#10161C", "hover": "#1B242D",
+        "sel_text": "#59D2C2",
+        "success": "#3ED598", "warning": "#F0B44C", "error": "#E4747E",
+        "menu_bg": "#151D25", "dialog_bg": "#151D25",
     },
+    # 浅色「晴白」：暖白底 + 深青 accent（保证对比度）
     "light": {
-        "bg": "#F2F4F8", "surface": "#FFFFFF", "surface_alt": "#E9EDF3",
-        "surface_3": "#DFE5EE", "input": "#FFFFFF", "border": "#D5DBE5",
-        "border_strong": "#B9C3D2", "text": "#141B26", "muted": "#5F6B7E",
-        "muted_2": "#8A94A6", "accent": "#3B6CF0", "accent_hover": "#5B84F5",
-        "accent_pressed": "#2C57D4", "accent_grad_a": "#5B84F5", "accent_grad_b": "#3B6CF0",
-        "selected": "#DCE7FB", "selected_hover": "#C9DAF8", "row_alt": "#F5F7FB",
-        "success": "#16A34A", "warning": "#B45309", "error": "#DC2626",
-        "title_bg": "#E7EBF2", "hover": "#E3E9F2",
+        "bg": "#F2F5F4", "surface": "#FFFFFF", "surface_alt": "#EFF3F2",
+        "surface_3": "#E2E9E7", "input": "#FFFFFF", "border": "#DFE6E3",
+        "border_strong": "#C3CFCB", "text": "#182228", "muted": "#61727B",
+        "muted_2": "#93A1A8", "accent": "#0F9C8B", "accent_hover": "#23B3A1",
+        "accent_pressed": "#0B8577", "accent_grad_a": "#23B3A1", "accent_grad_b": "#0B8577",
+        "selected": "#E4F4F1", "selected_hover": "#D8EEE9", "row_alt": "#F7FAF9",
+        "row_line": "#EDF1F0", "title_bg": "#E9EEEC", "hover": "#F0F5F3",
+        "sel_text": "#0B8577",
+        "success": "#18A058", "warning": "#D9962C", "error": "#D64545",
+        "menu_bg": "#FFFFFF", "dialog_bg": "#FFFFFF",
     },
 }
 
+# 文件类型徽章：(文字色, 底色)，按主题区分；底色为类型色低透明度混合预算值
+BADGE_STYLES = {
+    "dark": {
+        "doc": ("#6FA8EF", "#1F2C3C"), "pdf": ("#E4747E", "#2E262D"),
+        "xls": ("#7CC784", "#21312E"), "ppt": ("#E8A569", "#2F2C2A"),
+        "img": ("#BE8FE0", "#29293A"), "code": ("#5AC8C8", "#1C3137"),
+        "zip": ("#D1A26B", "#2C2C2B"), "audio": ("#7FD4A8", "#213232"),
+        "video": ("#8FA5E8", "#232840"), "dir": ("#E5C56F", "#2E302B"),
+        "file": ("#8E9CAA", "#212D38"),
+    },
+    "light": {
+        "doc": ("#2F6FD0", "#E9F1FB"), "pdf": ("#C94F5A", "#FAEDEE"),
+        "xls": ("#3E9B4F", "#EBF5ED"), "ppt": ("#C97A2B", "#FAF1E7"),
+        "img": ("#9A5BC4", "#F4EDFA"), "code": ("#1D9B9B", "#E7F5F5"),
+        "zip": ("#B07E3F", "#F7F1E8"), "audio": ("#3FA873", "#EBF6F0"),
+        "video": ("#5B6FC4", "#EDEFF9"), "dir": ("#B08F2E", "#F7F3E7"),
+        "file": ("#61727B", "#EFF3F2"),
+    },
+}
+
+# 扩展名 → 徽章类别（构建自上方扩展名集合，见下方 _build_badge_kind_map）
 DOCUMENT_EXTENSIONS = {".doc", ".docx", ".pdf", ".txt", ".rtf", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".csv", ".md"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff", ".ico", ".svg"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"}
@@ -88,6 +118,42 @@ TYPE_FILTERS = {
     "文档": DOCUMENT_EXTENSIONS, "图片": IMAGE_EXTENSIONS, "视频": VIDEO_EXTENSIONS,
     "音频": AUDIO_EXTENSIONS, "压缩包": ARCHIVE_EXTENSIONS, "代码": CODE_EXTENSIONS,
 }
+
+
+def _build_badge_kind_map() -> dict:
+    """扩展名 → 徽章类别映射表。"""
+    m = {}
+    for ext in DOCUMENT_EXTENSIONS:
+        if ext in (".xls", ".xlsx", ".ods", ".csv"):
+            m[ext] = "xls"
+        elif ext in (".ppt", ".pptx"):
+            m[ext] = "ppt"
+        elif ext == ".pdf":
+            m[ext] = "pdf"
+        else:
+            m[ext] = "doc"
+    for ext in IMAGE_EXTENSIONS:
+        m[ext] = "img"
+    for ext in VIDEO_EXTENSIONS:
+        m[ext] = "video"
+    for ext in AUDIO_EXTENSIONS:
+        m[ext] = "audio"
+    for ext in ARCHIVE_EXTENSIONS:
+        m[ext] = "zip"
+    for ext in CODE_EXTENSIONS:
+        m[ext] = "code"
+    return m
+
+
+BADGE_KIND_MAP = _build_badge_kind_map()
+
+
+def badge_kind_for(name: str, is_dir: bool) -> str:
+    """根据文件名与是否目录返回徽章类别。"""
+    if is_dir:
+        return "dir"
+    ext = os.path.splitext(name)[1].lower()
+    return BADGE_KIND_MAP.get(ext, "file")
 
 IGNORE_DIRS = {
     "windows", "winnt", "system32", "syswow64", "winsxs",
@@ -334,14 +400,11 @@ def format_size(size: int) -> str:
 
 
 def open_with_default(path: str):
-    """用系统默认软件打开文件"""
-    try:
-        if sys.platform == "win32":
-            os.startfile(os.path.normpath(path))
-        else:
-            subprocess.Popen(["xdg-open", path])
-    except OSError as e:
-        messagebox.showerror("打开失败", str(e))
+    """用系统默认软件打开文件（失败时抛出 OSError，由调用方提示）。"""
+    if sys.platform == "win32":
+        os.startfile(os.path.normpath(path))
+    else:
+        subprocess.Popen(["xdg-open", path])
 
 
 def open_file_location(path: str):
@@ -908,7 +971,8 @@ def _make_gradient_pix(master, width: int, height: int, radius: int, c1: str, c2
 class RoundedButton(tk.Canvas):
     """支持 hover、pressed、disabled、渐变主按钮且兼容 config(text/state) 的圆角按钮。
 
-    kind: "normal"（灰底） | "accent"（靛蓝渐变主按钮） | "danger"（红色系）
+    kind: "normal"（灰底描边） | "accent"（霁青渐变主按钮） | "danger"（红色系）
+          | "ghost"（透明底 accent 文字，hover 淡 accent 底）
     """
 
     def __init__(self, master, text="", command=None, width=120, height=48, radius=12,
@@ -949,6 +1013,10 @@ class RoundedButton(tk.Canvas):
         width, height = max(2, self.winfo_width()), max(2, self.winfo_height())
         c = self.colors
         if self._state == tk.DISABLED:
+            if self._kind == "ghost":
+                self.create_text(width / 2, height / 2, text=self._icon or self._text,
+                                 fill=c["muted_2"], font=(FONT_FAMILY, self._font_size, "bold"))
+                return
             fill, outline, fg = c["surface"], c["border"], c["muted_2"]
         elif self._kind == "accent":
             if self._visual_state == "pressed":
@@ -969,15 +1037,35 @@ class RoundedButton(tk.Canvas):
             return
         elif self._kind == "danger":
             if self._visual_state == "pressed":
-                fill, outline, fg = "#A62B2B", "#A62B2B", "#FFFFFF"
+                pix = _make_gradient_pix(self.master.winfo_toplevel(), width, height,
+                                         self._radius, "#C44854", "#A93A45")
+                self.create_image(width / 2, height / 2, image=pix)
             elif self._visual_state == "hover":
-                fill, outline, fg = "#C42B2B", "#C42B2B", "#FFFFFF"
+                pix = _make_gradient_pix(self.master.winfo_toplevel(), width, height,
+                                         self._radius, "#EE707B", "#D14F5B")
+                self.create_image(width / 2, height / 2, image=pix)
             else:
-                fill, outline, fg = c["error"], c["error"], "#FFFFFF"
+                pix = _make_gradient_pix(self.master.winfo_toplevel(), width, height,
+                                         self._radius, "#E2636E", "#C94854")
+                self.create_image(width / 2, height / 2, image=pix)
+            self.create_text(width / 2, height / 2, text=self._icon or self._text,
+                             fill="#FFFFFF", font=(FONT_FAMILY, self._font_size, "bold"))
+            return
+        elif self._kind == "ghost":
+            # 幽灵按钮：常态透明底 accent 文字；hover/pressed 淡 accent 底
+            if self._visual_state == "pressed":
+                _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius,
+                              fill=c["selected_hover"], outline="", width=0)
+            elif self._visual_state == "hover":
+                _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius,
+                              fill=c["selected"], outline="", width=0)
+            self.create_text(width / 2, height / 2, text=self._icon or self._text,
+                             fill=c["accent"], font=(FONT_FAMILY, self._font_size, "bold"))
+            return
         elif self._visual_state == "pressed":
             fill, outline, fg = c["surface_3"], c["border_strong"], c["text"]
         elif self._visual_state == "hover":
-            fill, outline, fg = c["surface_3"], c["accent"], c["text"]
+            fill, outline, fg = c["surface_3"], c["border_strong"], c["text"]
         else:
             fill, outline, fg = c["surface_alt"], c["border"], c["text"]
         _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius,
@@ -1023,20 +1111,23 @@ class RoundedButton(tk.Canvas):
 
 
 class RoundedSearchBox(tk.Canvas):
-    """圆角搜索外壳：内嵌 Entry、搜索图标、聚焦高亮和清空热区。"""
+    """大圆角搜索外壳：内嵌 Entry、放大镜、聚焦光晕、Ctrl+F 提示胶囊与清空热区。"""
 
-    def __init__(self, master, textvariable, colors, clear_command, height=40, font_size=None):
+    def __init__(self, master, textvariable, colors, clear_command, height=56, font_size=None):
         super().__init__(master, height=height, bd=0, highlightthickness=0,
                          bg=master.cget("bg"))
         self.colors = colors
         self._focused = False
         self._hover = False
+        self._radius = 15
         self._font_size = font_size or FONT_INPUT
         self.entry = tk.Entry(self, textvariable=textvariable, relief="flat", bd=0,
                               bg=colors["input"], fg=colors["text"],
-                              insertbackground=colors["text"], font=(FONT_FAMILY, self._font_size))
-        self._entry_window = self.create_window(42, height / 2, window=self.entry, anchor=tk.W)
+                              insertbackground=colors["accent"],
+                              font=(FONT_FAMILY, self._font_size))
+        self._entry_window = self.create_window(52, height / 2, window=self.entry, anchor=tk.W)
         self._clear_command = clear_command
+        self._kbd_font = (FONT_MONO, max(8, self._font_size - 5))
         self.bind("<Configure>", self._layout)
         self.bind("<Button-1>", self._click)
         self.bind("<Enter>", lambda _e: self._on_hover(True))
@@ -1047,8 +1138,9 @@ class RoundedSearchBox(tk.Canvas):
 
     def _layout(self, _event=None):
         # entry 高度必须给足（= 壳高 - 上下留白），否则文字被裁剪
-        h = max(24, self.winfo_height() - 8)
-        self.itemconfigure(self._entry_window, width=max(20, self.winfo_width() - 84), height=h)
+        h = max(24, self.winfo_height() - 10)
+        # 右侧预留：清空钮区 + kbd 胶囊区
+        self.itemconfigure(self._entry_window, width=max(20, self.winfo_width() - 176), height=h)
         self._draw()
 
     def _on_hover(self, hover: bool):
@@ -1060,34 +1152,45 @@ class RoundedSearchBox(tk.Canvas):
         width, height = max(2, self.winfo_width()), max(2, self.winfo_height())
         c = self.colors
         if self._focused:
-            border, glow = c["accent"], 1
+            border = c["accent"]
         elif self._hover:
-            border, glow = c["border_strong"], 0
+            border = c["border_strong"]
         else:
-            border, glow = c["border"], 0
-        shell = _rounded_rect(self, 1.5, 1.5, width - 1.5, height - 1.5, 13,
-                              fill=c["input"], outline=border, width=1.5, tags="shell")
+            border = c["border"]
+        # 聚焦光晕：外层淡 accent 圆角描边
+        if self._focused:
+            _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius + 2,
+                          fill="", outline=c["selected"], width=5, tags="shell")
+        shell = _rounded_rect(self, 2.5, 2.5, width - 2.5, height - 2.5, self._radius,
+                              fill=c["input"], outline=border, width=1.6, tags="shell")
         self.tag_lower(shell)
-        if glow:
-            _rounded_rect(self, 3, 3, width - 3, height - 3, 12,
-                          outline=c["accent"], width=1, tags="shell")
-        # 搜索图标（放大镜）
-        cx, cy = 23, height / 2
-        self.create_oval(cx - 6.5, cy - 6.5, cx + 6.5, cy + 6.5,
-                         outline=c["muted"], width=1.8, tags="shell")
-        self.create_line(cx + 5.5, cy + 5.5, cx + 11, cy + 11,
-                         fill=c["muted"], width=2.2, tags="shell")
-        # 清空按钮（hover 时显示）
-        clear_x = width - 26
+        # 搜索图标（放大镜，聚焦时 accent 色）
+        icon_c = c["accent"] if self._focused else c["muted"]
+        cx, cy = 28, height / 2
+        self.create_oval(cx - 7.5, cy - 7.5, cx + 7.5, cy + 7.5,
+                         outline=icon_c, width=2.2, tags="shell")
+        self.create_line(cx + 6, cy + 6, cx + 12, cy + 12,
+                         fill=icon_c, width=2.8, capstyle=tk.ROUND, tags="shell")
+        # 右侧：Ctrl+F 快捷键胶囊（两块小胶囊）
+        kx = width - 96
+        for i, t in enumerate(("Ctrl", "F")):
+            w = 34 if i == 0 else 22
+            x0 = kx if i == 0 else kx + 38
+            _rounded_rect(self, x0, cy - 11, x0 + w, cy + 11, 6,
+                          fill=c["surface_3"], outline="", width=0, tags="shell")
+            self.create_text(x0 + w / 2, cy, text=t, fill=c["muted"],
+                             font=self._kbd_font, tags="shell")
+        # 清空按钮（hover/focus 时显示）
+        clear_x = width - 30
         if self._hover or self._focused:
-            self.create_oval(clear_x - 11, cy - 11, clear_x + 11, cy + 11,
+            self.create_oval(clear_x - 12, cy - 12, clear_x + 12, cy + 12,
                              fill=c["surface_3"], outline="", tags="shell")
             self.create_text(clear_x, cy, text="✕", fill=c["muted"],
                              font=(FONT_FAMILY, FONT_SMALL), tags="shell")
         self.tag_lower("shell", self._entry_window)
 
     def _click(self, event):
-        if event.x >= self.winfo_width() - 46:
+        if event.x >= self.winfo_width() - 50:
             self._clear_command()
         else:
             self.entry.focus_set()
@@ -1101,24 +1204,521 @@ class RoundedSearchBox(tk.Canvas):
         self._draw()
 
 
+class StatusPill(tk.Canvas):
+    """索引状态胶囊：圆角全胶囊 + 状态圆点 + 文字。kind: ok 绿 / warn 黄 / off 灰。"""
+
+    def __init__(self, master, colors, height=30, font=None):
+        super().__init__(master, height=height, bd=0, highlightthickness=0,
+                         bg=master.cget("bg"))
+        self.colors = colors
+        self._font = font or (FONT_FAMILY, FONT_MICRO)
+        self._text = ""
+        self._kind = "off"
+        self.bind("<Configure>", lambda _e: self._draw())
+
+    def set_status(self, kind: str, text: str):
+        if kind != self._kind or text != self._text:
+            self._kind = kind
+            self._text = text
+            self._draw()
+
+    def _draw(self):
+        self.delete("all")
+        c = self.colors
+        h = max(2, self.winfo_height())
+        try:
+            import tkinter.font as tkfont
+            f = tkfont.Font(root=self.winfo_toplevel(), font=self._font)
+            tw = f.measure(self._text)
+        except Exception:
+            tw = len(self._text) * 9
+        w = tw + 58
+        self.configure(width=w)
+        _rounded_rect(self, 1, 1, w - 1, h - 1, (h - 2) / 2,
+                      fill=c["surface"], outline=c["border"], width=1)
+        dot_c = {"ok": c["success"], "warn": c["warning"]}.get(self._kind, c["muted_2"])
+        cy = h / 2
+        self.create_oval(16, cy - 4, 24, cy + 4, fill=dot_c, outline="")
+        self.create_text(34, cy, text=self._text, anchor=tk.W, fill=c["muted"], font=self._font)
+
+
+# ================================================================
+#  自绘弹窗组件：圆角对话框外壳 / 确认框 / 输入框 / 右键菜单 / 开关
+# ================================================================
+
+_DIALOG_MAGIC = "#010203"   # 透明魔法色（避开全部界面用色）
+
+
+class ToggleSwitch(tk.Canvas):
+    """自绘滑动开关：绑定 BooleanVar，点击切换并可回调。"""
+
+    def __init__(self, master, colors, variable, command=None, width=46, height=26):
+        super().__init__(master, width=width, height=height, bd=0, highlightthickness=0,
+                         bg=master.cget("bg"), cursor="hand2")
+        self.colors = colors
+        self._var = variable
+        self._command = command
+        self._w, self._h = width, height
+        self.bind("<Button-1>", self._toggle)
+        self._var.trace_add("write", lambda *_: self._draw())
+        self._draw()
+
+    def _toggle(self, _event=None):
+        self._var.set(not self._var.get())
+        if self._command:
+            self._command()
+
+    def _draw(self):
+        self.delete("all")
+        c = self.colors
+        w, h = self._w, self._h
+        on = bool(self._var.get())
+        if on:
+            pix = _make_gradient_pix(self.winfo_toplevel(), w, h, h // 2,
+                                     c["accent_grad_a"], c["accent_grad_b"])
+            self.create_image(w / 2, h / 2, image=pix)
+            cx = w - h / 2 - 1
+        else:
+            _rounded_rect(self, 1, 1, w - 1, h - 1, (h - 2) / 2,
+                          fill=c["surface_3"], outline=c["border_strong"], width=1)
+            cx = h / 2 + 1
+        r = (h - 8) / 2
+        self.create_oval(cx - r, h / 2 - r, cx + r, h / 2 + r, fill="#FFFFFF", outline="")
+
+
+class RoundEntry(tk.Canvas):
+    """弹窗用圆角输入框：聚焦 accent 描边 + 光晕。"""
+
+    def __init__(self, master, colors, height=40, font=None, radius=10):
+        super().__init__(master, height=height, bd=0, highlightthickness=0,
+                         bg=master.cget("bg"))
+        self.colors = colors
+        self._radius = radius
+        self._font = font or (FONT_FAMILY, FONT_BODY)
+        self.var = tk.StringVar()
+        self.entry = tk.Entry(self, textvariable=self.var, relief="flat", bd=0,
+                              bg=colors["input"], fg=colors["text"],
+                              insertbackground=colors["accent"], font=self._font)
+        self._entry_window = self.create_window(14, height / 2, window=self.entry, anchor=tk.W)
+        self._focused = False
+        self.bind("<Configure>", self._layout)
+        self.bind("<Button-1>", lambda _e: self.entry.focus_set())
+        self.entry.bind("<FocusIn>", self._focus_in, add="+")
+        self.entry.bind("<FocusOut>", self._focus_out, add="+")
+        self._draw()
+
+    def _layout(self, _event=None):
+        self.itemconfigure(self._entry_window,
+                           width=max(20, self.winfo_width() - 28),
+                           height=max(20, self.winfo_height() - 12))
+        self._draw()
+
+    def _draw(self):
+        self.delete("shell")
+        c = self.colors
+        w, h = max(2, self.winfo_width()), max(2, self.winfo_height())
+        if self._focused:
+            _rounded_rect(self, 1, 1, w - 1, h - 1, self._radius + 2,
+                          fill="", outline=c["selected"], width=4, tags="shell")
+        shell = _rounded_rect(self, 2, 2, w - 2, h - 2, self._radius,
+                              fill=c["input"],
+                              outline=c["accent"] if self._focused else c["border"],
+                              width=1.5, tags="shell")
+        self.tag_lower("shell", self._entry_window)
+
+    def _focus_in(self, _event=None):
+        self._focused = True
+        self._draw()
+
+    def _focus_out(self, _event=None):
+        self._focused = False
+        self._draw()
+
+    def get(self):
+        return self.var.get()
+
+    def set(self, value):
+        self.var.set(value)
+
+
+class _DialogShell:
+    """无边框圆角模态弹窗外壳：透明角、阴影、圆角卡片、标题区拖动、Esc 关闭。"""
+
+    def __init__(self, app, width_px, height_px, radius=16):
+        self.app = app
+        self.root = app.root
+        self.colors = app.colors
+        self.result = None
+        self._radius = radius
+        top = tk.Toplevel(self.root)
+        self.top = top
+        top.overrideredirect(True)
+        self._rounded_ok = True
+        try:
+            top.configure(bg=_DIALOG_MAGIC)
+            top.attributes("-transparentcolor", _DIALOG_MAGIC)
+        except tk.TclError:
+            self._rounded_ok = False
+            top.configure(bg=self.colors["dialog_bg"])
+        top.transient(self.root)
+        top.resizable(False, False)
+        self.root.update_idletasks()
+        pw, ph = self.root.winfo_width(), self.root.winfo_height()
+        px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
+        top.geometry(f"{width_px}x{height_px}+{px + (pw - width_px) // 2}+{py + (ph - height_px) // 2}")
+
+        bg = _DIALOG_MAGIC if self._rounded_ok else self.colors["dialog_bg"]
+        self.canvas = tk.Canvas(top, width=width_px, height=height_px, bd=0,
+                                highlightthickness=0, bg=bg)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        pad = 12 if self._rounded_ok else 1   # 阴影留白
+        self._pad = pad
+        self._draw_card(width_px, height_px)
+        self.body = tk.Frame(self.canvas, bg=self.colors["dialog_bg"])
+        self.canvas.create_window(pad + 1, pad + 1, window=self.body, anchor=tk.NW,
+                                  width=width_px - pad * 2 - 2, height=height_px - pad * 2 - 2)
+        self._drag = None
+        self.canvas.bind("<Button-1>", self._drag_start)
+        self.canvas.bind("<B1-Motion>", self._drag_move)
+        top.bind("<Escape>", lambda _e: self.close())
+
+    def _draw_card(self, w, h):
+        c = self.colors
+        p = self._pad
+        # 柔和投影（两层偏移深色圆角矩形）
+        if self._rounded_ok:
+            shadow = "#05080A" if self.app._theme_name == "dark" else "#C9D2CE"
+            _rounded_rect(self.canvas, p - 4, p + 2, w - p + 4, h - p + 6, self._radius + 3,
+                          fill=shadow, outline="", width=0)
+        _rounded_rect(self.canvas, p, p, w - p, h - p, self._radius,
+                      fill=c["dialog_bg"], outline=c["border_strong"], width=1)
+
+    def _drag_start(self, event):
+        self._drag = (event.x_root - self.top.winfo_x(), event.y_root - self.top.winfo_y())
+
+    def _drag_move(self, event):
+        if self._drag:
+            self.top.geometry(f"+{event.x_root - self._drag[0]}+{event.y_root - self._drag[1]}")
+
+    def close(self, result=None):
+        self.result = result
+        try:
+            self.top.grab_release()
+        except Exception:
+            pass
+        self.top.destroy()
+
+    def run(self):
+        """模态运行，返回 result。"""
+        self.top.grab_set()
+        self.top.focus_set()
+        self.root.wait_window(self.top)
+        return self.result
+
+
+def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text="取消",
+                    show_cancel=True):
+    """确认/提示弹窗。kind: warn(黄) / danger(红) / info(青)。返回 True=确认。"""
+    c = app.colors
+    s = app._s
+    w = s(400)
+    # 估算高度：图标 46 + 标题 30 + 描述行数 + 按钮 52 + 边距
+    approx_chars_per_line = 26
+    lines = max(1, (len(desc) + approx_chars_per_line - 1) // approx_chars_per_line)
+    h = s(150) + lines * s(20) + s(64)
+    shell = _DialogShell(app, w, h)
+    body = shell.body
+    icon_map = {"warn": ("!", c["warning"]), "danger": ("✕", c["error"]), "info": ("i", c["accent"])}
+    icon_char, icon_c = icon_map.get(kind, icon_map["info"])
+    badge_bg = {"warn": BADGE_STYLES[app._theme_name]["zip"][1],
+                "danger": BADGE_STYLES[app._theme_name]["pdf"][1],
+                "info": app.colors["selected"]}[kind]
+    ic = tk.Canvas(body, width=s(44), height=s(44), bd=0, highlightthickness=0, bg=c["dialog_bg"])
+    ic.pack(anchor=tk.W, pady=(s(14), s(12)))
+    ic.create_oval(2, 2, s(44) - 2, s(44) - 2, fill=badge_bg, outline="")
+    ic.create_text(s(22), s(22), text=icon_char, fill=icon_c, font=app._f(FONT_LG, "bold"))
+    tk.Label(body, text=title, bg=c["dialog_bg"], fg=c["text"],
+             font=app._f(FONT_LG, "bold")).pack(anchor=tk.W)
+    tk.Label(body, text=desc, bg=c["dialog_bg"], fg=c["muted"],
+             font=app._f(FONT_SMALL), justify=tk.LEFT, wraplength=w - s(60)).pack(
+        anchor=tk.W, pady=(s(6), 0))
+    btns = tk.Frame(body, bg=c["dialog_bg"])
+    btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, s(12)))
+    ok_kind = "danger" if kind == "danger" else "accent"
+    RoundedButton(btns, text=ok_text, command=lambda: shell.close(True),
+                  width=s(96), height=s(36), colors=c, kind=ok_kind,
+                  font_size=app._f(FONT_BODY)[1]).pack(side=tk.RIGHT)
+    if show_cancel:
+        RoundedButton(btns, text=cancel_text, command=lambda: shell.close(False),
+                      width=s(96), height=s(36), colors=c,
+                      font_size=app._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(0, s(8)))
+    shell.top.bind("<Return>", lambda _e: shell.close(True))
+    return bool(shell.run())
+
+
+def _dialog_input(app, title, desc, initial="", ok_text="确定", options=None,
+                  selected_option=None):
+    """输入弹窗。options 提供时显示分段胶囊选择器。
+
+    返回：未提供 options → 输入字符串或 None；提供 options → (option_value, 文本) 或 None。
+    """
+    c = app.colors
+    s = app._s
+    w = s(460)
+    h = s(150) + (s(44) if options else 0) + s(90)
+    shell = _DialogShell(app, w, h)
+    body = shell.body
+    tk.Label(body, text=title, bg=c["dialog_bg"], fg=c["text"],
+             font=app._f(FONT_LG, "bold")).pack(anchor=tk.W, pady=(s(14), 0))
+    if desc:
+        tk.Label(body, text=desc, bg=c["dialog_bg"], fg=c["muted"],
+                 font=app._f(FONT_SMALL), anchor=tk.W, justify=tk.LEFT).pack(
+            anchor=tk.W, pady=(s(6), 0))
+
+    option_var = tk.StringVar(value=selected_option or (options[0][1] if options else ""))
+    seg_canvases = []
+
+    def _draw_seg():
+        for cv, (label, value) in seg_canvases:
+            cv.delete("all")
+            cw = max(2, cv.winfo_width())
+            ch = max(2, cv.winfo_height())
+            active = option_var.get() == value
+            if active:
+                _rounded_rect(cv, 1, 1, cw - 1, ch - 1, (ch - 2) / 2,
+                              fill=c["selected"], outline=c["accent"], width=1.2)
+            cv.create_text(cw / 2, ch / 2, text=label,
+                           fill=c["accent"] if active else c["muted"],
+                           font=app._f(FONT_SMALL, "bold" if active else "normal"))
+
+    if options:
+        seg = tk.Frame(body, bg=c["dialog_bg"])
+        seg.pack(anchor=tk.W, pady=(s(12), 0))
+        for label, value in options:
+            cv = tk.Canvas(seg, width=s(104), height=s(30), bd=0, highlightthickness=0,
+                           bg=c["dialog_bg"], cursor="hand2")
+            cv.pack(side=tk.LEFT, padx=(0, s(8)))
+            cv.bind("<Button-1>", lambda _e, v=value: (option_var.set(v), _draw_seg()))
+            cv.bind("<Configure>", lambda _e: _draw_seg())
+            seg_canvases.append((cv, (label, value)))
+        seg_canvases and shell.top.after_idle(_draw_seg)
+
+    entry_box = RoundEntry(body, c, height=s(42), font=app._f(FONT_BODY))
+    entry_box.pack(fill=tk.X, pady=(s(12), 0))
+    entry_box.set(initial)
+    entry_box.entry.focus_set()
+    entry_box.entry.selection_range(0, tk.END)
+
+    def _ok():
+        text = entry_box.get().strip()
+        if not text:
+            return
+        shell.close((option_var.get(), text) if options else text)
+
+    btns = tk.Frame(body, bg=c["dialog_bg"])
+    btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, s(12)))
+    RoundedButton(btns, text=ok_text, command=_ok,
+                  width=s(96), height=s(36), colors=c, kind="accent",
+                  font_size=app._f(FONT_BODY)[1]).pack(side=tk.RIGHT)
+    RoundedButton(btns, text="取消", command=lambda: shell.close(None),
+                  width=s(96), height=s(36), colors=c,
+                  font_size=app._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(0, s(8)))
+    entry_box.entry.bind("<Return>", lambda _e: _ok())
+    return shell.run()
+
+
+class CtxMenu:
+    """自绘右键菜单：圆角、阴影、图标、悬停高亮、分隔线、危险项。"""
+
+    ITEM_H = 32
+    WIDTH = 236
+
+    def __init__(self, app):
+        self.app = app
+        self.root = app.root
+        self.colors = app.colors
+        self.top = None
+        self._items = []
+        self._hover = None
+
+    # ---- 对外接口 ----
+    def show(self, x_root, y_root, items):
+        """items: [dict(text, icon, cmd, kind='normal'|'danger', disabled=False)] 或 ('sep',)。"""
+        self.close()
+        self._items = items
+        s = self.app._s
+        c = self.colors
+        item_h = s(self.ITEM_H)
+        sep_h = s(11)
+        pad_y = s(6)
+        w = s(self.WIDTH)
+        h = pad_y * 2 + sum(sep_h if it == ("sep",) else item_h for it in items)
+        top = tk.Toplevel(self.root)
+        self.top = top
+        top.overrideredirect(True)
+        self._rounded_ok = True
+        try:
+            top.configure(bg=_DIALOG_MAGIC)
+            top.attributes("-transparentcolor", _DIALOG_MAGIC)
+        except tk.TclError:
+            self._rounded_ok = False
+            top.configure(bg=c["menu_bg"])
+        top.transient(self.root)
+        # 边界翻转
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        if x_root + w > sw:
+            x_root = max(0, x_root - w)
+        if y_root + h > sh:
+            y_root = max(0, sh - h - 4)
+        top.geometry(f"{w}x{h}+{x_root}+{y_root}")
+        bg = _DIALOG_MAGIC if self._rounded_ok else c["menu_bg"]
+        self.canvas = tk.Canvas(top, width=w, height=h, bd=0, highlightthickness=0, bg=bg)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self._item_h, self._sep_h, self._pad_y = item_h, sep_h, pad_y
+        self._draw()
+        self.canvas.bind("<Motion>", self._on_motion)
+        self.canvas.bind("<Leave>", lambda _e: self._set_hover(None))
+        self.canvas.bind("<Button-1>", self._on_click)
+        top.bind("<Escape>", lambda _e: self.close())
+        top.grab_set()
+        # 点击菜单外：关闭（grab 下全局 Button-1 会路由到 grab 窗口）
+        top.bind("<Button-1>", self._on_global_click, add="+")
+
+    def close(self):
+        if self.top is not None:
+            try:
+                self.top.grab_release()
+                self.top.destroy()
+            except Exception:
+                pass
+            self.top = None
+            self._hover = None
+
+    # ---- 布局命中 ----
+    def _item_at(self, y):
+        acc = self._pad_y
+        for i, it in enumerate(self._items):
+            hh = self._sep_h if it == ("sep",) else self._item_h
+            if acc <= y < acc + hh:
+                return i if it != ("sep",) else None
+            acc += hh
+        return None
+
+    def _item_y(self, idx):
+        acc = self._pad_y
+        for i, it in enumerate(self._items):
+            if i == idx:
+                return acc
+            acc += self._sep_h if it == ("sep",) else self._item_h
+        return acc
+
+    # ---- 事件 ----
+    def _on_motion(self, event):
+        self._set_hover(self._item_at(event.y))
+
+    def _set_hover(self, idx):
+        if idx != self._hover:
+            self._hover = idx
+            self._draw()
+
+    def _on_click(self, event):
+        idx = self._item_at(event.y)
+        if idx is None:
+            return
+        item = self._items[idx]
+        if item.get("disabled"):
+            return
+        cmd = item.get("cmd")
+        self.close()
+        if cmd:
+            self.root.after_idle(cmd)
+
+    def _on_global_click(self, event):
+        # grab 下点击会路由到 grab 窗口：按屏幕坐标判断是否在菜单矩形外，在外则关闭
+        if self.top is None:
+            return
+        try:
+            x0, y0 = self.top.winfo_rootx(), self.top.winfo_rooty()
+            x1 = x0 + self.top.winfo_width()
+            y1 = y0 + self.top.winfo_height()
+        except Exception:
+            return
+        if not (x0 <= event.x_root <= x1 and y0 <= event.y_root <= y1):
+            self.close()
+
+    # ---- 绘制 ----
+    def _draw(self):
+        cv = self.canvas
+        cv.delete("all")
+        c = self.colors
+        s = self.app._s
+        w = s(self.WIDTH)
+        h = int(self.top.winfo_height() or 0) or (self._pad_y * 2 + sum(
+            self._sep_h if it == ("sep",) else self._item_h for it in self._items))
+        # 阴影 + 圆角底
+        if self._rounded_ok:
+            shadow = "#05080A" if self.app._theme_name == "dark" else "#C9D2CE"
+            _rounded_rect(cv, 4, 8, w - 4, h - 2, 13, fill=shadow, outline="", width=0)
+        _rounded_rect(cv, 3, 3, w - 3, h - 6, 12, fill=c["menu_bg"],
+                      outline=c["border_strong"], width=1)
+        inset = s(6)
+        acc = self._pad_y
+        font = self.app._f(FONT_SMALL)
+        icon_font = self.app._f(FONT_SMALL)
+        danger_hover_bg = BADGE_STYLES[self.app._theme_name]["pdf"][1]
+        for i, it in enumerate(self._items):
+            if it == ("sep",):
+                y = acc + self._sep_h / 2
+                cv.create_line(inset + s(6), y, w - inset - s(6), y, fill=c["row_line"])
+                acc += self._sep_h
+                continue
+            y0, y1 = acc, acc + self._item_h
+            cy = (y0 + y1) / 2
+            disabled = it.get("disabled")
+            danger = it.get("kind") == "danger"
+            hovered = (i == self._hover) and not disabled
+            if hovered:
+                bg = danger_hover_bg if danger else c["selected"]
+                _rounded_rect(cv, inset, y0 + 1, w - inset, y1 - 1, 8, fill=bg,
+                              outline="", width=0)
+            if disabled:
+                fg = c["muted_2"]
+            elif hovered:
+                fg = c["error"] if danger else c["sel_text"]
+            else:
+                fg = c["error"] if danger else c["text"]
+            cv.create_text(inset + s(16), cy, text=it.get("icon", ""), anchor=tk.W,
+                           fill=c["muted_2"] if disabled else (c["error"] if danger else c["muted"]),
+                           font=icon_font)
+            cv.create_text(inset + s(40), cy, text=it.get("text", ""), anchor=tk.W,
+                           fill=fg, font=font)
+            acc += self._item_h
+
+
 class FileTable(tk.Canvas):
-    """自绘网格表格：行/列网格线、列宽鼠标拖动、排序表头、行选中/悬停。
+    """自绘呼吸式表格：无网格线、行分隔线、类型徽章、列宽拖动、排序表头、行选中/悬停。
 
     行数据结构：rows = [{"result": dict, "icon": PhotoImage, "values": tuple}]
     values 顺序与列顺序对应（不含图标列）。
     """
 
-    HEADER_H = 44
+    HEADER_H = 42
 
     def __init__(self, master, colors, icon_cache, font_body, font_header,
                  on_header_click=None, on_double=None, on_right=None,
-                 on_scroll_page=None, on_col_resize=None):
+                 on_scroll_page=None, on_col_resize=None, badge_styles=None):
         super().__init__(master, bd=0, highlightthickness=0, bg=colors["surface"],
                          cursor="")
         self.colors = colors
         self._icon_cache = icon_cache
         self._font_body = font_body
         self._font_header = font_header
+        self._badge_styles = badge_styles or BADGE_STYLES["dark"]
+        # 派生字体：路径列小一号、徽章 MICRO 加粗、数字列等宽（按 BODY 比例换算）
+        body_pt = font_body[1] if isinstance(font_body, tuple) else FONT_BODY
+        self._font_small = (FONT_FAMILY, max(8, round(body_pt * FONT_SMALL / FONT_BODY)))
+        self._font_badge = (FONT_FAMILY, max(8, round(body_pt * FONT_MICRO / FONT_BODY)), "bold")
+        self._font_mono = (FONT_MONO, max(8, round(body_pt * FONT_SMALL / FONT_BODY)))
         self._on_header_click = on_header_click
         self._on_double = on_double
         self._on_right = on_right
@@ -1134,13 +1734,15 @@ class FileTable(tk.Canvas):
         self._drag_key = None
         self._drag_start_x = 0
         self._drag_orig_w = 0
-        self._row_h = 56
+        self._row_h = 50
         self._labels = {}
         try:
             import tkinter.font as tkfont
             self._font_body_obj = tkfont.Font(root=master.winfo_toplevel(), font=font_body)
+            self._font_small_obj = tkfont.Font(root=master.winfo_toplevel(), font=self._font_small)
         except Exception:
             self._font_body_obj = None
+            self._font_small_obj = None
         self.bind("<Configure>", lambda _e: self.redraw())
         self.bind("<Button-1>", self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click)
@@ -1221,13 +1823,14 @@ class FileTable(tk.Canvas):
                 return key
         return None
 
-    def _truncate(self, text, max_w):
-        if self._font_body_obj is None or max_w < 20:
+    def _truncate(self, text, max_w, font_obj=None):
+        font_obj = font_obj or self._font_body_obj
+        if font_obj is None or max_w < 20:
             return text
-        if self._font_body_obj.measure(text) <= max_w:
+        if font_obj.measure(text) <= max_w:
             return text
         t = text
-        while t and self._font_body_obj.measure(t + "…") > max_w:
+        while t and font_obj.measure(t + "…") > max_w:
             t = t[:-1]
         return (t + "…") if t else ""
 
@@ -1308,6 +1911,21 @@ class FileTable(tk.Canvas):
 
     # ============ 绘制 ============
 
+    def _draw_badge(self, cx, cy, kind, text):
+        """绘制类型徽章：圆角胶囊底 + 类型色文字。"""
+        fg, bg = self._badge_styles.get(kind, self._badge_styles["file"])
+        try:
+            import tkinter.font as tkfont
+            f = tkfont.Font(root=self.winfo_toplevel(), font=self._font_badge)
+            tw = f.measure(text)
+        except Exception:
+            tw = len(text) * 12
+        bw = tw + 18
+        bh = min(24, self._row_h * 0.46)
+        _rounded_rect(self, cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2, bh / 2 - 1,
+                      fill=bg, outline="", width=0)
+        self.create_text(cx, cy, text=text, fill=fg, font=self._font_badge)
+
     def redraw(self):
         try:
             self.winfo_exists()
@@ -1320,79 +1938,101 @@ class FileTable(tk.Canvas):
         layout = self._col_layout()
         self.create_rectangle(0, 0, w, h, fill=c["surface"], outline="")
 
+        pad_l = 18   # 单元格左内边距
         # ---- 数据行 ----
         row_h = self._row_h
-        align_map = {"name": "w", "path": "w", "type": "center", "size": "e", "modified": "center"}
         for i, row in enumerate(self._rows):
             y0 = self.HEADER_H + i * row_h
             if y0 >= h:
                 break
             y1 = y0 + row_h
-            if i in self._selected:
+            selected = i in self._selected
+            if selected:
                 bg = c["selected"]
             elif i == self._hover_row:
                 bg = c["hover"]
-            elif i % 2:
-                bg = c["row_alt"]
             else:
                 bg = c["surface"]
             self.create_rectangle(0, y0, w, y1, fill=bg, outline="")
-            if i in self._selected:
-                self.create_rectangle(0, y0, 3, y1, fill=c["accent"], outline="")
-            self.create_line(0, y1, w, y1, fill=c["border"])
+            if selected:
+                # 左侧 accent 圆头指示条
+                inset = row_h * 0.18
+                _rounded_rect(self, 0, y0 + inset, 6, y1 - inset, 3,
+                              fill=c["accent"], outline="", width=0)
+            # 行分隔线（最后一行也画，视觉收敛）
+            self.create_line(0, y1, w, y1, fill=c["row_line"])
             vals = row.get("values", ())
             icon = row.get("icon")
+            result = row.get("result", {})
             cy = (y0 + y1) / 2
             for j, (key, x0, x1) in enumerate(layout):
-                self.create_line(x1, self.HEADER_H, x1, y1, fill=c["border"])
                 if j == 0:
                     if icon:
                         self.create_image((x0 + x1) / 2, cy, image=icon)
                     continue
                 idx = j - 1
-                text = self._truncate(str(vals[idx]), max(10, x1 - x0 - 18)) if idx < len(vals) else ""
+                if key == "type":
+                    kind = badge_kind_for(result.get("name", ""), bool(result.get("is_dir")))
+                    text = str(vals[idx]) if idx < len(vals) else ""
+                    if text:
+                        self._draw_badge((x0 + x1) / 2, cy, kind, text)
+                    continue
+                if key == "name":
+                    font, fg, fobj = self._font_body, (c["sel_text"] if selected else c["text"]), self._font_body_obj
+                    anchor, tx = "w", x0 + pad_l
+                elif key == "path":
+                    font, fg, fobj = self._font_small, c["muted"], self._font_small_obj
+                    anchor, tx = "w", x0 + pad_l
+                elif key == "size":
+                    font, fg, fobj = self._font_mono, c["muted"], self._font_small_obj
+                    anchor, tx = "e", x1 - pad_l
+                else:  # modified
+                    font, fg, fobj = self._font_mono, c["muted"], self._font_small_obj
+                    anchor, tx = "e", x1 - pad_l
+                text = self._truncate(str(vals[idx]), max(10, x1 - x0 - pad_l * 2), fobj) if idx < len(vals) else ""
                 if not text:
                     continue
-                anchor = align_map.get(key, "w")
-                if anchor == "w":
-                    tx = x0 + 14
-                    fg = c["text"] if key == "name" else c["muted"]
-                    font = self._font_body
-                elif anchor == "e":
-                    tx = x1 - 14
-                    fg = c["muted"]
-                    font = self._font_body
-                else:
-                    tx = (x0 + x1) / 2
-                    fg = c["muted"]
-                    font = self._font_body
                 self.create_text(tx, cy, text=text, anchor=anchor, fill=fg, font=font)
 
         # ---- 表头 ----
-        self.create_rectangle(0, 0, w, self.HEADER_H, fill=c["surface_alt"], outline="")
+        self.create_rectangle(0, 0, w, self.HEADER_H, fill=c["surface"], outline="")
         self.create_line(0, self.HEADER_H, w, self.HEADER_H, fill=c["border"])
-        header_align = {"name": "w", "path": "w", "type": "center", "size": "e", "modified": "center"}
+        header_align = {"name": "w", "path": "w", "type": "center", "size": "e", "modified": "e"}
         for j, (key, x0, x1) in enumerate(layout):
-            self.create_line(x1, 0, x1, self.HEADER_H, fill=c["border"])
             if j == 0:
                 continue
             label = self._labels.get(key, key)
+            anchor = header_align.get(key, "w")
+            if anchor == "w":
+                tx = x0 + pad_l
+            elif anchor == "e":
+                tx = x1 - pad_l
+            else:
+                tx = (x0 + x1) / 2
             if key == self._sort_col:
-                label = label + ("  ▲" if self._sort_asc else "  ▼")
-                fg = c["accent_hover"]
+                fg = c["accent"]
             elif key == self._hover_col:
                 fg = c["text"]
             else:
-                fg = c["muted"]
-            anchor = header_align.get(key, "w")
-            if anchor == "w":
-                tx = x0 + 14
-            elif anchor == "e":
-                tx = x1 - 14
-            else:
-                tx = (x0 + x1) / 2
+                fg = c["muted_2"]
             self.create_text(tx, self.HEADER_H / 2, text=label, anchor=anchor, fill=fg,
                              font=self._font_header)
+            # 排序小三角（画在标签右侧）
+            if key == self._sort_col:
+                try:
+                    import tkinter.font as tkfont
+                    hf = tkfont.Font(root=self.winfo_toplevel(), font=self._font_header)
+                    lw = hf.measure(label)
+                except Exception:
+                    lw = len(label) * 9
+                tri_cx = tx + lw + 12 if anchor == "w" else (tx - lw - 12 if anchor == "e" else tx + lw / 2 + 10)
+                tri_cy = self.HEADER_H / 2
+                s = 5
+                if self._sort_asc:
+                    pts = (tri_cx - s, tri_cy + s * 0.6, tri_cx + s, tri_cy + s * 0.6, tri_cx, tri_cy - s * 0.8)
+                else:
+                    pts = (tri_cx - s, tri_cy - s * 0.6, tri_cx + s, tri_cy - s * 0.6, tri_cx, tri_cy + s * 0.8)
+                self.create_polygon(pts, fill=c["accent"], outline="")
         self.configure(scrollregion=(0, 0, w, h))
 
 
@@ -1577,46 +2217,19 @@ class FileSearcherApp:
         style.configure("Surface.TFrame", background=c["surface"])
         style.configure("TLabel", background=c["bg"], foreground=c["text"], font=self._f(FONT_BODY))
         style.configure("Muted.TLabel", background=c["bg"], foreground=c["muted"], font=self._f(FONT_SMALL))
-        style.configure("Status.TLabel", background=c["surface"], foreground=c["muted"], padding=(10, 6))
-        style.configure("TButton", background=c["surface_alt"], foreground=c["text"], bordercolor=c["border"], padding=(self._s(14), self._s(9)))
-        style.map("TButton", background=[("active", c["border_strong"]), ("disabled", c["surface"])], foreground=[("disabled", c["muted_2"])])
-        style.configure("Accent.TButton", background=c["accent"], foreground="#FFFFFF", bordercolor=c["accent"], font=self._f(FONT_BODY, "bold"))
-        style.map("Accent.TButton", background=[("active", c["accent_hover"]), ("disabled", c["border"])])
-        style.configure("TEntry", fieldbackground=c["input"], foreground=c["text"], insertcolor=c["text"], bordercolor=c["border"], padding=10)
-        style.configure("Filter.TCombobox", fieldbackground=c["surface_2"] if "surface_2" in c else c["surface_alt"],
-                        background=c["surface_alt"], foreground=c["text"], arrowcolor=c["muted"],
-                        bordercolor=c["border"], lightcolor=c["border"], darkcolor=c["border"],
-                        padding=(self._s(10), self._s(8)), font=self._f(FONT_BODY))
-        style.map("Filter.TCombobox", fieldbackground=[("readonly", c["surface_2"] if "surface_2" in c else c["surface_alt"])],
-                  foreground=[("readonly", c["text"])], bordercolor=[("focus", c["accent"])])
-        style.configure("Results.Treeview", background=c["surface"], fieldbackground=c["surface"],
-                        foreground=c["text"], borderwidth=0, relief="flat", rowheight=self._s(ROW_HEIGHT),
-                        font=self._f(FONT_BODY))
-        style.map("Results.Treeview", background=[("selected", c["selected"])], foreground=[("selected", c["text"])])
-        style.layout("Results.Treeview.Heading", [])
+        # 排除列表（设置页）
         style.configure("Ex.Treeview", background=c["surface"], fieldbackground=c["surface"],
-                        foreground=c["text"], borderwidth=0, relief="flat", rowheight=self._s(36),
-                        font=self._f(FONT_BODY))
-        style.map("Ex.Treeview", background=[("selected", c["selected"])], foreground=[("selected", c["text"])])
-        style.configure("Ex.Treeview.Heading", background=c["surface_alt"], foreground=c["text"],
-                        font=self._f(FONT_SMALL, "bold"), relief="flat", padding=(8, 6))
+                        foreground=c["text"], borderwidth=0, relief="flat",
+                        rowheight=self._s(38), font=self._f(FONT_SMALL))
+        style.map("Ex.Treeview", background=[("selected", c["selected"])],
+                  foreground=[("selected", c["sel_text"])])
+        style.configure("Ex.Treeview.Heading", background=c["surface_alt"], foreground=c["muted"],
+                        font=self._f(FONT_MICRO, "bold"), relief="flat", padding=(8, 7))
         style.map("Ex.Treeview.Heading", background=[("active", c["surface_3"])])
         style.configure("Vertical.TScrollbar", background=c["surface_3"], troughcolor=c["surface"],
                         bordercolor=c["surface"], arrowcolor=c["muted_2"], width=self._s(12))
-        style.configure("TProgressbar", troughcolor=c["surface_alt"], background=c["accent"], bordercolor=c["surface_alt"])
-        style.configure("TCheckbutton", background=c["bg"], foreground=c["text"], font=self._f(FONT_BODY))
-        style.configure("TRadiobutton", background=c["bg"], foreground=c["text"], font=self._f(FONT_BODY))
-        style.map("TRadiobutton", background=[("active", c["bg"])])
-        style.configure("TSpinbox", fieldbackground=c["input"], background=c["surface_alt"],
-                        foreground=c["text"], arrowcolor=c["muted"], bordercolor=c["border"],
-                        lightcolor=c["border"], darkcolor=c["border"], padding=(8, 6),
-                        font=self._f(FONT_BODY))
-        style.map("TSpinbox", fieldbackground=[("focus", c["input"])],
-                  foreground=[("readonly", c["text"])], bordercolor=[("focus", c["accent"])])
-        # 下拉列表（popdown）：必须单独配置，否则用系统默认小字体
-        style.configure("Filter.TCombobox.Listbox", background=c["surface"], foreground=c["text"],
-                        font=self._f(FONT_BODY), borderwidth=0, relief="flat",
-                        selectbackground=c["selected"], selectforeground=c["text"])
+        style.configure("TProgressbar", troughcolor=c["surface_alt"], background=c["accent"],
+                        bordercolor=c["surface_alt"])
         style.configure("TSeparator", background=c["border"])
 
     # ================================================================
@@ -1624,7 +2237,7 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_titlebar(self):
-        """构建自绘标题栏：渐变放大镜 logo、标题、最小化/最大化/关闭按钮。"""
+        """构建自绘标题栏：渐变圆角 logo、标题+副标题、最小化/关闭按钮。"""
         c = self.colors
         self._titlebar_h = self._s(TITLEBAR_H)
         self._tb_buttons = []
@@ -1634,32 +2247,39 @@ class FileSearcherApp:
         bar.pack_propagate(False)
         self._titlebar = bar
 
-        # logo：用 Canvas 画放大镜
-        logo = tk.Canvas(bar, width=self._s(26), height=self._s(26), bd=0, highlightthickness=0,
+        # logo：渐变圆角方块 + 白色放大镜
+        logo_size = self._s(20)
+        logo = tk.Canvas(bar, width=logo_size, height=logo_size, bd=0, highlightthickness=0,
                          bg=c["title_bg"])
-        logo.pack(side=tk.LEFT, padx=(self._s(16), self._s(10)), pady=(self._titlebar_h - self._s(26)) // 2)
-        grad = _make_gradient_pix(self.root, 2, self._s(26), 0, c["accent_grad_a"], c["accent_grad_b"])
-        logo.create_image(1, self._s(13), image=grad)
-        s = self.ui_scale
-        logo.create_oval(4 * s, 4 * s, 16 * s, 16 * s, outline=c["title_bg"], width=max(1.5, 2.2 * s))
-        logo.create_line(14.5 * s, 14.5 * s, 20 * s, 20 * s, fill=c["title_bg"], width=max(2, 2.6 * s), capstyle=tk.ROUND)
+        logo.pack(side=tk.LEFT, padx=(self._s(14), self._s(10)),
+                  pady=(self._titlebar_h - logo_size) // 2)
+        grad = _make_gradient_pix(self.root, logo_size, logo_size, self._s(5),
+                                  c["accent_grad_a"], c["accent_grad_b"])
+        logo.create_image(0, 0, image=grad, anchor=tk.NW)
+        u = logo_size / 20.0  # 以 20px 为基准的单位缩放
+        logo.create_oval(5 * u, 5 * u, 11.5 * u, 11.5 * u, outline="#FFFFFF",
+                         width=max(1.5, 1.8 * u))
+        logo.create_line(10.8 * u, 10.8 * u, 15 * u, 15 * u, fill="#FFFFFF",
+                         width=max(2, 2.2 * u), capstyle=tk.ROUND)
 
         tk.Label(bar, text="File Searcher", bg=c["title_bg"], fg=c["text"],
                  font=self._f(FONT_TITLE, "bold")).pack(side=tk.LEFT)
+        tk.Label(bar, text="全盘文件搜索", bg=c["title_bg"], fg=c["muted_2"],
+                 font=self._f(FONT_MICRO)).pack(side=tk.LEFT, padx=(self._s(9), 0))
 
         def _make_tb_btn(text, hover_bg=None, command=None):
-            btn = tk.Label(bar, text=text, bg=c["title_bg"], fg=c["muted"],
+            btn = tk.Label(bar, text=text, bg=c["title_bg"], fg=c["muted_2"],
                            font=self._f(FONT_TITLE, "normal"), width=4, cursor="hand2")
-            btn.pack(side=tk.RIGHT)
+            btn.pack(side=tk.RIGHT, fill=tk.Y)
             btn.bind("<Enter>", lambda _e: btn.configure(bg=hover_bg or c["surface_3"], fg=c["text"]))
-            btn.bind("<Leave>", lambda _e: btn.configure(bg=c["title_bg"], fg=c["muted"]))
+            btn.bind("<Leave>", lambda _e: btn.configure(bg=c["title_bg"], fg=c["muted_2"]))
             if command:
                 btn.bind("<Button-1>", lambda _e: command())
             self._tb_buttons.append(btn)
             return btn
 
         # 右侧按钮从右往左：关闭 → 最小化（程序启动即最大化，无需最大化按钮）
-        _make_tb_btn("✕", hover_bg="#C42B2B", command=self._on_close)
+        _make_tb_btn("✕", hover_bg="#D64545", command=self._on_close)
         _make_tb_btn("—", command=self._on_close)
         # 双击标题栏空白处：铺满/还原
         bar.bind("<Double-Button-1>", self._toggle_maximize)
@@ -1875,23 +2495,20 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """构建单行搜索区：半宽搜索框 + 索引状态紧跟其后 + 索引/设置按钮。"""
+        """构建搜索区：全宽大搜索框 + 工具行（状态胶囊 + 幽灵索引按钮 + 设置图标钮）。"""
         c = self.colors
         header = tk.Frame(self.root, bg=c["bg"])
-        header.pack(fill=tk.X, padx=self._s(24), pady=(self._s(16), self._s(10)))
+        header.pack(fill=tk.X, padx=self._s(26), pady=(self._s(16), self._s(10)))
         header.columnconfigure(0, weight=1)
         self._header = header
 
-        row_h = self._s(40)
-        search_row = tk.Frame(header, bg=c["bg"], height=row_h)
-        search_row.grid(row=0, column=0, sticky="ew")
-        search_row.grid_propagate(False)
-
+        # ---- 全宽大搜索框 ----
+        row_h = self._s(48)
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
-        self.search_box = RoundedSearchBox(search_row, self.search_var, c, self._clear_search,
+        self.search_box = RoundedSearchBox(header, self.search_var, c, self._clear_search,
                                            height=row_h, font_size=self._f(FONT_INPUT)[1])
-        self.search_box.grid(row=0, column=0, sticky="w")
+        self.search_box.grid(row=0, column=0, sticky="ew")
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
         self.search_entry.bind("<FocusIn>", self._hide_placeholder, add="+")
@@ -1899,37 +2516,32 @@ class FileSearcherApp:
         self._placeholder = "搜索文件名或完整路径…"
         self._placeholder_visible = False
         self._show_placeholder()
-        header.bind("<Configure>", lambda _e: self.root.after_idle(self._update_search_width))
 
-        # 索引状态（紧跟在搜索框后面）
+        # ---- 工具行：左 状态胶囊 / 右 重建索引 + 设置 ----
+        tool_row = tk.Frame(header, bg=c["bg"], height=self._s(34))
+        tool_row.grid(row=1, column=0, sticky="ew", pady=(self._s(12), 0))
+        tool_row.grid_propagate(False)
+
         self.index_status_var = tk.StringVar(value="尚未创建索引")
         self.index_count_var = tk.StringVar(value="0 项")
         self.index_updated_var = tk.StringVar(value="未更新")
         self.index_info_var = tk.StringVar(value="尚未创建索引")
-        self._status_dot = tk.Label(search_row, text="●", bg=c["bg"], fg=c["muted_2"],
-                                    font=self._f(FONT_SMALL))
-        self._status_dot.grid(row=0, column=1, sticky="w", padx=(self._s(14), 0))
-        tk.Label(search_row, textvariable=self.index_info_var, bg=c["bg"], fg=c["muted"],
-                 font=self._f(FONT_BODY), anchor=tk.W).grid(row=0, column=2, sticky="w",
-                                                             padx=(self._s(6), self._s(14)))
+        self.status_pill = StatusPill(tool_row, c, height=self._s(30),
+                                      font=self._f(FONT_MICRO))
+        self.status_pill.pack(side=tk.LEFT)
 
-        self.index_btn = RoundedButton(search_row, text="创建索引", command=self._toggle_index,
-                                       width=self._s(126), height=row_h, colors=c, kind="accent",
-                                       font_size=self._f(FONT_BODY)[1])
-        self.index_btn.grid(row=0, column=3, padx=(0, self._s(10)))
-        self.settings_btn = RoundedButton(search_row, icon="⚙", command=self._open_settings,
-                                          width=self._s(44), height=row_h, colors=c,
+        self.settings_btn = RoundedButton(tool_row, icon="⚙", command=self._open_settings,
+                                          width=self._s(34), height=self._s(34), colors=c,
                                           font_size=self._f(FONT_BODY)[1])
-        self.settings_btn.grid(row=0, column=4)
+        self.settings_btn.pack(side=tk.RIGHT)
+        self.index_btn = RoundedButton(tool_row, text="⟳  重建索引", command=self._toggle_index,
+                                       width=self._s(118), height=self._s(34), colors=c,
+                                       kind="ghost", font_size=self._f(FONT_BODY)[1])
+        self.index_btn.pack(side=tk.RIGHT, padx=(0, self._s(2)))
 
     def _update_search_width(self):
-        """搜索框固定为界面宽度的一半（随窗口宽度联动）。"""
-        try:
-            w = max(200, self._header.winfo_width() // 2)
-            if abs(w - self.search_box.winfo_width()) > 8:
-                self.search_box.configure(width=w)
-        except Exception:
-            pass
+        """兼容旧调用：搜索框已全宽，无需联动调整。"""
+        return
 
     def _set_search_value(self, value: str):
         """更新搜索变量但不触发查询，用于占位符和程序化清空。"""
@@ -1959,65 +2571,76 @@ class FileSearcherApp:
         return {}
 
     def _build_tree(self):
-        """构建圆角结果容器、自绘网格表格（FileTable）和底部固定分页栏。"""
+        """构建圆角结果容器、自绘呼吸式表格（FileTable）和底部固定分页栏。"""
         c = self.colors
         outer = tk.Frame(self.root, bg=c["bg"])
-        outer.pack(fill=tk.BOTH, expand=True, padx=self._s(24), pady=(0, self._s(8)))
+        outer.pack(fill=tk.BOTH, expand=True, padx=self._s(26), pady=(0, self._s(10)))
         self.result_canvas = tk.Canvas(outer, bd=0, highlightthickness=0, bg=c["bg"])
         self.result_canvas.pack(fill=tk.BOTH, expand=True)
         self.result_surface = tk.Frame(self.result_canvas, bg=c["surface"])
         self._result_window = self.result_canvas.create_window(1, 1, window=self.result_surface, anchor=tk.NW)
         self.result_canvas.bind("<Configure>", self._layout_result_container)
 
-        # 自绘网格表格
+        # 自绘呼吸式表格
         self.table = FileTable(self.result_surface, c, self._icon_cache,
-                               self._f(FONT_BODY), self._f(FONT_HEADER, "bold"),
+                               self._f(FONT_BODY), self._f(FONT_HEADER),
                                on_header_click=self._sort_by,
                                on_double=self._on_double_click,
                                on_right=self._on_right_click,
                                on_scroll_page=self._goto_page_relative,
-                               on_col_resize=self._on_col_resize)
+                               on_col_resize=self._on_col_resize,
+                               badge_styles=BADGE_STYLES[self._theme_name])
         self.table.pack(fill=tk.BOTH, expand=True, padx=1, pady=(1, 0))
         self.table._labels = {"name": "文件名", "path": "路径", "type": "类型",
                               "size": "大小", "modified": "修改时间"}
-        self.table._row_h = self._s(56)
-        self._default_cols = [("name", self._s(360)), ("path", self._s(640)),
-                              ("type", self._s(140)), ("size", self._s(150)),
-                              ("modified", self._s(200))]
-        self.table._cols = [("icon", self._s(44))] + list(self._default_cols)
+        self.table._row_h = self._s(ROW_HEIGHT)
+        self._default_cols = [("name", self._s(340)), ("path", self._s(620)),
+                              ("type", self._s(130)), ("size", self._s(140)),
+                              ("modified", self._s(210))]
+        self.table._cols = [("icon", self._s(46))] + list(self._default_cols)
 
-        # 底部固定分页栏
-        pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(42))
-        pager.pack(fill=tk.X, padx=1, pady=(1, 1))
+        # 底部固定分页栏：左 总数 / 右 ‹ 1/12 ›
+        pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(40),
+                         highlightthickness=1, highlightbackground=c["row_line"])
+        pager.pack(fill=tk.X, padx=1, pady=(0, 1))
         pager.pack_propagate(False)
-        self.pager_prev = RoundedButton(pager, text="‹ 上一页",
-                                        command=lambda: self._goto_page_relative(-1),
-                                        width=self._s(108), height=self._s(32), colors=c,
-                                        font_size=self._f(FONT_BODY)[1])
-        self.pager_prev.pack(side=tk.LEFT, padx=self._s(8))
-        self.page_info_var = tk.StringVar(value="第 1 / 1 页")
-        tk.Label(pager, textvariable=self.page_info_var, bg=c["surface"], fg=c["muted"],
-                 font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=self._s(6))
-        self.pager_next = RoundedButton(pager, text="下一页 ›",
+        self.pager_total_var = tk.StringVar(value="共 0 个结果")
+        tk.Label(pager, textvariable=self.pager_total_var, bg=c["surface"], fg=c["muted"],
+                 font=self._f(FONT_MICRO)).pack(side=tk.LEFT, padx=self._s(14))
+        self.pager_next = RoundedButton(pager, text="›",
                                         command=lambda: self._goto_page_relative(1),
-                                        width=self._s(108), height=self._s(32), colors=c,
+                                        width=self._s(30), height=self._s(28), colors=c,
                                         font_size=self._f(FONT_BODY)[1])
-        self.pager_next.pack(side=tk.LEFT, padx=self._s(6))
+        self.pager_next.pack(side=tk.RIGHT, padx=(self._s(4), self._s(10)),
+                             pady=(self._s(6), 0))
+        self.page_info_var = tk.StringVar(value="1 / 1")
+        tk.Label(pager, textvariable=self.page_info_var, bg=c["surface"], fg=c["muted"],
+                 font=(FONT_MONO, self._f(FONT_MICRO)[1])).pack(side=tk.RIGHT, padx=self._s(6),
+                                                                pady=(self._s(6), 0))
+        self.pager_prev = RoundedButton(pager, text="‹",
+                                        command=lambda: self._goto_page_relative(-1),
+                                        width=self._s(30), height=self._s(28), colors=c,
+                                        font_size=self._f(FONT_BODY)[1])
+        self.pager_prev.pack(side=tk.RIGHT, pady=(self._s(6), 0))
 
-        # 空状态：放大镜图标 + 主文案 + 副文案
+        # 空状态：同心圆 + 放大镜图标 + 主文案 + 副文案
         empty_frame = tk.Frame(self.result_surface, bg=c["surface"])
-        icon_size = self._s(56)
+        icon_size = self._s(64)
         self._empty_icon = tk.Canvas(empty_frame, width=icon_size, height=icon_size, bd=0,
                                      highlightthickness=0, bg=c["surface"])
         self._empty_icon.pack()
-        s = self.ui_scale
-        self._empty_icon.create_oval(10 * s, 10 * s, 40 * s, 40 * s, outline=c["muted_2"],
-                                     width=max(2, 3 * s))
-        self._empty_icon.create_line(37 * s, 37 * s, 50 * s, 50 * s, fill=c["muted_2"],
-                                     width=max(3, 4 * s), capstyle=tk.ROUND)
+        u = icon_size / 64.0
+        self._empty_icon.create_oval(2 * u, 2 * u, 62 * u, 62 * u, outline=c["surface_3"],
+                                     width=max(1.5, 2 * u))
+        self._empty_icon.create_oval(10 * u, 10 * u, 54 * u, 54 * u, outline=c["border_strong"],
+                                     width=max(1, 1.5 * u), dash=(3, 5))
+        self._empty_icon.create_oval(19 * u, 19 * u, 37 * u, 37 * u, outline=c["muted_2"],
+                                     width=max(2, 2.5 * u))
+        self._empty_icon.create_line(35 * u, 35 * u, 44 * u, 44 * u, fill=c["muted_2"],
+                                     width=max(2.5, 3 * u), capstyle=tk.ROUND)
         tk.Label(empty_frame, text="没有匹配的结果", bg=c["surface"], fg=c["muted"],
                  font=self._f(FONT_LG)).pack(pady=(self._s(14), self._s(4)))
-        tk.Label(empty_frame, text="换个关键词试试", bg=c["surface"], fg=c["muted_2"],
+        tk.Label(empty_frame, text="换个关键词试试，或检查拼写", bg=c["surface"], fg=c["muted_2"],
                  font=self._f(FONT_SMALL)).pack()
         self.empty_state = empty_frame
 
@@ -2094,51 +2717,59 @@ class FileSearcherApp:
             return
         self.result_canvas.itemconfigure(self._result_window, width=event.width - 2, height=event.height - 2)
         self.result_canvas.delete("container")
-        shape = _rounded_rect(self.result_canvas, 1, 1, event.width - 1, event.height - 1, 12,
+        shape = _rounded_rect(self.result_canvas, 1, 1, event.width - 1, event.height - 1, 14,
                               fill=self.colors["surface"], outline=self.colors["border"],
                               width=1, tags="container")
         self.result_canvas.tag_lower(shape)
 
     def _build_context_menu(self):
-        """构建与主题一致的右键菜单。"""
-        c = self.colors
-        self._ctx_menu = tk.Menu(self.root, tearoff=0, bg=c["surface_alt"], fg=c["text"],
-                                 activebackground=c["selected"], activeforeground=c["text"],
-                                 bd=0, relief="flat", font=self._f(FONT_BODY))
-        self._ctx_menu.add_command(label="打开", command=self._open_selected)
-        self._ctx_menu.add_command(label="打开所在文件夹", command=self._open_file_location_selected)
-        self._ctx_menu.add_separator()
-        self._ctx_menu.add_command(label="复制", command=self._copy_path)
-        self._ctx_menu.add_command(label="剪切", command=self._cut_path)
-        self._ctx_menu.add_command(label="复制完整路径", command=self._copy_full_path_text)
-        self._ctx_menu.add_separator()
-        self._ctx_menu.add_command(label="重命名", command=self._rename_file_dialog)
-        self._ctx_menu.add_separator()
-        self._ctx_menu.add_command(label="删除到回收站", command=self._delete_file_recycle)
-        self._ctx_menu.add_command(label="彻底删除", command=self._delete_file_permanent)
+        """构建自绘右键菜单（圆角、阴影、悬停高亮）。"""
+        self._ctx_menu = CtxMenu(self)
+
+    def _on_right_click(self, event, row_idx: int):
+        """右键：选中行已由表格处理，根据选中数量置灰部分菜单项。"""
+        if not (0 <= row_idx < len(self._results)):
+            return
+        if not self.table.selected_results():
+            return
+        multi = len(self.table.selected_results()) > 1
+        items = [
+            {"text": "打开", "icon": "↗", "cmd": self._open_selected, "disabled": multi},
+            {"text": "打开所在文件夹", "icon": "⌂", "cmd": self._open_file_location_selected, "disabled": multi},
+            ("sep",),
+            {"text": "复制", "icon": "⧉", "cmd": self._copy_path},
+            {"text": "剪切", "icon": "✂", "cmd": self._cut_path},
+            {"text": "复制完整路径", "icon": "≡", "cmd": self._copy_full_path_text},
+            ("sep",),
+            {"text": "重命名", "icon": "✎", "cmd": self._rename_file_dialog, "disabled": multi},
+            ("sep",),
+            {"text": "删除到回收站", "icon": "⌫", "cmd": self._delete_file_recycle},
+            {"text": "彻底删除", "icon": "✕", "cmd": self._delete_file_permanent, "kind": "danger"},
+        ]
+        self._ctx_menu.show(event.x_root, event.y_root, items)
 
     def _build_statusbar(self):
-        """构建固定高度、顶部细分隔线的左右状态栏。"""
+        """构建极简状态栏：title_bg 底、顶部细线、左状态点+文字、右页码。"""
         c = self.colors
-        bar = tk.Frame(self.root, bg=c["surface"], height=self._s(46),
+        bar = tk.Frame(self.root, bg=c["title_bg"], height=self._s(34),
                        highlightthickness=1, highlightbackground=c["border"])
         bar.pack(fill=tk.X, side=tk.BOTTOM)
         bar.pack_propagate(False)
         bar.columnconfigure(0, weight=1)
         self.status_var = tk.StringVar(value="就绪 — 请先创建索引")
-        self._statusbar_dot = tk.Label(bar, text="●", bg=c["surface"], fg=c["muted_2"],
-                                       font=self._f(FONT_SMALL))
-        self._statusbar_dot.grid(row=0, column=0, sticky="w", padx=(self._s(24), self._s(8)))
-        self.status_label = tk.Label(bar, textvariable=self.status_var, bg=c["surface"], fg=c["muted"],
-                                     font=self._f(FONT_BODY), anchor=tk.W)
+        self._statusbar_dot = tk.Label(bar, text="●", bg=c["title_bg"], fg=c["muted_2"],
+                                       font=self._f(FONT_MICRO))
+        self._statusbar_dot.grid(row=0, column=0, sticky="w", padx=(self._s(22), self._s(8)))
+        self.status_label = tk.Label(bar, textvariable=self.status_var, bg=c["title_bg"], fg=c["muted"],
+                                     font=self._f(FONT_SMALL), anchor=tk.W)
         self.status_label.grid(row=0, column=1, sticky="nsew")
-        self.progress_slot = tk.Frame(bar, bg=c["surface"], width=self._s(150), height=self._s(44))
+        self.progress_slot = tk.Frame(bar, bg=c["title_bg"], width=self._s(150), height=self._s(32))
         self.progress_slot.grid(row=0, column=2, sticky="ns")
         self.progress_slot.grid_propagate(False)
         self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate", length=self._s(130))
-        self.status_right_var = tk.StringVar(value="0 个结果")
-        tk.Label(bar, textvariable=self.status_right_var, bg=c["surface"], fg=c["muted"],
-                 font=self._f(FONT_BODY), anchor=tk.E, padx=self._s(24)).grid(row=0, column=3, sticky="nsew")
+        self.status_right_var = tk.StringVar(value="")
+        tk.Label(bar, textvariable=self.status_right_var, bg=c["title_bg"], fg=c["muted_2"],
+                 font=self._f(FONT_SMALL), anchor=tk.E, padx=self._s(22)).grid(row=0, column=3, sticky="nsew")
         bar.rowconfigure(0, weight=1)
 
     def _set_status(self, text: str, kind: str = "normal"):
@@ -2150,12 +2781,14 @@ class FileSearcherApp:
             self._statusbar_dot.configure(foreground=color)
 
     def _set_index_dot(self, kind: str):
-        """顶部信息行状态徽章：ok 绿 / warn 黄 / off 灰。"""
-        if not hasattr(self, "_status_dot"):
-            return
-        color = {"ok": self.colors["success"], "warn": self.colors["warning"],
-                 "off": self.colors["muted_2"]}.get(kind, self.colors["muted_2"])
-        self._status_dot.configure(foreground=color)
+        """更新状态胶囊圆点颜色（文字保持不变）。kind: ok 绿 / warn 黄 / off 灰。"""
+        if hasattr(self, "status_pill"):
+            self.status_pill.set_status(kind, self.status_pill._text)
+
+    def _pill(self, kind: str, text: str):
+        """一次性设置状态胶囊的颜色与文字。"""
+        if hasattr(self, "status_pill"):
+            self.status_pill.set_status(kind, text)
 
     def _set_loading(self, loading: bool, text: str = "正在加载结果…"):
         if loading:
@@ -2170,30 +2803,31 @@ class FileSearcherApp:
     # ================================================================
 
     def _update_index_button_text(self):
-        """更新索引按钮、就绪状态、数量和更新时间。"""
+        """更新索引按钮、状态胶囊、数量和更新时间。"""
         if IndexEngine.index_exists():
             count = IndexEngine.index_file_count()
             updated = datetime.fromtimestamp(INDEX_DB.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-            self.index_btn.config(text="重建索引")
+            self.index_btn.config(text="⟳  重建索引")
             self.index_status_var.set("索引就绪")
             self.index_count_var.set(f"{count:,} 项")
             self.index_updated_var.set(f"更新于 {updated}")
             self.index_info_var.set(f"索引就绪 · {count:,} 个文件 · 更新于 {updated}")
-            self._set_index_dot("ok")
+            self._pill("ok", f"索引就绪 · {count:,} 个文件 · 更新于 {updated}")
         else:
-            self.index_btn.config(text="创建索引")
+            self.index_btn.config(text="⟳  创建索引")
             self.index_status_var.set("尚未创建索引")
             self.index_count_var.set("0 项")
             self.index_updated_var.set("未更新")
             self.index_info_var.set("尚未创建索引 · 0 个文件 · 未更新")
-            self._set_index_dot("off")
+            self._pill("off", "尚未创建索引 · 点击右侧按钮创建")
 
     def _toggle_index(self):
         """点击索引按钮：创建或重建索引。"""
         if self._index_running or self._engine_cancel:
             return
         if IndexEngine.index_exists():
-            if not messagebox.askyesno("确认", "重建索引将扫描所有磁盘，可能需要几分钟。继续？"):
+            if not _dialog_confirm(self, "重建索引", "重建索引将扫描所有磁盘，可能需要几分钟。继续？",
+                                   kind="warn", ok_text="重建"):
                 return
         self._do_index()
 
@@ -2207,7 +2841,7 @@ class FileSearcherApp:
         self.progress.pack(expand=True)
         self.progress.start(12)
         self._set_status("正在创建索引，扫描全盘文件…")
-        self._set_index_dot("warn")
+        self._pill("warn", "正在建立索引 · 扫描全盘文件中…")
 
         engine = IndexEngine(
             progress_callback=lambda msg, n: self.root.after(0, self._on_index_progress, msg, n),
@@ -2232,9 +2866,9 @@ class FileSearcherApp:
     def _on_index_progress(self, msg: str, count: int):
         """索引进度回调。"""
         self._set_status(msg)
-        self._set_index_dot("warn")
         self.index_count_var.set(f"已收录 {count:,} 项")
         self.index_info_var.set(f"正在建立索引 · 已收录 {count:,} 个文件")
+        self._pill("warn", f"正在建立索引 · 已收录 {count:,} 个文件")
 
     def _on_index_done(self, stats):
         """索引完成回调，显示文件数和各阶段耗时。"""
@@ -2265,7 +2899,7 @@ class FileSearcherApp:
         self.progress.pack_forget()
         self.index_btn.config(state=tk.NORMAL)
         self._set_status(f"索引出错: {err}", "error")
-        self._set_index_dot("off")
+        self._pill("off", "索引出错 · 点击重试")
 
     def _do_index_silent(self):
         """静默后台重建索引，始终保证同一时间只有一个索引任务。"""
@@ -2295,75 +2929,77 @@ class FileSearcherApp:
     # ================================================================
 
     def _open_settings(self):
-        """弹出设置对话框：左侧圆角导航、卡片式内容，修改即保存。"""
+        """设置窗口：左侧圆角导航 + 右侧分组卡片（Toggle 开关、主题预览卡），修改即保存。"""
+        c = self.colors
+        s = self._s
         dlg = tk.Toplevel(self.root)
         dlg.title("设置")
         dlg.resizable(True, True)
         dlg.grab_set()
         dlg.transient(self.root)
 
-        try:
-            scale = float(self.root.tk.call('tk', 'scaling'))
-        except Exception:
-            scale = 1.0
-        s = max(1.0, scale)
-        dw = int(980 * s)
-        dh = int(700 * s)
-        dlg.minsize(int(760 * s), int(560 * s))
-        dlg.configure(bg=self.colors["bg"])
+        dw, dh = s(900), s(620)
+        dlg.minsize(s(780), s(540))
+        dlg.configure(bg=c["bg"])
         dlg.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
         dlg.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
 
-        c = self.colors
         body = tk.Frame(dlg, bg=c["bg"])
-        body.pack(fill=tk.BOTH, expand=True, padx=int(16 * s), pady=int(16 * s))
+        body.pack(fill=tk.BOTH, expand=True, padx=s(14), pady=s(14))
 
-        # ====== 左侧导航卡片 ======
-        NAV_W = int(172 * s)
-        nav_panel = tk.Frame(body, bg=c["surface"], highlightthickness=1,
+        # ====== 左侧导航 ======
+        NAV_W = s(200)
+        nav_panel = tk.Frame(body, bg=c["title_bg"], highlightthickness=1,
                              highlightbackground=c["border"], width=NAV_W)
         nav_panel.pack(side=tk.LEFT, fill=tk.Y)
         nav_panel.pack_propagate(False)
 
-        tk.Label(nav_panel, text="设置", bg=c["surface"], fg=c["text"],
-                 font=self._f(FONT_LG + 2, "bold")).pack(anchor=tk.W, padx=20, pady=(22, 20))
-
+        tk.Label(nav_panel, text="设置", bg=c["title_bg"], fg=c["text"],
+                 font=self._f(FONT_XL, "bold")).pack(anchor=tk.W, padx=s(16),
+                                                     pady=(s(18), s(12)))
         nav_items = []
-
-        def _make_nav_item(text):
-            f = tk.Frame(nav_panel, bg=c["surface"], cursor="hand2")
-            f.pack(fill=tk.X, padx=10, pady=3)
-            cv = tk.Canvas(f, height=42, bd=0, highlightthickness=0, bg=c["surface"])
-            cv.pack(fill=tk.X)
-            cv._nav_text = text
-            nav_items.append(cv)
-            return f, cv
-
-        nav_idx, idx_cv = _make_nav_item("索引设置")
-        nav_ex, ex_cv = _make_nav_item("排除列表")
 
         def _draw_nav(cv, active):
             cv.delete("all")
             w = max(2, cv.winfo_width())
-            h = 42
+            h = max(2, cv.winfo_height())
             if active:
-                cv.create_rectangle(0, 1, w, h - 1, fill=c["surface_3"], outline="")
-                cv.create_rectangle(0, 8, 3.5, h - 8, fill=c["accent"], outline="")
-            cv.create_text(17, h / 2, anchor=tk.W, text=cv._nav_text,
-                           fill=c["text"] if active else c["muted"],
+                _rounded_rect(cv, 1, 1, w - 1, h - 1, 10, fill=c["selected"],
+                              outline="", width=0)
+            cv.create_text(s(13), h / 2, anchor=tk.W, text=cv._nav_icon,
+                           fill=c["accent"] if active else c["muted"],
+                           font=self._f(FONT_BODY))
+            cv.create_text(s(36), h / 2, anchor=tk.W, text=cv._nav_text,
+                           fill=c["sel_text"] if active else c["muted"],
                            font=self._f(FONT_BODY, "bold" if active else "normal"))
 
-        # ====== 右侧内容卡片 ======
-        content = tk.Frame(body, bg=c["surface"], highlightthickness=1,
-                           highlightbackground=c["border"])
-        content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(int(14 * s), 0))
+        def _make_nav_item(icon, text):
+            f = tk.Frame(nav_panel, bg=c["title_bg"], cursor="hand2")
+            f.pack(fill=tk.X, padx=s(8), pady=2)
+            cv = tk.Canvas(f, height=s(38), bd=0, highlightthickness=0, bg=c["title_bg"])
+            cv.pack(fill=tk.X)
+            cv._nav_icon = icon
+            cv._nav_text = text
+            nav_items.append(cv)
+            cv.bind("<Configure>", lambda _e, cvs=cv: _draw_nav(cvs, cvs is nav_state["active"]))
+            return f, cv
 
-        page_index = tk.Frame(content, bg=c["surface"])
-        page_exclude = tk.Frame(content, bg=c["surface"])
+        nav_idx, idx_cv = _make_nav_item("◉", "常规")
+        nav_ex, ex_cv = _make_nav_item("⊘", "排除列表")
+        nav_about, about_cv = _make_nav_item("ℹ", "关于")
+        nav_state = {"active": idx_cv}
 
-        # ---- 索引设置页 ----
+        # ====== 右侧内容区 ======
+        content = tk.Frame(body, bg=c["bg"])
+        content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(s(14), 0))
+
+        page_index = tk.Frame(content, bg=c["bg"])
+        page_exclude = tk.Frame(content, bg=c["bg"])
+        page_about = tk.Frame(content, bg=c["bg"])
+
+        # ---- 设置项变量 ----
         auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
         tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
         minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
@@ -2378,92 +3014,171 @@ class FileSearcherApp:
             self._settings["auto_index_on_start"] = auto_start_var.get()
             self._settings["tray_auto_index"] = tray_auto_var.get()
             self._settings["tray_auto_index_minutes"] = mins
-            self._settings["theme"] = theme_var.get()
             IndexEngine.save_settings(self._settings)
 
         auto_start_var.trace_add("write", lambda *_: _persist_general())
         tray_auto_var.trace_add("write", lambda *_: _persist_general())
         minutes_var.trace_add("write", lambda *_: _persist_general())
-        theme_var.trace_add("write", lambda *_: (_persist_general(), self._apply_theme()))
 
-        pad = int(30 * s)
+        def _on_theme_change(*_):
+            new_theme = theme_var.get()
+            if new_theme == self._settings.get("theme"):
+                return
+            self._settings["theme"] = new_theme
+            IndexEngine.save_settings(self._settings)
+            self._apply_theme()
+            # 主题切换后重建设置窗口，使窗口内全部控件跟随新配色
+            try:
+                dlg.destroy()
+            except Exception:
+                pass
+            self.root.after(60, self._open_settings)
 
-        def _section_title(text):
-            tk.Label(page_index, text=text, bg=c["surface"], fg=c["text"],
-                     font=self._f(FONT_BODY, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        theme_var.trace_add("write", lambda *_: _on_theme_change())
 
-        tk.Label(page_index, text="常规", bg=c["surface"], fg=c["text"],
-                 font=self._f(FONT_LG + 2, "bold")).pack(anchor=tk.W, padx=pad, pady=(pad, 22))
+        # ---- 通用小构件 ----
+        def _card(parent, title):
+            card = tk.Frame(parent, bg=c["surface"], highlightthickness=1,
+                            highlightbackground=c["border"])
+            card.pack(fill=tk.X, pady=(0, s(14)))
+            tk.Label(card, text=title, bg=c["surface"], fg=c["text"],
+                     font=self._f(FONT_BODY, "bold")).pack(anchor=tk.W, padx=s(18),
+                                                           pady=(s(14), s(4)))
+            return card
 
-        _section_title("启动时自动更新索引")
-        cb1 = tk.Checkbutton(page_index, text="启动后自动重建全盘文件索引",
-                             variable=auto_start_var, bg=c["surface"], fg=c["text"],
-                             activebackground=c["surface"], activeforeground=c["text"],
-                             selectcolor=c["input"], font=self._f(FONT_BODY),
-                             highlightthickness=0, bd=0, anchor=tk.W, padx=6, pady=4)
-        cb1.pack(anchor=tk.W, padx=(pad + 18, 0), pady=(0, 20))
+        def _option_row(parent, name, desc):
+            row = tk.Frame(parent, bg=c["surface"])
+            row.pack(fill=tk.X, padx=s(18), pady=s(6))
+            text_f = tk.Frame(row, bg=c["surface"])
+            text_f.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(text_f, text=name, bg=c["surface"], fg=c["text"],
+                     font=self._f(FONT_BODY), anchor=tk.W).pack(anchor=tk.W)
+            if desc:
+                tk.Label(text_f, text=desc, bg=c["surface"], fg=c["muted_2"],
+                         font=self._f(FONT_SMALL), anchor=tk.W).pack(anchor=tk.W,
+                                                                     pady=(2, 0))
+            return row
 
-        _section_title("托盘自动更新")
-        cb2 = tk.Checkbutton(page_index, text="最小化到托盘后，自动更新索引",
-                             variable=tray_auto_var, bg=c["surface"], fg=c["text"],
-                             activebackground=c["surface"], activeforeground=c["text"],
-                             selectcolor=c["input"], font=self._f(FONT_BODY),
-                             highlightthickness=0, bd=0, anchor=tk.W, padx=6, pady=4)
-        cb2.pack(anchor=tk.W, padx=(pad + 18, 0), pady=(0, 8))
-        minutes_frame = tk.Frame(page_index, bg=c["surface"])
-        minutes_frame.pack(anchor=tk.W, padx=(pad + 18, 0))
-        tk.Label(minutes_frame, text="间隔", bg=c["surface"], fg=c["muted"],
-                 font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, 8))
-        spin = tk.Spinbox(minutes_frame, from_=5, to=120, width=6, textvariable=minutes_var,
-                          font=self._f(FONT_BODY), bg=c["input"], fg=c["text"],
-                          insertbackground=c["text"], buttonbackground=c["surface_alt"],
-                          relief="flat", highlightthickness=1,
-                          highlightbackground=c["border"], highlightcolor=c["accent"])
-        spin.pack(side=tk.LEFT, padx=(0, 8))
-        tk.Label(minutes_frame, text="分钟（5~120）", bg=c["surface"], fg=c["muted"],
-                 font=self._f(FONT_BODY)).pack(side=tk.LEFT)
+        def _page_head(parent, title, desc):
+            tk.Label(parent, text=title, bg=c["bg"], fg=c["text"],
+                     font=self._f(FONT_XL, "bold")).pack(anchor=tk.W, pady=(s(6), 0))
+            tk.Label(parent, text=desc, bg=c["bg"], fg=c["muted_2"],
+                     font=self._f(FONT_SMALL)).pack(anchor=tk.W, pady=(2, s(14)))
 
-        tk.Frame(page_index, bg=c["border"], height=1).pack(fill=tk.X, padx=pad, pady=20)
-        _section_title("界面主题")
-        theme_frame = tk.Frame(page_index, bg=c["surface"])
-        theme_frame.pack(anchor=tk.W, padx=(pad + 18, 0))
-        for text, value in (("深色", "dark"), ("浅色", "light"), ("跟随系统", "system")):
-            tk.Radiobutton(theme_frame, text=text, value=value, variable=theme_var,
-                           bg=c["surface"], fg=c["text"], activebackground=c["surface"],
-                           activeforeground=c["text"], selectcolor=c["input"],
-                           font=self._f(FONT_BODY), highlightthickness=0, bd=0,
-                           anchor=tk.W, padx=6, pady=2).pack(side=tk.LEFT, padx=(0, 20))
-        tk.Label(page_index, text="主题修改立即生效，无需重启。", bg=c["surface"],
-                 fg=c["muted_2"], font=self._f(FONT_SMALL)).pack(
-            anchor=tk.W, padx=(pad + 18, 0), pady=(10, 0))
+        # ================= 常规页 =================
+        _page_head(page_index, "常规", "所有修改即时保存，无需重启。")
 
-        # ---- 排除列表页 ----
-        tk.Label(page_exclude, text="索引时跳过匹配的目录（修改即时保存，需重建索引生效）",
-                 bg=c["surface"], fg=c["muted_2"], font=self._f(FONT_BODY)).pack(
-            anchor=tk.W, padx=pad, pady=(pad, 12))
+        card_idx = _card(page_index, "索引")
+        row = _option_row(card_idx, "启动时自动更新索引", "每次启动软件后在后台静默重建全盘索引")
+        ToggleSwitch(row, c, auto_start_var, width=s(46), height=s(26)).pack(
+            side=tk.RIGHT, padx=(s(10), 0))
+        row = _option_row(card_idx, "托盘自动更新", "最小化到系统托盘后按固定间隔更新索引")
+        ToggleSwitch(row, c, tray_auto_var, width=s(46), height=s(26)).pack(
+            side=tk.RIGHT, padx=(s(10), 0))
 
-        tb = tk.Frame(page_exclude, bg=c["surface"])
-        tb.pack(fill=tk.X, padx=pad, pady=(0, 10))
+        # 间隔步进器
+        row = _option_row(card_idx, "更新间隔", "托盘自动更新的时间间隔（5 ~ 120 分钟）")
+        stepper = tk.Frame(row, bg=c["surface"])
+        stepper.pack(side=tk.RIGHT)
+        minutes_label = tk.Label(stepper, text=f"{minutes_var.get()} 分钟", bg=c["input"],
+                                 fg=c["text"], font=(FONT_MONO, self._f(FONT_SMALL)[1]),
+                                 width=9, pady=4, highlightthickness=1,
+                                 highlightbackground=c["border"])
+        RoundedButton(stepper, text="−", width=s(28), height=s(28), colors=c,
+                      command=lambda: minutes_var.set(max(5, int(minutes_var.get() or 30) - 5)),
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(0, s(6)))
+        minutes_label.pack(side=tk.LEFT)
+        RoundedButton(stepper, text="＋", width=s(28), height=s(28), colors=c,
+                      command=lambda: minutes_var.set(min(120, int(minutes_var.get() or 30) + 5)),
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(s(6), 0))
+        minutes_var.trace_add("write", lambda *_: minutes_label.configure(
+            text=f"{minutes_var.get()} 分钟"))
+        tk.Frame(card_idx, bg=c["surface"], height=s(8)).pack()
+
+        # ---- 外观卡：主题预览 ----
+        card_theme = _card(page_index, "外观")
+        theme_row = tk.Frame(card_theme, bg=c["surface"])
+        theme_row.pack(fill=tk.X, padx=s(18), pady=(0, s(16)))
+        theme_canvases = []
+
+        def _draw_theme_card(cv, value):
+            cv.delete("all")
+            w = max(2, cv.winfo_width())
+            h = max(2, cv.winfo_height())
+            active = theme_var.get() == value
+            name_h = s(26)
+            pv_h = h - name_h - 6
+            # 迷你界面预览
+            if value == "system":
+                half = w / 2
+                cv.create_rectangle(3, 3, half, pv_h, fill="#0C1014", outline="")
+                cv.create_rectangle(half, 3, w - 3, pv_h, fill="#F2F5F4", outline="")
+                _rounded_rect(cv, s(10), s(10), w - s(10), s(26), 5,
+                              fill="", outline=c["accent"], width=1.2)
+            else:
+                pv_bg = "#0C1014" if value == "dark" else "#F2F5F4"
+                pv_bar = "#1C2630" if value == "dark" else "#DFE6E3"
+                pv_box = "#131A21" if value == "dark" else "#FFFFFF"
+                pv_row = "#1A222B" if value == "dark" else "#EFF3F2"
+                _rounded_rect(cv, 3, 3, w - 3, pv_h, 9, fill=pv_bg,
+                              outline=c["border_strong"], width=1)
+                _rounded_rect(cv, s(10), s(9), w * 0.55, s(15), 3, fill=pv_bar, outline="")
+                _rounded_rect(cv, s(10), s(20), w - s(10), s(34), 6, fill=pv_box,
+                              outline=c["accent"] if active else c["border"], width=1)
+                _rounded_rect(cv, s(10), s(40), w * 0.8, s(48), 4, fill=c["selected"], outline="")
+                _rounded_rect(cv, s(10), s(54), w * 0.65, s(62), 4, fill=pv_row, outline="")
+            # 名称区
+            cv.create_text(w / 2, pv_h + name_h / 2 + 3, text=cv._theme_name,
+                           fill=c["sel_text"] if active else c["muted"],
+                           font=self._f(FONT_SMALL, "bold" if active else "normal"))
+            # 选中态：accent 描边 + 角标
+            if active:
+                _rounded_rect(cv, 1, 1, w - 1, h - 1, 10, fill="",
+                              outline=c["accent"], width=2)
+                cv.create_oval(w - s(22), 6, w - 6, s(22) - 0, fill=c["accent"], outline="")
+                cv.create_text(w - s(14), (6 + s(22)) / 2, text="✓", fill="#FFFFFF",
+                               font=self._f(FONT_MICRO, "bold"))
+
+        for name, value in (("深色", "dark"), ("浅色", "light"), ("跟随系统", "system")):
+            cv = tk.Canvas(theme_row, width=s(150), height=s(96), bd=0,
+                           highlightthickness=0, bg=c["surface"], cursor="hand2")
+            cv.pack(side=tk.LEFT, padx=(0, s(12)))
+            cv._theme_name = name
+            cv._theme_value = value
+            cv.bind("<Button-1>", lambda _e, v=value: theme_var.set(v))
+            cv.bind("<Configure>", lambda _e, cvs=cv: _draw_theme_card(cvs, cvs._theme_value))
+            theme_canvases.append(cv)
+        theme_var.trace_add("write", lambda *_: [
+            _draw_theme_card(cvs, cvs._theme_value) for cvs in theme_canvases])
+        dlg.after_idle(lambda: [_draw_theme_card(cvs, cvs._theme_value)
+                                for cvs in theme_canvases])
+
+        # ================= 排除列表页 =================
+        _page_head(page_exclude, "排除列表", "索引时跳过匹配的目录（修改即时保存，需重建索引生效）。")
+
+        tb = tk.Frame(page_exclude, bg=c["bg"])
+        tb.pack(fill=tk.X, pady=(0, s(10)))
         RoundedButton(tb, text="＋ 添加", command=lambda: self._exclude_add(ex_list, dlg),
-                      width=96, height=36, colors=c, font_size=self._f(FONT_BODY)[1]).pack(
-            side=tk.LEFT, padx=(0, 8))
+                      width=s(96), height=s(34), colors=c,
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(0, s(8)))
         RoundedButton(tb, text="✎ 编辑", command=lambda: self._exclude_edit(ex_list, dlg),
-                      width=96, height=36, colors=c, font_size=self._f(FONT_BODY)[1]).pack(
-            side=tk.LEFT, padx=(0, 8))
+                      width=s(96), height=s(34), colors=c,
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(0, s(8)))
         RoundedButton(tb, text="✕ 删除", command=lambda: self._exclude_delete(ex_list),
-                      width=96, height=36, colors=c, kind="danger",
+                      width=s(96), height=s(34), colors=c, kind="danger",
                       font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT)
 
-        ex_frame = tk.Frame(page_exclude, bg=c["surface"])
-        ex_frame.pack(fill=tk.BOTH, expand=True, padx=pad, pady=(0, pad))
+        ex_frame = tk.Frame(page_exclude, bg=c["surface"], highlightthickness=1,
+                            highlightbackground=c["border"])
+        ex_frame.pack(fill=tk.BOTH, expand=True)
 
         columns = ("type", "value")
         ex_list = ttk.Treeview(ex_frame, columns=columns, show="headings", selectmode="browse",
                                style="Ex.Treeview", height=14)
         ex_list.heading("type", text="类型")
         ex_list.heading("value", text="排除内容")
-        ex_list.column("type", width=int(110 * s), minwidth=80, anchor=tk.CENTER)
-        ex_list.column("value", width=int(430 * s), minwidth=220)
+        ex_list.column("type", width=s(110), minwidth=80, anchor=tk.CENTER)
+        ex_list.column("value", width=s(430), minwidth=220)
 
         scroll_y = ttk.Scrollbar(ex_frame, orient=tk.VERTICAL, command=ex_list.yview)
         ex_list.configure(yscrollcommand=scroll_y.set)
@@ -2478,30 +3193,52 @@ class FileSearcherApp:
         for p in data.get("paths", []):
             ex_list.insert("", tk.END, values=("路径包含", p))
 
+        # ================= 关于页 =================
+        _page_head(page_about, "关于", "")
+        card_about = _card(page_about, "File Searcher")
+        about_top = tk.Frame(card_about, bg=c["surface"])
+        about_top.pack(fill=tk.X, padx=s(18), pady=(s(4), s(14)))
+        logo_size = s(48)
+        logo_cv = tk.Canvas(about_top, width=logo_size, height=logo_size, bd=0,
+                            highlightthickness=0, bg=c["surface"])
+        logo_cv.pack(side=tk.LEFT, padx=(0, s(14)))
+        grad = _make_gradient_pix(self.root, logo_size, logo_size, s(11),
+                                  c["accent_grad_a"], c["accent_grad_b"])
+        logo_cv.create_image(0, 0, image=grad, anchor=tk.NW)
+        u = logo_size / 20.0
+        logo_cv.create_oval(5 * u, 5 * u, 11.5 * u, 11.5 * u, outline="#FFFFFF",
+                            width=max(1.5, 1.8 * u))
+        logo_cv.create_line(10.8 * u, 10.8 * u, 15 * u, 15 * u, fill="#FFFFFF",
+                            width=max(2, 2.2 * u), capstyle=tk.ROUND)
+        about_text = tk.Frame(about_top, bg=c["surface"])
+        about_text.pack(side=tk.LEFT)
+        tk.Label(about_text, text="File Searcher · 霁青版", bg=c["surface"], fg=c["text"],
+                 font=self._f(FONT_LG, "bold")).pack(anchor=tk.W)
+        tk.Label(about_text, text="全盘文件快速搜索工具，基于本地索引",
+                 bg=c["surface"], fg=c["muted"], font=self._f(FONT_SMALL)).pack(
+            anchor=tk.W, pady=(4, 0))
+        tk.Label(about_text, text="github.com/truelife411/FileSearcher",
+                 bg=c["surface"], fg=c["muted_2"],
+                 font=(FONT_MONO, self._f(FONT_SMALL)[1])).pack(anchor=tk.W, pady=(4, 0))
+
         # ====== 导航切换 ======
-        def _highlight(active_cv):
+        def _show_page(page, active_cv):
+            for p in (page_index, page_exclude, page_about):
+                p.pack_forget()
+            page.pack(fill=tk.BOTH, expand=True)
+            nav_state["active"] = active_cv
             for cv in nav_items:
                 _draw_nav(cv, cv is active_cv)
 
-        def _on_idx_click(_e=None):
-            page_exclude.pack_forget()
-            page_index.pack(fill=tk.BOTH, expand=True)
-            _highlight(idx_cv)
+        _on_idx = lambda _e=None: _show_page(page_index, idx_cv)
+        _on_ex = lambda _e=None: _show_page(page_exclude, ex_cv)
+        _on_about = lambda _e=None: _show_page(page_about, about_cv)
+        for nav_frame, handler in ((nav_idx, _on_idx), (nav_ex, _on_ex), (nav_about, _on_about)):
+            nav_frame.bind("<Button-1>", handler)
+            for w in nav_frame.winfo_children():
+                w.bind("<Button-1>", handler)
 
-        def _on_ex_click(_e=None):
-            page_index.pack_forget()
-            page_exclude.pack(fill=tk.BOTH, expand=True)
-            _highlight(ex_cv)
-
-        nav_idx.bind("<Button-1>", _on_idx_click)
-        nav_ex.bind("<Button-1>", _on_ex_click)
-        for w in nav_idx.winfo_children():
-            w.bind("<Button-1>", _on_idx_click)
-        for w in nav_ex.winfo_children():
-            w.bind("<Button-1>", _on_ex_click)
-        body.bind("<Configure>", lambda _e: (_draw_nav(idx_cv, True), _draw_nav(ex_cv, False)))
-
-        _on_idx_click()
+        _show_page(page_index, idx_cv)
 
     # ================================================================
     #  搜索逻辑
@@ -2577,10 +3314,10 @@ class FileSearcherApp:
 
     def _update_result_status(self):
         """统一更新状态栏计数、分页信息与状态文字。"""
-        shown = len(self._results)
         total = self._total_results
         total_pages = self._total_pages()
-        self.page_info_var.set(f"第 {self._page} / {total_pages} 页 · 共 {total:,} 个结果")
+        self.pager_total_var.set(f"共 {total:,} 个结果")
+        self.page_info_var.set(f"{self._page} / {total_pages}")
         self.status_right_var.set(f"第 {self._page} / {total_pages} 页")
         if self._last_query:
             self._set_status(f"搜索「{self._last_query}」— 第 {self._page} / {total_pages} 页，共 {total:,} 个结果")
@@ -2591,149 +3328,32 @@ class FileSearcherApp:
     #  排除列表管理
     # ================================================================
 
-    def _manage_exclude(self):
-        """打开排除列表管理对话框。支持添加、编辑、删除排除项，操作即时保存。"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("排除列表管理")
-        dialog.geometry("1000x700")
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        ttk.Label(dialog, text="索引时跳过匹配的目录（修改后需重建索引生效）:",
-                  padding=(8, 8)).pack(anchor=tk.W)
-
-        tb = ttk.Frame(dialog, padding=(8, 0, 8, 4))
-        tb.pack(fill=tk.X)
-        ttk.Button(tb, text="＋ 添加", command=lambda: self._exclude_add(ex_list, dialog)).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(tb, text="✎ 编辑", command=lambda: self._exclude_edit(ex_list, dialog)).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(tb, text="✕ 删除", command=lambda: self._exclude_delete(ex_list)).pack(side=tk.LEFT)
-
-        frame = ttk.Frame(dialog)
-        frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
-
-        columns = ("type", "value")
-        ex_list = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
-        ex_list.heading("type", text="类型")
-        ex_list.heading("value", text="排除内容")
-        ex_list.column("type", width=80, minwidth=60)
-        ex_list.column("value", width=860, minwidth=200)
-
-        scroll_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=ex_list.yview)
-        ex_list.configure(yscrollcommand=scroll_y.set)
-        ex_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
-
-        ex_list.bind("<Double-1>", lambda e: self._exclude_edit(ex_list, dialog))
-
-        data = IndexEngine.get_exclude_list()
-        for d in data.get("dirs", []):
-            ex_list.insert("", tk.END, values=("目录名", d))
-        for p in data.get("paths", []):
-            ex_list.insert("", tk.END, values=("路径包含", p))
-
-        btn_frame = ttk.Frame(dialog, padding=(8, 0, 8, 8))
-        btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="关闭", command=dialog.destroy).pack(side=tk.RIGHT)
-
     def _exclude_add(self, ex_list, parent):
-        """添加排除项子对话框。"""
-        sub = tk.Toplevel(parent)
-        sub.title("添加排除项")
-        sub.geometry("560x240")
-        sub.transient(parent)
-        sub.grab_set()
-        sub.resizable(True, True)
-        sub.minsize(480, 220)
-        c = self.colors
-        sub.configure(bg=c["bg"])
-
-        f = tk.Frame(sub, bg=c["bg"])
-        f.pack(fill=tk.BOTH, expand=True, padx=20, pady=18)
-
-        tk.Label(f, text="类型:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
-            row=0, column=0, sticky=tk.W, pady=(0, 12))
-        type_var = tk.StringVar(value="路径包含")
-        cb = ttk.Combobox(f, textvariable=type_var, values=["目录名", "路径包含"], state="readonly",
-                          width=14, style="Filter.TCombobox")
-        cb.grid(row=0, column=1, sticky=tk.W, pady=(0, 12))
-
-        tk.Label(f, text="内容:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
-            row=1, column=0, sticky=tk.W)
-        val_entry = tk.Entry(f, width=40, bg=c["input"], fg=c["text"], insertbackground=c["text"],
-                             font=self._f(FONT_BODY), relief="flat", highlightthickness=1,
-                             highlightbackground=c["border"], highlightcolor=c["accent"])
-        val_entry.grid(row=1, column=1, sticky=tk.EW, padx=(4, 0))
-        val_entry.focus_set()
-
-        f.columnconfigure(1, weight=1)
-
-        def ok():
-            v = val_entry.get().strip()
-            if v:
-                ex_list.insert("", tk.END, values=(type_var.get(), v))
-                self._exclude_save(ex_list)
-            sub.destroy()
-
-        btn_f = tk.Frame(sub, bg=c["bg"])
-        btn_f.pack(fill=tk.X, padx=20, pady=(0, 16))
-        RoundedButton(btn_f, text="取消", command=sub.destroy, width=88, height=36, colors=c,
-                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(8, 0))
-        RoundedButton(btn_f, text="确定", command=ok, width=88, height=36, colors=c, kind="accent",
-                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT)
-        val_entry.bind("<Return>", lambda e: ok())
+        """添加排除项（自绘输入弹窗 + 类型分段选择）。"""
+        result = _dialog_input(
+            self, "添加排除项", "索引时将跳过匹配该内容的目录。",
+            options=[("目录名", "目录名"), ("路径包含", "路径包含")],
+            selected_option="路径包含", ok_text="添加")
+        if result:
+            type_value, text = result
+            ex_list.insert("", tk.END, values=(type_value, text))
+            self._exclude_save(ex_list)
 
     def _exclude_edit(self, ex_list, parent):
-        """编辑选中排除项子对话框。"""
+        """编辑选中排除项。"""
         sel = ex_list.selection()
         if not sel:
             return
         vals = ex_list.item(sel[0], "values")
-        sub = tk.Toplevel(parent)
-        sub.title("编辑排除项")
-        sub.geometry("560x240")
-        sub.transient(parent)
-        sub.grab_set()
-        sub.resizable(True, True)
-        sub.minsize(480, 220)
-        c = self.colors
-        sub.configure(bg=c["bg"])
-
-        f = tk.Frame(sub, bg=c["bg"])
-        f.pack(fill=tk.BOTH, expand=True, padx=20, pady=18)
-
-        tk.Label(f, text="类型:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
-            row=0, column=0, sticky=tk.W, pady=(0, 12))
-        type_var = tk.StringVar(value=vals[0])
-        cb = ttk.Combobox(f, textvariable=type_var, values=["目录名", "路径包含"], state="readonly",
-                          width=14, style="Filter.TCombobox")
-        cb.grid(row=0, column=1, sticky=tk.W, pady=(0, 12))
-
-        tk.Label(f, text="内容:", bg=c["bg"], fg=c["text"], font=self._f(FONT_BODY)).grid(
-            row=1, column=0, sticky=tk.W)
-        val_entry = tk.Entry(f, width=40, bg=c["input"], fg=c["text"], insertbackground=c["text"],
-                             font=self._f(FONT_BODY), relief="flat", highlightthickness=1,
-                             highlightbackground=c["border"], highlightcolor=c["accent"])
-        val_entry.insert(0, vals[1])
-        val_entry.grid(row=1, column=1, sticky=tk.EW, padx=(4, 0))
-        val_entry.focus_set()
-        val_entry.selection_range(0, tk.END)
-
-        f.columnconfigure(1, weight=1)
-
-        def ok():
-            v = val_entry.get().strip()
-            if v:
-                ex_list.item(sel[0], values=(type_var.get(), v))
-                self._exclude_save(ex_list)
-            sub.destroy()
-
-        btn_f = tk.Frame(sub, bg=c["bg"])
-        btn_f.pack(fill=tk.X, padx=20, pady=(0, 16))
-        RoundedButton(btn_f, text="取消", command=sub.destroy, width=88, height=36, colors=c,
-                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(8, 0))
-        RoundedButton(btn_f, text="确定", command=ok, width=88, height=36, colors=c, kind="accent",
-                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.RIGHT)
-        val_entry.bind("<Return>", lambda e: ok())
+        result = _dialog_input(
+            self, "编辑排除项", "索引时将跳过匹配该内容的目录。",
+            initial=vals[1],
+            options=[("目录名", "目录名"), ("路径包含", "路径包含")],
+            selected_option=vals[0], ok_text="保存")
+        if result:
+            type_value, text = result
+            ex_list.item(sel[0], values=(type_value, text))
+            self._exclude_save(ex_list)
 
     def _exclude_save(self, ex_list):
         """将排除列表保存到 JSON 文件。"""
@@ -2787,32 +3407,28 @@ class FileSearcherApp:
         if 0 <= row_idx < len(self._results):
             path = self._results[row_idx]["path"]
             if not os.path.exists(path):
-                messagebox.showwarning("文件不存在", "文件可能已被移动或删除：\n" + path)
+                _dialog_confirm(self, "文件不存在", f"文件可能已被移动或删除：\n{path}",
+                                kind="warn", ok_text="知道了", show_cancel=False)
                 return
-            open_with_default(path)
-
-    def _on_right_click(self, event, row_idx: int):
-        """右键：选中行已由表格处理，根据选中数量置灰部分菜单项。"""
-        if not (0 <= row_idx < len(self._results)):
-            return
-        multi = len(self.table.selected_results()) > 1
-        self._ctx_menu.entryconfig("打开", state="disabled" if multi else "normal")
-        self._ctx_menu.entryconfig("打开所在文件夹", state="disabled" if multi else "normal")
-        self._ctx_menu.entryconfig("重命名", state="disabled" if multi else "normal")
-        # 删除类始终可用
-        self._ctx_menu.entryconfig("删除到回收站", state="normal")
-        self._ctx_menu.entryconfig("彻底删除", state="normal")
-        if self.table.selected_results():
-            self._ctx_menu.post(event.x_root, event.y_root)
+            try:
+                open_with_default(path)
+            except OSError as e:
+                _dialog_confirm(self, "打开失败", str(e), kind="warn",
+                                ok_text="知道了", show_cancel=False)
 
     def _open_selected(self):
         """右键菜单 → 打开文件。"""
         path = self._get_selected_path()
         if path:
             if not os.path.exists(path):
-                messagebox.showwarning("文件不存在", "文件可能已被移动或删除：\n" + path)
+                _dialog_confirm(self, "文件不存在", f"文件可能已被移动或删除：\n{path}",
+                                kind="warn", ok_text="知道了", show_cancel=False)
                 return
-            open_with_default(path)
+            try:
+                open_with_default(path)
+            except OSError as e:
+                _dialog_confirm(self, "打开失败", str(e), kind="warn",
+                                ok_text="知道了", show_cancel=False)
 
     def _open_file_location_selected(self):
         """右键菜单 → 在资源管理器中定位文件。"""
@@ -2821,7 +3437,8 @@ class FileSearcherApp:
             if not os.path.exists(path):
                 parent = os.path.dirname(path)
                 if not os.path.exists(parent):
-                    messagebox.showwarning("路径不存在", "路径可能已被移动或删除：\n" + path)
+                    _dialog_confirm(self, "路径不存在", f"路径可能已被移动或删除：\n{path}",
+                                    kind="warn", ok_text="知道了", show_cancel=False)
                     return
             open_file_location(path)
 
@@ -2830,38 +3447,12 @@ class FileSearcherApp:
     # ================================================================
 
     def _rename_file_dialog(self):
-        """弹出重命名对话框，执行文件重命名并刷新列表。"""
+        """弹出重命名对话框（自绘圆角输入弹窗），执行文件重命名并刷新列表。"""
         path = self._get_selected_path()
         if not path:
             return
         old_name = os.path.basename(path)
-        dlg = tk.Toplevel(self.root)
-        dlg.title("重命名")
-        dlg.geometry("600x240")
-        dlg.transient(self.root)
-        dlg.grab_set()
-        dlg.resizable(True, True)
-        dlg.minsize(500, 220)
-        frm = ttk.Frame(dlg, padding=(24, 20))
-        frm.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(frm, text="新文件名:").grid(row=0, column=0, sticky=tk.W, pady=(0, 12))
-        name_var = tk.StringVar(value=old_name)
-        entry = ttk.Entry(frm, textvariable=name_var, width=50)
-        entry.grid(row=1, column=0, sticky=tk.EW, pady=(0, 12))
-        entry.selection_range(0, tk.END)
-        entry.focus_set()
-        frm.columnconfigure(0, weight=1)
-        result = {"name": None}
-        def ok():
-            result["name"] = name_var.get().strip()
-            dlg.destroy()
-        bf = ttk.Frame(frm)
-        bf.grid(row=2, column=0, sticky=tk.E)
-        ttk.Button(bf, text="取消", command=dlg.destroy).pack(side=tk.RIGHT, padx=(4, 0))
-        ttk.Button(bf, text="确定", command=ok).pack(side=tk.RIGHT)
-        entry.bind("<Return>", lambda e: ok())
-        self.root.wait_window(dlg)
-        new_name = result["name"]
+        new_name = _dialog_input(self, "重命名", "输入新的文件名：", initial=old_name)
         if not new_name or new_name == old_name:
             return
         try:
@@ -2874,7 +3465,8 @@ class FileSearcherApp:
             self._refresh_tree()
             self.status_var.set(f"已重命名: {old_name} → {new_name}")
         except Exception as e:
-            messagebox.showerror("重命名失败", str(e))
+            _dialog_confirm(self, "重命名失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
 
     def _open_new_window(self):
         """右键菜单 → 新开一个程序窗口。"""
@@ -2885,7 +3477,8 @@ class FileSearcherApp:
             subprocess.Popen([python, script], creationflags=flags)
             self.status_var.set("已打开新窗口")
         except Exception as e:
-            messagebox.showerror("打开失败", str(e))
+            _dialog_confirm(self, "打开失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
 
     # ================================================================
     #  删除
@@ -2898,10 +3491,10 @@ class FileSearcherApp:
             return
         count = len(paths)
         if count == 1:
-            msg = f"确定将「{os.path.basename(paths[0])}」移动到回收站？"
+            msg = f"确定将「{os.path.basename(paths[0])}」移动到回收站吗？可以在系统回收站中恢复。"
         else:
-            msg = f"确定将选中的 {count} 个文件移动到回收站？"
-        if not messagebox.askyesno("确认删除", msg):
+            msg = f"确定将选中的 {count} 个文件移动到回收站吗？可以在系统回收站中恢复。"
+        if not _dialog_confirm(self, "确认删除", msg, kind="danger", ok_text="删除"):
             return
         try:
             send_to_recycle_bin(paths)
@@ -2912,7 +3505,8 @@ class FileSearcherApp:
             else:
                 self.status_var.set(f"已删除 {count} 个文件到回收站")
         except Exception as e:
-            messagebox.showerror("删除失败", str(e))
+            _dialog_confirm(self, "删除失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
 
     def _delete_file_permanent(self):
         """彻底删除文件（不可恢复，有二次确认），支持多选。"""
@@ -2921,10 +3515,10 @@ class FileSearcherApp:
             return
         count = len(paths)
         if count == 1:
-            msg = f"确定彻底删除「{os.path.basename(paths[0])}」？\n\n此操作不可恢复！"
+            msg = f"确定彻底删除「{os.path.basename(paths[0])}」吗？\n此操作不可恢复！"
         else:
-            msg = f"确定彻底删除选中的 {count} 个文件？\n\n此操作不可恢复！"
-        if not messagebox.askyesno("确认彻底删除", msg):
+            msg = f"确定彻底删除选中的 {count} 个文件吗？\n此操作不可恢复！"
+        if not _dialog_confirm(self, "确认彻底删除", msg, kind="danger", ok_text="彻底删除"):
             return
         try:
             permanent_delete(paths)
@@ -2935,7 +3529,8 @@ class FileSearcherApp:
             else:
                 self.status_var.set(f"已彻底删除 {count} 个文件")
         except Exception as e:
-            messagebox.showerror("删除失败", str(e))
+            _dialog_confirm(self, "删除失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
 
     def _remove_from_results(self, path: str):
         """从当前结果列表中移除指定路径并同步当前计数。"""
