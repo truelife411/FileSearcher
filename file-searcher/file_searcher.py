@@ -904,7 +904,7 @@ class IndexEngine:
         "tray_auto_index": False,        # 最小化到托盘后自动更新索引
         "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
         "theme": "dark",
-        "text_pt": 12,                   # 文字大小档位（10 紧凑 / 12 标准 / 14 舒适）
+        "text_pt": 14,                   # 文字大小档位（14 紧凑 / 16 标准 / 18 舒适）
     }
 
     @classmethod
@@ -2149,16 +2149,17 @@ class FileSearcherApp:
         except Exception:
             self._dpi_scale = 1.0
         # 正文目标 pt：BODY 渲染 = text_pt（Tk pt→px ≈ ×1.714，144 DPI 下
-        # 10/12/14pt 分别约 17/21/24px 物理，对标系统 150% 缩放的正文 18px）。
-        # 旧档位（19/21/25，240% 缩放时代）通过白名单迁移回标准档。
+        # 14/16/18pt 分别约 24/27/31px 物理）。用户基线：14pt（24px）为可接受
+        # 的紧凑下限 → 紧凑 14 / 标准 16 / 舒适 18。
+        # 旧档位（10/12/14，上一版校准）统一迁移到 14。
         try:
-            self._text_pt = int(self._settings.get("text_pt", 12))
+            self._text_pt = int(self._settings.get("text_pt", 14))
         except Exception:
-            self._text_pt = 12
-        if self._text_pt not in (10, 12, 14):
-            self._text_pt = 12
+            self._text_pt = 14
+        if self._text_pt not in (14, 16, 18):
+            self._text_pt = 14
             if "text_pt" in self._settings:
-                self._settings["text_pt"] = 12
+                self._settings["text_pt"] = 14
                 IndexEngine.save_settings(self._settings)
         self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
         try:
@@ -2280,11 +2281,11 @@ class FileSearcherApp:
     def _apply_text_scale(self):
         """文字大小档位切换立即生效：重算全局缩放系数并重建全部界面。"""
         try:
-            self._text_pt = int(self._settings.get("text_pt", 12))
+            self._text_pt = int(self._settings.get("text_pt", 14))
         except Exception:
-            self._text_pt = 12
-        if self._text_pt not in (10, 12, 14):
-            self._text_pt = 12
+            self._text_pt = 14
+        if self._text_pt not in (14, 16, 18):
+            self._text_pt = 14
         self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
         self._configure_theme()
         self._rebuild_ui()
@@ -3251,12 +3252,12 @@ class FileSearcherApp:
                                 for cvs in theme_canvases])
 
         # ---- 文字大小档位（全局生效：主界面/弹窗/右键菜单/设置全部联动）----
-        # 档位按系统缩放对标：144 DPI(150%) 下 10/12/14pt 渲染约 17/21/24px
+        # 紧凑 14 / 标准 16 / 舒适 18 pt（144 DPI 下渲染约 24/27/31px）
         text_row = tk.Frame(card_theme, bg=c["surface"])
         text_row.pack(fill=tk.X, padx=s(18), pady=(0, s(16)))
         tk.Label(text_row, text="文字大小", bg=c["surface"], fg=c["text"],
                  font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, s(16)))
-        text_pt = int(self._settings.get("text_pt", 12))
+        text_pt = int(self._settings.get("text_pt", 14))
 
         def _set_text_pt(pt: int):
             if pt == self._settings.get("text_pt"):
@@ -3271,7 +3272,7 @@ class FileSearcherApp:
                 pass
             self.root.after(60, self._open_settings)
 
-        for label, pt in (("紧凑", 10), ("标准", 12), ("舒适", 14)):
+        for label, pt in (("紧凑", 14), ("标准", 16), ("舒适", 18)):
             RoundedButton(text_row, text=label, width=s(68), height=s(32), colors=c,
                           kind="accent" if pt == text_pt else "normal",
                           font_size=self._f(FONT_SMALL)[1],
