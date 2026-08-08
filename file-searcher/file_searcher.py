@@ -1720,6 +1720,8 @@ class FileTable(tk.Canvas):
         self._font_small = (FONT_FAMILY, max(8, round(body_pt * FONT_SMALL / FONT_BODY)))
         self._font_badge = (FONT_FAMILY, max(8, round(body_pt * FONT_MICRO / FONT_BODY)), "bold")
         self._font_mono = (FONT_MONO, max(8, round(body_pt * FONT_SMALL / FONT_BODY)))
+        # 表头高度随字号档位缩放（类常量 42 为兜底，构造时用实例值覆盖）
+        self.HEADER_H = max(36, int(font_header[1] * 1.7))
         self._on_header_click = on_header_click
         self._on_double = on_double
         self._on_right = on_right
@@ -1977,7 +1979,8 @@ class FileTable(tk.Canvas):
         except Exception:
             tw = len(text) * 12
         bw = tw + 18
-        bh = min(24, self._row_h * 0.46)
+        # 徽章高度随徽章字号缩放（避免 25pt 档下文字溢出胶囊）
+        bh = max(20, int(self._font_badge[1] * 1.35))
         _rounded_rect(self, cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2, bh / 2 - 1,
                       fill=bg, outline="", width=0)
         self.create_text(cx, cy, text=text, fill=fg, font=self._font_badge)
@@ -2726,7 +2729,7 @@ class FileSearcherApp:
     def _compute_page_size(self) -> int:
         """页大小 = 可视行数（表头下方可容纳的行数），保证无页内滚动。"""
         try:
-            h = self.table.winfo_height() - FileTable.HEADER_H
+            h = self.table.winfo_height() - self.table.HEADER_H
             return max(5, h // self.table._row_h)
         except Exception:
             return 20
