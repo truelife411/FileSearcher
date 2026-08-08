@@ -1730,11 +1730,13 @@ class FileTable(tk.Canvas):
         self._selected = []
         self._hover_row = None
         self._hover_col = None
+        self._hover_handle = None   # 悬停/拖动中的列宽手柄（列 key）
         self._sort_col = None
         self._sort_asc = True
         self._drag_key = None
         self._drag_start_x = 0
         self._drag_orig_w = 0
+        self._drag_pref = set()   # 用户主动拖过宽度的列（fit 时最后压缩）
         self._row_h = 50
         self._labels = {}
         try:
@@ -1749,7 +1751,7 @@ class FileTable(tk.Canvas):
         self.bind("<Double-Button-1>", self._on_double_click)
         self.bind("<Button-3>", self._on_btn3)
         self.bind("<B1-Motion>", self._on_drag)
-        self.bind("<ButtonRelease-1>", lambda _e: setattr(self, "_drag_key", None))
+        self.bind("<ButtonRelease-1>", self._on_release)
         self.bind("<MouseWheel>", self._on_wheel)
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda _e: self._set_hover(None, None))
@@ -1810,7 +1812,14 @@ class FileTable(tk.Canvas):
             return cols
         mins = {"path": 220, "name": 240, "type": 110, "modified": 180, "size": 130}
         deficit = total - avail_w
-        for key in ("path", "name", "type", "modified", "size"):
+        order = ["path", "name", "type", "modified", "size"]
+        # 用户主动拖过的列降为最低压缩优先级（尊重手动布局），
+        # 当前正在拖动的列排最后——溢出先由其他列吸收，拖动手感 1:1
+        pref = getattr(self, "_drag_pref", None) or set()
+        seq = [k for k in order if k not in pref] + [k for k in order if k in pref]
+        if self._drag_key:
+            seq = [k for k in seq if k != self._drag_key] + [self._drag_key]
+        for key in seq:
             if deficit <= 0:
                 break
             for i, (k2, w) in enumerate(cols):
@@ -1926,15 +1935,26 @@ class FileTable(tk.Canvas):
             delta = event.x - self._drag_start_x
             self.set_column_width(self._drag_key, self._drag_orig_w + delta)
 
+    def _on_release(self, event):
+        """释放拖动：记录该列为手动布局列（fit 最后压缩），并刷新手柄高亮。"""
+        if self._drag_key:
+            self._drag_pref.add(self._drag_key)
+            self._drag_key = None
+            self.redraw()
+
     def _on_wheel(self, event):
         if self._on_scroll_page:
             self._on_scroll_page(1 if event.delta < 0 else -1)
 
     def _on_motion(self, event):
-        if self._resize_handle_at(event.x, event.y):
+        handle = self._resize_handle_at(event.x, event.y)
+        if handle:
             self.configure(cursor="sb_h_double_arrow")
         else:
             self.configure(cursor="")
+        if handle != self._hover_handle:
+            self._hover_handle = handle
+            self.redraw()
         hit = self._hit(event.x, event.y)
         if hit and hit[0] == "cell":
             self._set_hover(hit[1], None)
@@ -2039,6 +2059,12 @@ class FileTable(tk.Canvas):
         for j, (key, x0, x1) in enumerate(layout):
             if j == 0:
                 continue
+            # 列间拖动手柄线：表头内中段竖线，悬停/拖动时 accent 加粗高亮
+            if j < len(layout) - 1:
+                active = (self._hover_handle == key) or (self._drag_key == key)
+                self.create_line(x1, self.HEADER_H * 0.30, x1, self.HEADER_H * 0.80,
+                                 fill=c["accent"] if active else c["border"],
+                                 width=2 if active else 1)
             label = self._labels.get(key, key)
             anchor = header_align.get(key, "w")
             if anchor == "w":
