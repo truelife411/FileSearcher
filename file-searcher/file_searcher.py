@@ -1716,13 +1716,15 @@ class FileTable(tk.Canvas):
         self._font_body = font_body
         self._font_header = font_header
         self._badge_styles = badge_styles or BADGE_STYLES["dark"]
-        # 派生字体：路径列小一号、徽章 MICRO 加粗、数字列等宽（按 BODY 比例换算）
+        # 表格内所有文字统一正文大小（用户要求），仅保留风格区分：
+        # 路径/数字同号、徽章同号加粗、数字列等宽字体、表头同号加粗
         body_pt = font_body[1] if isinstance(font_body, tuple) else FONT_BODY
-        self._font_small = (FONT_FAMILY, max(8, round(body_pt * FONT_SMALL / FONT_BODY)))
-        self._font_badge = (FONT_FAMILY, max(8, round(body_pt * FONT_MICRO / FONT_BODY)), "bold")
-        self._font_mono = (FONT_MONO, max(8, round(body_pt * FONT_SMALL / FONT_BODY)))
-        # 表头高度随字号档位缩放（类常量 42 为兜底，构造时用实例值覆盖）
-        self.HEADER_H = max(36, int(font_header[1] * 1.7))
+        self._font_small = font_body
+        self._font_badge = (FONT_FAMILY, body_pt, "bold")
+        self._font_mono = (FONT_MONO, body_pt)
+        self._font_header = (FONT_FAMILY, body_pt, "bold")
+        # 表头高度随正文档位缩放（类常量 42 为兜底，构造时用实例值覆盖）
+        self.HEADER_H = max(40, int(body_pt * 1.7))
         self._on_header_click = on_header_click
         self._on_double = on_double
         self._on_right = on_right
@@ -1987,8 +1989,8 @@ class FileTable(tk.Canvas):
         except Exception:
             tw = len(text) * 12
         bw = tw + 18
-        # 徽章高度随徽章字号缩放（避免 25pt 档下文字溢出胶囊）
-        bh = max(20, int(self._font_badge[1] * 1.35))
+        # 徽章高度随徽章字号缩放（胶囊需容纳同号加粗文字）
+        bh = max(24, int(self._font_badge[1] * 1.9))
         _rounded_rect(self, cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2, bh / 2 - 1,
                       fill=bg, outline="", width=0)
         self.create_text(cx, cy, text=text, fill=fg, font=self._font_badge)
