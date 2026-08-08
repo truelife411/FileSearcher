@@ -2914,8 +2914,14 @@ class FileSearcherApp:
             self._pill("off", "尚未创建索引 · 点击右侧按钮创建")
 
     def _toggle_index(self):
-        """点击索引按钮：创建或重建索引。"""
-        if self._index_running or self._engine_cancel:
+        """点击索引按钮：运行中 → 询问是否停止；空闲 → 确认后创建/重建。"""
+        if self._index_running:
+            if _dialog_confirm(self, "停止索引", "索引正在后台运行，是否停止？\n已写入的数据会保留，下次可继续重建。",
+                               kind="warn", ok_text="停止"):
+                self._stop_index()
+                self._pill("warn", "正在停止索引…")
+            return
+        if self._engine_cancel:
             return
         if IndexEngine.index_exists():
             if not _dialog_confirm(self, "重建索引", "重建索引将扫描所有磁盘，可能需要几分钟。继续？",
@@ -2929,7 +2935,7 @@ class FileSearcherApp:
             return
         self._engine_cancel = False
         self._index_running = True
-        self.index_btn.config(state=tk.DISABLED)
+        self.index_btn.config(text="停止索引")   # 不禁用：运行中可点击以停止
         self.progress.pack(expand=True)
         self.progress.start(12)
         self._set_status("正在创建索引，扫描全盘文件…")
@@ -2968,7 +2974,6 @@ class FileSearcherApp:
         self._index_running = False
         self.progress.stop()
         self.progress.pack_forget()
-        self.index_btn.config(state=tk.NORMAL)
         self._update_index_button_text()
         if stats is None:
             self._set_status("索引已停止，原索引保持不变", "warning")
@@ -2989,7 +2994,7 @@ class FileSearcherApp:
         self._index_running = False
         self.progress.stop()
         self.progress.pack_forget()
-        self.index_btn.config(state=tk.NORMAL)
+        self._update_index_button_text()
         self._set_status(f"索引出错: {err}", "error")
         self._pill("off", "索引出错 · 点击重试")
 
@@ -2999,7 +3004,7 @@ class FileSearcherApp:
             return
         self._engine_cancel = False
         self._index_running = True
-        self.index_btn.config(state=tk.DISABLED)
+        self.index_btn.config(text="停止索引")   # 不禁用：运行中可点击以停止
         self.progress.pack(expand=True)
         self.progress.start(12)
         engine = IndexEngine(
