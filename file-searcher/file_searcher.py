@@ -2590,44 +2590,44 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """构建搜索区：全宽大搜索框 + 工具行（状态胶囊 + 幽灵索引按钮 + 设置图标钮）。"""
+        """构建单行搜索区：搜索框 + 索引状态胶囊 + 重建索引 + 设置，全部同一行。"""
         c = self.colors
         header = tk.Frame(self.root, bg=c["bg"])
-        header.pack(fill=tk.X, padx=self._s(26), pady=(self._s(16), self._s(10)))
+        header.pack(fill=tk.X, padx=self._s(26), pady=(self._s(12), self._s(8)))
         header.columnconfigure(0, weight=1)
         self._header = header
 
-        # ---- 全宽大搜索框 ----
-        row_h = self._s(48)
+        row_h = self._s(44)
+        btn_h = max(self._s(34), row_h - self._s(8))
+        pill_h = max(self._s(28), row_h - self._s(12))
+
+        # 搜索框（弹性占满剩余空间）
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
         self.search_box = RoundedSearchBox(header, self.search_var, c, self._clear_search,
                                            height=row_h, font_size=self._f(FONT_INPUT)[1])
-        self.search_box.grid(row=0, column=0, sticky="ew")
+        self.search_box.grid(row=0, column=0, sticky="ew", padx=(0, self._s(10)))
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
 
-        # ---- 工具行：左 状态胶囊 / 右 重建索引 + 设置 ----
-        tool_row = tk.Frame(header, bg=c["bg"], height=self._s(34))
-        tool_row.grid(row=1, column=0, sticky="ew", pady=(self._s(12), 0))
-        tool_row.grid_propagate(False)
-
+        # 索引状态胶囊
         self.index_status_var = tk.StringVar(value="尚未创建索引")
         self.index_count_var = tk.StringVar(value="0 项")
         self.index_updated_var = tk.StringVar(value="未更新")
         self.index_info_var = tk.StringVar(value="尚未创建索引")
-        self.status_pill = StatusPill(tool_row, c, height=self._s(30),
+        self.status_pill = StatusPill(header, c, height=pill_h,
                                       font=self._f(FONT_MICRO))
-        self.status_pill.pack(side=tk.LEFT)
+        self.status_pill.grid(row=0, column=1, sticky="w", padx=(0, self._s(10)))
 
-        self.settings_btn = RoundedButton(tool_row, icon="⚙", command=self._open_settings,
-                                          width=self._s(34), height=self._s(34), colors=c,
+        # 设置图标钮 + 重建索引幽灵按钮（右侧）
+        self.settings_btn = RoundedButton(header, icon="⚙", command=self._open_settings,
+                                          width=self._s(36), height=btn_h, colors=c,
                                           font_size=self._f(FONT_BODY)[1])
-        self.settings_btn.pack(side=tk.RIGHT)
-        self.index_btn = RoundedButton(tool_row, text="⟳  重建索引", command=self._toggle_index,
-                                       width=self._s(118), height=self._s(34), colors=c,
+        self.settings_btn.grid(row=0, column=3)
+        self.index_btn = RoundedButton(header, text="⟳  重建索引", command=self._toggle_index,
+                                       width=self._s(118), height=btn_h, colors=c,
                                        kind="ghost", font_size=self._f(FONT_BODY)[1])
-        self.index_btn.pack(side=tk.RIGHT, padx=(0, self._s(2)))
+        self.index_btn.grid(row=0, column=2, padx=(0, self._s(6)))
 
     def _update_search_width(self):
         """兼容旧调用：搜索框已全宽，无需联动调整。"""
