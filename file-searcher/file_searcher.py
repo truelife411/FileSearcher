@@ -400,11 +400,25 @@ def format_size(size: int) -> str:
 
 
 def open_with_default(path: str):
-    """用系统默认软件打开文件（失败时抛出 OSError，由调用方提示）。"""
-    if sys.platform == "win32":
-        os.startfile(os.path.normpath(path))
-    else:
-        subprocess.Popen(["xdg-open", path])
+    """用系统默认软件打开文件（失败时抛出 OSError，由调用方提示）。
+
+    ShellExecute 在关联程序响应慢（DDE 握手、大文件预读）时会同步等待，
+    因此放入后台线程执行，保证双击后 UI 立即响应、不卡顿。
+    """
+    def _run():
+        try:
+            if sys.platform == "win32":
+                os.startfile(os.path.normpath(path))
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except OSError as e:
+            # 后台线程无法弹窗，记录到日志便于排查
+            try:
+                with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
+                    fo.write(f"[open-error] {path} -> {e}\n")
+            except Exception:
+                pass
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def open_file_location(path: str):
