@@ -1794,10 +1794,30 @@ class FileTable(tk.Canvas):
 
     # ============ 布局与命中 ============
 
+    def _fit_cols(self, avail_w=None):
+        """返回适配可视宽度的列宽列表：总宽超出可视区时等比压缩非图标列（保底 40%）。
+
+        不修改 self._cols（偏好宽度）——拖动列宽与布局保存仍基于偏好值，
+        仅绘制/命中/拖动手柄使用压缩后的实际宽度。窗口 resize 或列宽变化后
+        由 <Configure> 触发 redraw 自动重新适配。
+        """
+        if avail_w is None:
+            avail_w = max(100, self.winfo_width())
+        total = sum(w for _, w in self._cols)
+        if total <= avail_w:
+            return list(self._cols)
+        icon_w = self._cols[0][1] if self._cols else 0
+        flex = total - icon_w
+        if flex <= 0:
+            return list(self._cols)
+        k = max(0.4, (avail_w - icon_w) / flex)
+        return [(key, w if key == "icon" else max(8, int(w * k)))
+                for key, w in self._cols]
+
     def _col_layout(self):
         x = 0
         layout = []
-        for key, w in self._cols:
+        for key, w in self._fit_cols():
             layout.append((key, x, x + w))
             x += w
         return layout
@@ -3627,22 +3647,31 @@ class FileSearcherApp:
     # ================================================================
 
     def _load_layout(self):
-        """从 JSON 文件恢复上次的列宽。"""
+        """从 JSON 文件恢复上次的列宽（跨显示器按缩放系数换算）。
+
+        旧版文件没有 "scale" 字段（旧显示器绝对值），无法可靠换算，
+        直接忽略并采用当前显示器下的默认列宽。
+        """
         if not IndexEngine.LAYOUT_FILE.exists() or not hasattr(self, "table"):
             return
         try:
             data = json.loads(IndexEngine.LAYOUT_FILE.read_text(encoding="utf-8"))
-            cols = [("icon", self._s(44))]
+            saved_scale = data.pop("scale", None)
+            current = self._dpi_scale * self._font_scale * self.ui_scale
+            cols = [("icon", self._s(46))]
             for key, default_w in self._default_cols:
-                cols.append((key, int(data.get(key, default_w))))
+                w = int(data.get(key, default_w))
+                if saved_scale and saved_scale > 0 and abs(saved_scale - current) > 0.05:
+                    w = max(40, int(w * current / saved_scale))
+                cols.append((key, w))
             self.table._cols = cols
             self.table.redraw()
         except Exception:
             pass
 
     def _save_layout(self):
-        """将当前列宽保存到 JSON 文件（拖动列宽后防抖调用）。"""
-        data = {}
+        """将当前列宽保存到 JSON 文件（含缩放系数，便于跨显示器还原）。"""
+        data = {"scale": round(self._dpi_scale * self._font_scale * self.ui_scale, 4)}
         for key, w in self.table._cols:
             if key != "icon":
                 data[key] = w
