@@ -1796,24 +1796,32 @@ class FileTable(tk.Canvas):
     # ============ 布局与命中 ============
 
     def _fit_cols(self, avail_w=None):
-        """返回适配可视宽度的列宽列表：总宽超出可视区时等比压缩非图标列（保底 40%）。
+        """返回适配可视宽度的列宽列表：总宽超出可视区时按序压缩可压缩列。
 
-        不修改 self._cols（偏好宽度）——拖动列宽与布局保存仍基于偏好值，
-        仅绘制/命中/拖动手柄使用压缩后的实际宽度。窗口 resize 或列宽变化后
-        由 <Configure> 触发 redraw 自动重新适配。
+        压缩顺序：path → name → type → modified → size（path 信息密度最低，
+        优先吸收全部溢出），每列保底像素宽度。不修改 self._cols（偏好宽度），
+        拖动列宽与布局保存仍基于偏好值；绘制/命中/拖动手柄用压缩后的实际宽度。
         """
         if avail_w is None:
             avail_w = max(100, self.winfo_width())
-        total = sum(w for _, w in self._cols)
+        cols = list(self._cols)
+        total = sum(w for _, w in cols)
         if total <= avail_w:
-            return list(self._cols)
-        icon_w = self._cols[0][1] if self._cols else 0
-        flex = total - icon_w
-        if flex <= 0:
-            return list(self._cols)
-        k = max(0.4, (avail_w - icon_w) / flex)
-        return [(key, w if key == "icon" else max(8, int(w * k)))
-                for key, w in self._cols]
+            return cols
+        mins = {"path": 220, "name": 240, "type": 110, "modified": 180, "size": 130}
+        deficit = total - avail_w
+        for key in ("path", "name", "type", "modified", "size"):
+            if deficit <= 0:
+                break
+            for i, (k2, w) in enumerate(cols):
+                if k2 == key:
+                    lo = mins.get(key, 40)
+                    take = min(max(0, w - lo), deficit)
+                    if take > 0:
+                        cols[i] = (key, w - take)
+                        deficit -= take
+                    break
+        return cols
 
     def _col_layout(self):
         x = 0
@@ -1863,7 +1871,9 @@ class FileTable(tk.Canvas):
         if handle:
             self._drag_key = handle
             self._drag_start_x = event.x
-            self._drag_orig_w = self.column_width(handle)
+            # 基准用 fit 后的实际宽度：压缩态下拖动手柄位置是压缩后的，直接
+            # 以实际宽度 + 位移写入偏好宽度，拖动才能"所见即所得"
+            self._drag_orig_w = self._fitted_width(handle)
             return
         hit = self._hit(event.x, event.y)
         if hit is None:
@@ -1903,6 +1913,13 @@ class FileTable(tk.Canvas):
                 self.redraw()
             if self._on_right:
                 self._on_right(event, row)
+
+    def _fitted_width(self, key):
+        """取某列 fit 后的实际显示宽度（无压缩时等于偏好宽度）。"""
+        for k, x0, x1 in self._col_layout():
+            if k == key:
+                return x1 - x0
+        return self.column_width(key)
 
     def _on_drag(self, event):
         if self._drag_key:
