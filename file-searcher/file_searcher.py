@@ -904,6 +904,7 @@ class IndexEngine:
         "tray_auto_index": False,        # 最小化到托盘后自动更新索引
         "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
         "theme": "dark",
+        "text_pt": 12,                   # 文字大小档位（10 紧凑 / 12 标准 / 14 舒适）
     }
 
     @classmethod
@@ -1800,36 +1801,43 @@ class FileTable(tk.Canvas):
     # ============ 布局与命中 ============
 
     def _fit_cols(self, avail_w=None):
-        """返回适配可视宽度的列宽列表：总宽超出可视区时按序压缩可压缩列。
-
-        刚性列 = 用户主动拖过的列（_drag_pref）+ 当前正在拖动的列，保持偏好
-        宽度不被压缩；溢出由其余列按序吸收（path → name → type → modified →
-        size，每列保底像素）。这样拖动任何列都是 1:1 响应，且释放后不弹回。
+        """返回适配可视宽度的列宽列表（双向）：
+        - 总宽超出可视区 → 按序压缩柔性列（path→name→type→modified→size，每列保底）；
+        - 总宽不足可视区 → 按偏好比例拉宽柔性列，填满容器。
+        刚性列 = 用户主动拖过的列（_drag_pref）+ 当前拖动的列，宽度不被调整；
+        拖动任何列都是 1:1 响应且释放后不弹回。
         """
         if avail_w is None:
             avail_w = max(100, self.winfo_width())
         cols = list(self._cols)
         total = sum(w for _, w in cols)
-        if total <= avail_w:
-            return cols
         mins = {"path": 220, "name": 240, "type": 110, "modified": 180, "size": 130}
         rigid = set(getattr(self, "_drag_pref", None) or set())
         if self._drag_key:
             rigid.add(self._drag_key)
-        deficit = total - avail_w
-        for key in ("path", "name", "type", "modified", "size"):
-            if deficit <= 0:
-                break
-            if key in rigid:
-                continue
-            for i, (k2, w) in enumerate(cols):
-                if k2 == key:
-                    lo = mins.get(key, 40)
-                    take = min(max(0, w - lo), deficit)
-                    if take > 0:
-                        cols[i] = (key, w - take)
-                        deficit -= take
+        flex_keys = [k for k in ("path", "name", "type", "modified", "size") if k not in rigid]
+        flex_idx = [i for i, (k, _w) in enumerate(cols) if k in flex_keys]
+        if total > avail_w:
+            # 压缩：柔性列按序吸收溢出
+            deficit = total - avail_w
+            for key in flex_keys:
+                if deficit <= 0:
                     break
+                for i, (k2, w) in enumerate(cols):
+                    if k2 == key:
+                        lo = mins.get(key, 40)
+                        take = min(max(0, w - lo), deficit)
+                        if take > 0:
+                            cols[i] = (key, w - take)
+                            deficit -= take
+                        break
+        elif total < avail_w and flex_idx:
+            # 拉宽：柔性列按偏好比例吸收剩余空间，填满容器
+            extra = avail_w - total
+            flex_total = sum(cols[i][1] for i in flex_idx)
+            if flex_total > 0:
+                for i in flex_idx:
+                    cols[i] = (cols[i][0], cols[i][1] + int(extra * cols[i][1] / flex_total))
         return cols
 
     def _col_layout(self):
@@ -2140,8 +2148,18 @@ class FileSearcherApp:
             self._dpi_scale = max(1.0, _dpi / 96.0)
         except Exception:
             self._dpi_scale = 1.0
-        # 正文目标 pt：BODY 渲染 = text_pt；_s 输出 = px × text_pt / FONT_BODY（随档位联动）
-        self._text_pt = int(self._settings.get("text_pt", 21))
+        # 正文目标 pt：BODY 渲染 = text_pt（Tk pt→px ≈ ×1.714，144 DPI 下
+        # 10/12/14pt 分别约 17/21/24px 物理，对标系统 150% 缩放的正文 18px）。
+        # 旧档位（19/21/25，240% 缩放时代）通过白名单迁移回标准档。
+        try:
+            self._text_pt = int(self._settings.get("text_pt", 12))
+        except Exception:
+            self._text_pt = 12
+        if self._text_pt not in (10, 12, 14):
+            self._text_pt = 12
+            if "text_pt" in self._settings:
+                self._settings["text_pt"] = 12
+                IndexEngine.save_settings(self._settings)
         self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
         try:
             self.root.tk.call("tk", "scaling", 4 / 3)  # 固定为标准 96dpi 行为
@@ -2261,7 +2279,12 @@ class FileSearcherApp:
 
     def _apply_text_scale(self):
         """文字大小档位切换立即生效：重算全局缩放系数并重建全部界面。"""
-        self._text_pt = int(self._settings.get("text_pt", 21))
+        try:
+            self._text_pt = int(self._settings.get("text_pt", 12))
+        except Exception:
+            self._text_pt = 12
+        if self._text_pt not in (10, 12, 14):
+            self._text_pt = 12
         self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
         self._configure_theme()
         self._rebuild_ui()
@@ -3228,11 +3251,12 @@ class FileSearcherApp:
                                 for cvs in theme_canvases])
 
         # ---- 文字大小档位（全局生效：主界面/弹窗/右键菜单/设置全部联动）----
+        # 档位按系统缩放对标：144 DPI(150%) 下 10/12/14pt 渲染约 17/21/24px
         text_row = tk.Frame(card_theme, bg=c["surface"])
         text_row.pack(fill=tk.X, padx=s(18), pady=(0, s(16)))
         tk.Label(text_row, text="文字大小", bg=c["surface"], fg=c["text"],
                  font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, s(16)))
-        text_pt = int(self._settings.get("text_pt", 21))
+        text_pt = int(self._settings.get("text_pt", 12))
 
         def _set_text_pt(pt: int):
             if pt == self._settings.get("text_pt"):
@@ -3247,7 +3271,7 @@ class FileSearcherApp:
                 pass
             self.root.after(60, self._open_settings)
 
-        for label, pt in (("紧凑", 19), ("标准", 21), ("舒适", 25)):
+        for label, pt in (("紧凑", 10), ("标准", 12), ("舒适", 14)):
             RoundedButton(text_row, text=label, width=s(68), height=s(32), colors=c,
                           kind="accent" if pt == text_pt else "normal",
                           font_size=self._f(FONT_SMALL)[1],
