@@ -1186,7 +1186,7 @@ class RoundedSearchBox(tk.Canvas):
             self.create_oval(clear_x - 12, cy - 12, clear_x + 12, cy + 12,
                              fill=c["surface_3"], outline="", tags="shell")
             self.create_text(clear_x, cy, text="✕", fill=c["muted"],
-                             font=(FONT_FAMILY, FONT_SMALL), tags="shell")
+                             font=(FONT_FAMILY, max(8, int(self._font_size * 0.75))), tags="shell")
         self.tag_lower("shell", self._entry_window)
 
     def _click(self, event):
@@ -2127,8 +2127,9 @@ class FileSearcherApp:
 
         # 缩放体系：Tk 8.6 在 Windows 上按 96 DPI 布局，tk scaling 对字体渲染无效且会污染
         # winfo_fpixels，因此用原生 API GetDpiForSystem 取真实系统 DPI；
-        # _dpi_scale（真实 DPI/96）× _font_scale（用户字号偏好）放大所有 pt 字号与像素尺寸；
-        # ui_scale 仅由窗口宽度驱动（1150 基准 0.8~1.8）
+        # _dpi_scale（真实 DPI/96）× _font_scale（用户字号档位）放大所有 pt 字号与像素尺寸；
+        # ui_scale 恒 1.0。文字大小档位（text_pt = 正文目标 pt）全局生效：
+        # 紧凑 19 / 标准 21 / 舒适 25，所有页面（主界面/设置/弹窗/右键菜单）经 _f/_s 联动
         try:
             _dpi = float(ctypes.windll.user32.GetDpiForSystem())
             if _dpi < 72:
@@ -2136,8 +2137,9 @@ class FileSearcherApp:
             self._dpi_scale = max(1.0, _dpi / 96.0)
         except Exception:
             self._dpi_scale = 1.0
-        # 固定字号：正文固定 25pt（当前最大化 27pt 再小 2 号），不再随窗口缩放
-        self._font_scale = 25 / (FONT_BODY * self._dpi_scale)
+        # 正文目标 pt：BODY 渲染 = text_pt；_s 输出 = px × text_pt / FONT_BODY（随档位联动）
+        self._text_pt = int(self._settings.get("text_pt", 21))
+        self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
         try:
             self.root.tk.call("tk", "scaling", 4 / 3)  # 固定为标准 96dpi 行为
         except Exception:
@@ -2251,6 +2253,13 @@ class FileSearcherApp:
         """主题切换立即生效：换配色并重建主界面（保留搜索词与结果）。"""
         self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
         self.colors = THEMES[self._theme_name]
+        self._configure_theme()
+        self._rebuild_ui()
+
+    def _apply_text_scale(self):
+        """文字大小档位切换立即生效：重算全局缩放系数并重建全部界面。"""
+        self._text_pt = int(self._settings.get("text_pt", 21))
+        self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
         self._configure_theme()
         self._rebuild_ui()
 
@@ -3214,6 +3223,36 @@ class FileSearcherApp:
             _draw_theme_card(cvs, cvs._theme_value) for cvs in theme_canvases])
         dlg.after_idle(lambda: [_draw_theme_card(cvs, cvs._theme_value)
                                 for cvs in theme_canvases])
+
+        # ---- 文字大小档位（全局生效：主界面/弹窗/右键菜单/设置全部联动）----
+        text_row = tk.Frame(card_theme, bg=c["surface"])
+        text_row.pack(fill=tk.X, padx=s(18), pady=(0, s(16)))
+        tk.Label(text_row, text="文字大小", bg=c["surface"], fg=c["text"],
+                 font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, s(16)))
+        text_pt = int(self._settings.get("text_pt", 21))
+
+        def _set_text_pt(pt: int):
+            if pt == self._settings.get("text_pt"):
+                return
+            self._settings["text_pt"] = pt
+            IndexEngine.save_settings(self._settings)
+            self._apply_text_scale()
+            # 字号变化后整窗尺寸全变，重建设置窗口以刷新配色与布局
+            try:
+                dlg.destroy()
+            except Exception:
+                pass
+            self.root.after(60, self._open_settings)
+
+        for label, pt in (("紧凑", 19), ("标准", 21), ("舒适", 25)):
+            RoundedButton(text_row, text=label, width=s(68), height=s(32), colors=c,
+                          kind="accent" if pt == text_pt else "normal",
+                          font_size=self._f(FONT_SMALL)[1],
+                          command=lambda p=pt: _set_text_pt(p)).pack(
+                side=tk.LEFT, padx=(0, s(8)))
+        tk.Label(card_theme, text="调整会立即应用到全部界面。",
+                 bg=c["surface"], fg=c["muted_2"], font=self._f(FONT_MICRO)).pack(
+            anchor=tk.W, padx=s(18), pady=(0, s(6)))
 
         # ================= 排除列表页 =================
         _page_head(page_exclude, "排除列表", "索引时跳过匹配的目录（修改即时保存，需重建索引生效）。")
