@@ -1258,7 +1258,8 @@ class ToggleSwitch(tk.Canvas):
         self.colors = colors
         self._var = variable
         self._command = command
-        self._w, self._h = width, height
+        # 注意：不能用 self._w（tkinter 内部 widget 路径名属性），改用 _sw/_sh
+        self._sw, self._sh = width, height
         self.bind("<Button-1>", self._toggle)
         self._var.trace_add("write", lambda *_: self._draw())
         self._draw()
@@ -1271,7 +1272,7 @@ class ToggleSwitch(tk.Canvas):
     def _draw(self):
         self.delete("all")
         c = self.colors
-        w, h = self._w, self._h
+        w, h = self._sw, self._sh
         on = bool(self._var.get())
         if on:
             pix = _make_gradient_pix(self.winfo_toplevel(), w, h, h // 2,
