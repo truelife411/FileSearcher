@@ -2258,12 +2258,7 @@ class FileSearcherApp:
         for w in self.root.winfo_children():
             w.destroy()
         self._build_ui()
-        self._placeholder_visible = False
-        if saved["query"]:
-            self._set_search_value(saved["query"])
-            self.search_entry.configure(fg=self.colors["text"])
-        else:
-            self._show_placeholder()
+        self._set_search_value(saved["query"] if saved["query"] else "")
         self._refresh_tree()
         self._update_sort_heading()
         self._update_result_status()
@@ -2611,11 +2606,6 @@ class FileSearcherApp:
         self.search_box.grid(row=0, column=0, sticky="ew")
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
-        self.search_entry.bind("<FocusIn>", self._hide_placeholder, add="+")
-        self.search_entry.bind("<FocusOut>", self._show_placeholder, add="+")
-        self._placeholder = "搜索文件名或完整路径…"
-        self._placeholder_visible = False
-        self._show_placeholder()
 
         # ---- 工具行：左 状态胶囊 / 右 重建索引 + 设置 ----
         tool_row = tk.Frame(header, bg=c["bg"], height=self._s(34))
@@ -2651,20 +2641,8 @@ class FileSearcherApp:
         finally:
             self._suppress_search_trace = False
 
-    def _hide_placeholder(self, _event=None):
-        if self._placeholder_visible:
-            self._set_search_value("")
-            self.search_entry.configure(fg=self.colors["text"])
-            self._placeholder_visible = False
-
-    def _show_placeholder(self, _event=None):
-        if not self.search_var.get() and self.root.focus_get() != self.search_entry:
-            self._placeholder_visible = True
-            self.search_entry.configure(fg=self.colors["muted"])
-            self._set_search_value(self._placeholder)
-
     def _search_text(self):
-        return "" if self._placeholder_visible else self.search_var.get().strip()
+        return self.search_var.get().strip()
 
     def _current_filters(self):
         """筛选功能已从界面移除，查询不带过滤条件。"""
@@ -3380,20 +3358,18 @@ class FileSearcherApp:
         self._run_query("")
 
     def _clear_search(self, event=None):
-        """清空搜索并恢复占位符和当前筛选下的全部结果。"""
+        """清空搜索并恢复当前筛选下的全部结果。"""
         if self._search_timer is not None:
             self.root.after_cancel(self._search_timer)
             self._search_timer = None
-        self._placeholder_visible = False
         self._set_search_value("")
         self.root.focus_set()
-        self._show_placeholder()
         self._run_query("")
         return "break"
 
     def _on_search_changed(self):
         """真实搜索文字变化时触发（300ms 防抖延迟）。"""
-        if self._suppress_search_trace or self._placeholder_visible:
+        if self._suppress_search_trace:
             return
         if self._search_timer is not None:
             self.root.after_cancel(self._search_timer)
@@ -3741,9 +3717,8 @@ class FileSearcherApp:
         self.table.bind("<Alt-Return>", lambda _e: (self._open_file_location_selected(), "break")[1])
 
     def _focus_search(self, _event=None):
-        """聚焦搜索框并全选真实搜索文字。"""
+        """聚焦搜索框并全选搜索文字。"""
         self.search_entry.focus_set()
-        self._hide_placeholder()
         self.search_entry.selection_range(0, tk.END)
         self.search_entry.icursor(tk.END)
         return "break"
@@ -3875,12 +3850,11 @@ class FileSearcherApp:
             except Exception:
                 pass
         self.root.focus_force()
-        # 搜索框全选真实文字；占位符状态只聚焦。
+        # 搜索框聚焦；有内容则全选，无内容光标归零。
         self.search_entry.focus_set()
         if self._search_text():
             self.search_entry.select_range(0, tk.END)
         else:
-            self._hide_placeholder()
             self.search_entry.icursor(0)
 
     def _start_tray_auto_index_timer(self):
