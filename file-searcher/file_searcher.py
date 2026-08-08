@@ -1800,9 +1800,9 @@ class FileTable(tk.Canvas):
     def _fit_cols(self, avail_w=None):
         """返回适配可视宽度的列宽列表：总宽超出可视区时按序压缩可压缩列。
 
-        压缩顺序：path → name → type → modified → size（path 信息密度最低，
-        优先吸收全部溢出），每列保底像素宽度。不修改 self._cols（偏好宽度），
-        拖动列宽与布局保存仍基于偏好值；绘制/命中/拖动手柄用压缩后的实际宽度。
+        刚性列 = 用户主动拖过的列（_drag_pref）+ 当前正在拖动的列，保持偏好
+        宽度不被压缩；溢出由其余列按序吸收（path → name → type → modified →
+        size，每列保底像素）。这样拖动任何列都是 1:1 响应，且释放后不弹回。
         """
         if avail_w is None:
             avail_w = max(100, self.winfo_width())
@@ -1811,17 +1811,15 @@ class FileTable(tk.Canvas):
         if total <= avail_w:
             return cols
         mins = {"path": 220, "name": 240, "type": 110, "modified": 180, "size": 130}
-        deficit = total - avail_w
-        order = ["path", "name", "type", "modified", "size"]
-        # 用户主动拖过的列降为最低压缩优先级（尊重手动布局），
-        # 当前正在拖动的列排最后——溢出先由其他列吸收，拖动手感 1:1
-        pref = getattr(self, "_drag_pref", None) or set()
-        seq = [k for k in order if k not in pref] + [k for k in order if k in pref]
+        rigid = set(getattr(self, "_drag_pref", None) or set())
         if self._drag_key:
-            seq = [k for k in seq if k != self._drag_key] + [self._drag_key]
-        for key in seq:
+            rigid.add(self._drag_key)
+        deficit = total - avail_w
+        for key in ("path", "name", "type", "modified", "size"):
             if deficit <= 0:
                 break
+            if key in rigid:
+                continue
             for i, (k2, w) in enumerate(cols):
                 if k2 == key:
                     lo = mins.get(key, 40)
@@ -3707,6 +3705,9 @@ class FileSearcherApp:
                 w = int(data.get(key, default_w))
                 if saved_scale and saved_scale > 0 and abs(saved_scale - current) > 0.05:
                     w = max(40, int(w * current / saved_scale))
+                # 畸形值保护：单列超过默认宽 1.5 倍（旧版拖动 bug 产物）→ 重置默认
+                if w < 40 or w > default_w * 1.5:
+                    w = default_w
                 cols.append((key, w))
             self.table._cols = cols
             self.table.redraw()
