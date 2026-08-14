@@ -947,6 +947,15 @@ class IndexEngine:
 
 
 
+def _diag(msg: str):
+    """追加诊断行到 debug.log（用于线上排查 UI 流程）。"""
+    try:
+        with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
+            fo.write(msg + "\n")
+    except Exception:
+        pass
+
+
 def _rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
     """在 Canvas 上绘制平滑圆角矩形。"""
     radius = max(1, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
@@ -1381,7 +1390,16 @@ class _DialogShell:
         self.root.update_idletasks()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
-        top.geometry(f"{width_px}x{height_px}+{px + (pw - width_px) // 2}+{py + (ph - height_px) // 2}")
+        x = px + (pw - width_px) // 2
+        y = py + (ph - height_px) // 2
+        # 防御：多显示器/主窗几何异常时，弹窗坐标钳制到屏幕内并强制置顶可见
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        x = max(0, min(x, sw - width_px))
+        y = max(0, min(y, sh - height_px))
+        top.geometry(f"{width_px}x{height_px}+{x}+{y}")
+        top.attributes("-topmost", True)          # 弹窗必须浮在无边框主窗之上
+        top.lift()
+        top.after(120, lambda: top.attributes("-topmost", False))  # 短暂置顶后归还层级
 
         bg = _DIALOG_MAGIC if self._rounded_ok else self.colors["dialog_bg"]
         self.canvas = tk.Canvas(top, width=width_px, height=height_px, bd=0,
