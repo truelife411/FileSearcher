@@ -1745,10 +1745,7 @@ class FileTable(tk.Canvas):
         self._drag_pref = set()   # 用户主动拖过宽度的列（fit 时最后压缩）
         self._row_h = 50
         self._labels = {}
-        self._scroll_y = 0        # 行区域纵向滚动偏移（px，表头固定不滚）
-        self._scroll_target = 0   # 滚动目标（动量平滑用）
-        self._scroll_anim = None  # 滚动动画 after id
-        self._scrolling = False   # 滚动期间暂停 hover 重绘
+        self._scroll_y = 0        # 行区域纵向滚动偏移（页大小自适应下恒为 0，保留以兼容 _hit）
         try:
             import tkinter.font as tkfont
             self._font_body_obj = tkfont.Font(root=master.winfo_toplevel(), font=font_body)
@@ -1793,7 +1790,6 @@ class FileTable(tk.Canvas):
         self._rows = rows
         self._selected = []
         self._scroll_y = 0
-        self._scroll_target = 0
         self.redraw()
 
     def set_row_h(self, h):
@@ -1981,39 +1977,8 @@ class FileTable(tk.Canvas):
             self.redraw()
 
     def _on_wheel(self, event):
-        """滚轮平滑滚动：按系统滚动行数折算像素 + 动量动画到目标偏移。"""
-        max_scroll = max(0, len(self._rows) * self._row_h - (self.winfo_height() - self.HEADER_H))
-        if max_scroll <= 0:
-            return
-        # event.delta=±120；读系统"滚动行数"设置（默认3行/格）折算像素
-        try:
-            val = ctypes.c_uint(3)
-            ctypes.windll.user32.SystemParametersInfoW(0x0068, 0, ctypes.byref(val), 0)
-            lines = max(1, val.value)
-        except Exception:
-            lines = 3
-        px = max(40, int(self._row_h * lines / 1.2))
-        self._scroll_target = max(0, min(max_scroll,
-            self._scroll_target + (px if event.delta < 0 else -px)))
-        self._scrolling = True
-        if self._scroll_anim is None:
-            self._scroll_anim = self.after(16, self._scroll_step)
-
-    def _scroll_step(self):
-        """动量动画：每帧向目标靠近 25%，足够接近后停并恢复 hover。"""
-        diff = self._scroll_target - self._scroll_y
-        if abs(diff) < 1.5:
-            self._scroll_y = self._scroll_target
-            self._scroll_anim = None
-            self.redraw()
-            self.after(60, self._end_scroll)
-            return
-        self._scroll_y += diff * 0.25
-        self.redraw()
-        self._scroll_anim = self.after(16, self._scroll_step)
-
-    def _end_scroll(self):
-        self._scrolling = False
+        """滚轮不滚动、不翻页（页大小自适应可视行数，翻页用底部按钮）。"""
+        return
 
     def _on_motion(self, event):
         handle = self._resize_handle_at(event.x, event.y)
@@ -2031,9 +1996,6 @@ class FileTable(tk.Canvas):
             self._set_hover(None, hit[1] if hit and hit[0] == "header" else None)
 
     def _set_hover(self, row, col):
-        # 滚动动画进行中不重绘 hover（减少每帧工作量，滚动更顺滑）
-        if self._scrolling:
-            return
         if row != self._hover_row or col != self._hover_col:
             self._hover_row = row
             self._hover_col = col
@@ -2179,19 +2141,6 @@ class FileTable(tk.Canvas):
                 else:
                     pts = (tri_cx - s, tri_cy - s * 0.6, tri_cx + s, tri_cy - s * 0.6, tri_cx, tri_cy + s * 0.8)
                 self.create_polygon(pts, fill=c["accent"], outline="")
-        # ---- 纵向滚动条（自绘，仅在内容超出时显示；表头不滚）----
-        content_h = len(self._rows) * row_h
-        view_h = h - self.HEADER_H
-        if content_h > view_h and view_h > 0:
-            track_x0, track_x1 = w - 7, w - 3
-            self.create_rectangle(track_x0 - 1, self.HEADER_H, track_x1 + 1, h,
-                                  fill=c["surface"], outline="")
-            thumb_h = max(28, view_h * view_h / content_h)
-            max_scroll = content_h - view_h
-            ratio = self._scroll_y / max_scroll if max_scroll > 0 else 0
-            ty0 = self.HEADER_H + ratio * (view_h - thumb_h)
-            _rounded_rect(self, track_x0, ty0, track_x1, ty0 + thumb_h, 2,
-                          fill=c["border_strong"], outline="", width=0)
         self.configure(scrollregion=(0, 0, w, h))
 
 
@@ -2764,11 +2713,13 @@ class FileSearcherApp:
 
     # ---- 分页 ----
 
-    PAGE_SIZE_FIXED = 100   # 固定每页 100 行
-
     def _compute_page_size(self) -> int:
-        """固定页大小（100 行/页）。"""
-        return self.PAGE_SIZE_FIXED
+        """页大小 = 表头下方可视行数，一页正好铺满不滚动。"""
+        try:
+            h = self.table.winfo_height() - self.table.HEADER_H
+            return max(5, h // self.table._row_h)
+        except Exception:
+            return 20
 
     def _total_pages(self) -> int:
         if self._total_results <= 0:
@@ -2798,8 +2749,30 @@ class FileSearcherApp:
         self._layout_save_timer = self.root.after(500, self._save_layout)
 
     def _on_view_resize(self, event=None):
-        """窗口尺寸变化：页大小固定为 100，无需重算，仅触发布局重绘。"""
-        return
+        """窗口尺寸变化：重算页大小（自适应可视行数），刷新当前页。"""
+        if event is not None and getattr(event, "widget", None) is not self.root:
+            return
+        if getattr(self, "_view_resize_timer", None) is not None:
+            try:
+                self.root.after_cancel(self._view_resize_timer)
+            except Exception:
+                pass
+        self._view_resize_timer = self.root.after(300, self._apply_view_resize)
+
+    def _apply_view_resize(self):
+        self._view_resize_timer = None
+        try:
+            if self.root.state() in ("withdrawn", "iconic"):
+                return
+        except Exception:
+            pass
+        new_ps = self._compute_page_size()
+        if new_ps != getattr(self, "_page_size", 0):
+            self._page_size = new_ps
+            if IndexEngine.index_exists():
+                self._run_query(self._search_text())
+            else:
+                self._update_result_status()
 
     def _layout_result_container(self, event):
         if event.width < 4 or event.height < 4:
@@ -3481,19 +3454,19 @@ class FileSearcherApp:
             return
         btn_h = s(34)
         num_w = s(40)
-        arrow_w = s(36)
-        gap = s(12)          # 按钮间距（数字/箭头/省略号统一）
+        nav_w = s(72)        # 「上一页/下一页」按钮宽
+        gap = s(12)          # 按钮间距（数字/翻页钮/省略号统一）
         fsize = self._f(FONT_BODY)[1]
 
         def _nav(text, cmd, enabled=True):
-            b = RoundedButton(frame, text=text, command=cmd, width=arrow_w, height=btn_h,
-                              colors=c, font_size=fsize)
+            b = RoundedButton(frame, text=text, command=cmd, width=nav_w, height=btn_h,
+                              colors=c, font_size=self._f(FONT_SMALL)[1])
             if not enabled:
                 b.config(state=tk.DISABLED)
             b.pack(side=tk.LEFT, padx=(0, gap))
             return b
 
-        _nav("‹", lambda: self._goto_page_relative(-1), enabled=self._page > 1)
+        _nav("上一页", lambda: self._goto_page_relative(-1), enabled=self._page > 1)
         for item in self._page_sequence(total_pages):
             if item == "…":
                 tk.Label(frame, text="…", bg=c["surface"], fg=c["muted_2"],
@@ -3505,7 +3478,7 @@ class FileSearcherApp:
                               width=num_w, height=btn_h, colors=c,
                               kind="accent" if active else "normal", font_size=fsize)
             b.pack(side=tk.LEFT, padx=(0, gap))
-        _nav("›", lambda: self._goto_page_relative(1), enabled=self._page < total_pages)
+        _nav("下一页", lambda: self._goto_page_relative(1), enabled=self._page < total_pages)
 
     # ================================================================
     #  排除列表管理
