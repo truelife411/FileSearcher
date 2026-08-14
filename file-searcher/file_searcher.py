@@ -1590,6 +1590,8 @@ class CtxMenu:
         if y_root + h > sh:
             y_root = max(0, sh - h - 4)
         top.geometry(f"{w}x{h}+{x_root}+{y_root}")
+        top.attributes("-topmost", True)   # 无边框主窗下菜单必须置顶，否则被压在主窗后
+        top.lift()
         bg = _DIALOG_MAGIC if self._rounded_ok else c["menu_bg"]
         self.canvas = tk.Canvas(top, width=w, height=h, bd=0, highlightthickness=0, bg=bg)
         self.canvas.pack(fill=tk.BOTH, expand=True)
