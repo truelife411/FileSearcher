@@ -1381,13 +1381,18 @@ class _DialogShell:
     def _draw_card(self, w, h):
         c = self.colors
         p = self._pad
-        # 柔和投影（两层偏移深色圆角矩形）
+        # 纸感投影：浅色用极淡暖灰双层，深色用近黑单层
         if self._rounded_ok:
-            shadow = "#05080A" if self.app._theme_name == "dark" else "#C9D2CE"
-            _rounded_rect(self.canvas, p - 4, p + 2, w - p + 4, h - p + 6, self._radius + 3,
-                          fill=shadow, outline="", width=0)
+            if self.app._theme_name == "dark":
+                _rounded_rect(self.canvas, p - 4, p + 3, w - p + 4, h - p + 7,
+                              self._radius + 3, fill="#05080A", outline="", width=0)
+            else:
+                _rounded_rect(self.canvas, p - 3, p + 4, w - p + 3, h - p + 8,
+                              self._radius + 3, fill="#DAD5C9", outline="", width=0)
+                _rounded_rect(self.canvas, p - 1, p + 1, w - p + 1, h - p + 2,
+                              self._radius + 1, fill="#E4DFD3", outline="", width=0)
         _rounded_rect(self.canvas, p, p, w - p, h - p, self._radius,
-                      fill=c["dialog_bg"], outline=c["border_strong"], width=1)
+                      fill=c["dialog_bg"], outline=c["border"], width=1)
 
     def _drag_start(self, event):
         self._drag = (event.x_root - self.top.winfo_x(), event.y_root - self.top.winfo_y())
@@ -1423,23 +1428,24 @@ def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text
     lines = max(1, (len(desc) + approx_chars_per_line - 1) // approx_chars_per_line)
     h = s(150) + lines * s(20) + s(64)
     shell = _DialogShell(app, w, h)
-    body = shell.body
+    body = tk.Frame(shell.body, bg=c["dialog_bg"])
+    body.pack(fill=tk.BOTH, expand=True, padx=s(22))
     icon_map = {"warn": ("!", c["warning"]), "danger": ("✕", c["error"]), "info": ("i", c["accent"])}
     icon_char, icon_c = icon_map.get(kind, icon_map["info"])
     badge_bg = {"warn": BADGE_STYLES[app._theme_name]["zip"][1],
                 "danger": BADGE_STYLES[app._theme_name]["pdf"][1],
                 "info": app.colors["selected"]}[kind]
     ic = tk.Canvas(body, width=s(44), height=s(44), bd=0, highlightthickness=0, bg=c["dialog_bg"])
-    ic.pack(anchor=tk.W, pady=(s(14), s(12)))
+    ic.pack(anchor=tk.W, pady=(s(18), s(10)))
     ic.create_oval(2, 2, s(44) - 2, s(44) - 2, fill=badge_bg, outline="")
     ic.create_text(s(22), s(22), text=icon_char, fill=icon_c, font=app._f(FONT_LG, "bold"))
     tk.Label(body, text=title, bg=c["dialog_bg"], fg=c["text"],
              font=app._f(FONT_LG, "bold")).pack(anchor=tk.W)
     tk.Label(body, text=desc, bg=c["dialog_bg"], fg=c["muted"],
-             font=app._f(FONT_SMALL), justify=tk.LEFT, wraplength=w - s(60)).pack(
-        anchor=tk.W, pady=(s(6), 0))
+             font=app._f(FONT_SMALL), justify=tk.LEFT, wraplength=w - s(90)).pack(
+        anchor=tk.W, pady=(s(7), 0))
     btns = tk.Frame(body, bg=c["dialog_bg"])
-    btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, s(12)))
+    btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, s(16)))
     ok_kind = "danger" if kind == "danger" else "accent"
     RoundedButton(btns, text=ok_text, command=lambda: shell.close(True),
                   width=s(96), height=s(36), colors=c, kind=ok_kind,
@@ -1463,9 +1469,10 @@ def _dialog_input(app, title, desc, initial="", ok_text="确定", options=None,
     w = s(460)
     h = s(150) + (s(44) if options else 0) + s(90)
     shell = _DialogShell(app, w, h)
-    body = shell.body
+    body = tk.Frame(shell.body, bg=c["dialog_bg"])
+    body.pack(fill=tk.BOTH, expand=True, padx=s(22))
     tk.Label(body, text=title, bg=c["dialog_bg"], fg=c["text"],
-             font=app._f(FONT_LG, "bold")).pack(anchor=tk.W, pady=(s(14), 0))
+             font=app._f(FONT_LG, "bold")).pack(anchor=tk.W, pady=(s(18), 0))
     if desc:
         tk.Label(body, text=desc, bg=c["dialog_bg"], fg=c["muted"],
                  font=app._f(FONT_SMALL), anchor=tk.W, justify=tk.LEFT).pack(
@@ -2599,10 +2606,10 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """凝脂风搜索区：居中搜索框（限宽 980）+ 下方类型筛选 chip 排。"""
+        """凝脂风搜索区：全宽大搜索框（视觉主角，无其他干扰元素）。"""
         c = self.colors
         zone = tk.Frame(self.root, bg=c["bg"])
-        zone.pack(fill=tk.X, padx=self._s(24), pady=(self._s(20), 0))
+        zone.pack(fill=tk.X, padx=self._s(24), pady=(self._s(18), 0))
         self._header = zone
 
         self.search_var = tk.StringVar()
@@ -2614,60 +2621,6 @@ class FileSearcherApp:
         self.search_box.pack(fill=tk.X, padx=self._s(24))
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
-
-        # 类型筛选 chip 排
-        self._type_chip = tk.StringVar(value="全部")
-        chips_row = tk.Frame(zone, bg=c["bg"])
-        chips_row.pack(fill=tk.X, pady=(self._s(12), 0), padx=self._s(24))
-        chips_inner = tk.Frame(chips_row, bg=c["bg"])
-        chips_inner.pack()
-        self._chip_canvases = []
-        for name in ("全部", "文件夹", "文档", "图片", "视频", "音频", "压缩包", "代码"):
-            cv = tk.Canvas(chips_inner, height=self._s(30), bd=0, highlightthickness=0,
-                           bg=c["bg"], cursor="hand2")
-            cv.pack(side=tk.LEFT, padx=self._s(4))
-            cv._chip_name = name
-            cv.bind("<Button-1>", lambda _e, n=name: self._on_chip(n))
-            cv.bind("<Configure>", lambda _e, cvs=cv: self._draw_chip(cvs))
-            self._chip_canvases.append(cv)
-        chips_row.after_idle(self._draw_all_chips)
-
-    def _on_chip(self, name: str):
-        if name == self._type_chip.get():
-            return
-        self._type_chip.set(name)
-        self._page = 1
-        self._draw_all_chips()
-        self._run_query(self._search_text())
-
-    def _draw_all_chips(self):
-        for cv in getattr(self, "_chip_canvases", []):
-            self._draw_chip(cv)
-
-    def _draw_chip(self, cv):
-        """绘制单个筛选 chip：全胶囊，选中 = accent 淡底 + accent 描边 + accent 文字。"""
-        cv.delete("all")
-        c = self.colors
-        name = cv._chip_name
-        font = self._f(FONT_SMALL, "bold")
-        try:
-            import tkinter.font as tkfont
-            f = tkfont.Font(root=self.root, font=font)
-            tw = f.measure(name)
-        except Exception:
-            tw = len(name) * 14
-        w = tw + self._s(28)
-        h = self._s(30)
-        cv.configure(width=w)
-        active = self._type_chip.get() == name
-        if active:
-            _rounded_rect(cv, 1, 1, w - 1, h - 1, (h - 2) / 2,
-                          fill=c["selected"], outline=c["accent"], width=1.2)
-        else:
-            _rounded_rect(cv, 1, 1, w - 1, h - 1, (h - 2) / 2,
-                          fill=c["surface"], outline=c["border"], width=1)
-        cv.create_text(w / 2, h / 2, text=name,
-                       fill=c["accent"] if active else c["muted"], font=font)
 
     def _set_search_value(self, value: str):
         """更新搜索变量但不触发查询，用于占位符和程序化清空。"""
@@ -2681,10 +2634,8 @@ class FileSearcherApp:
         return self.search_var.get().strip()
 
     def _current_filters(self):
-        """当前筛选条件：仅类型 chip（全部/文件夹/文档/图片/视频/音频/压缩包/代码）。"""
-        chip = getattr(self, "_type_chip", None)
-        name = chip.get() if chip else "全部"
-        return {} if name in ("全部", "") else {"type": name}
+        """筛选已移除，查询不带过滤条件。"""
+        return {}
 
     def _build_tree(self):
         """构建凝脂风结果区：纸面卡片容器 + 呼吸式表格 + 底部分页栏（左计数/右页码）。"""
@@ -2872,38 +2823,27 @@ class FileSearcherApp:
         bar.pack(fill=tk.X, side=tk.BOTTOM)
         bar.pack_propagate(False)
 
-        kbd_font = (FONT_MONO, self._f(FONT_MICRO)[1])
         txt_font = self._f(FONT_SMALL)
 
-        # 左侧：快捷键提示
+        # 左侧：索引状态点 + 文字（动作反馈也复用此处）
         left = tk.Frame(bar, bg=c["title_bg"])
         left.pack(side=tk.LEFT, padx=(self._s(18), 0))
 
-        # 索引状态点 + 文字（动作反馈也复用此处）
         self._statusbar_dot = tk.Label(left, text="●", bg=c["title_bg"], fg=c["muted_2"],
                                        font=self._f(FONT_MICRO))
         self._statusbar_dot.pack(side=tk.LEFT, padx=(0, self._s(6)))
         self.status_var = tk.StringVar(value="就绪")
         self.status_label = tk.Label(left, textvariable=self.status_var, bg=c["title_bg"],
                                      fg=c["muted"], font=txt_font, anchor=tk.W)
-        self.status_label.pack(side=tk.LEFT, padx=(0, self._s(18)))
+        self.status_label.pack(side=tk.LEFT)
 
         # 不确定进度条（索引时显示）
         self.progress_slot = tk.Frame(left, bg=c["title_bg"], width=self._s(120),
                                       height=self._s(30))
-        self.progress_slot.pack(side=tk.LEFT, padx=(0, self._s(12)))
+        self.progress_slot.pack(side=tk.LEFT, padx=(self._s(14), 0))
         self.progress_slot.pack_propagate(False)
         self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate",
                                         length=self._s(100))
-
-        sep = tk.Frame(left, bg=c["border"], width=1)
-        sep.pack(side=tk.LEFT, fill=tk.Y, pady=self._s(11), padx=(0, self._s(14)))
-
-        for key, label in (("↵", "打开"), ("⌥↵", "定位"), ("^C", "复制"), ("⌫", "删除"), ("⇵", "翻页")):
-            tk.Label(left, text=key, bg=c["surface_3"], fg=c["muted"],
-                     font=kbd_font, padx=6, pady=1).pack(side=tk.LEFT)
-            tk.Label(left, text=label, bg=c["title_bg"], fg=c["muted_2"],
-                     font=txt_font).pack(side=tk.LEFT, padx=(self._s(5), self._s(12)))
 
         # 右侧：设置钮 · 重建索引钮
         right = tk.Frame(bar, bg=c["title_bg"])
