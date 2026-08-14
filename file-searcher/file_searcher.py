@@ -626,6 +626,8 @@ class IndexEngine:
             optimize_started = time.perf_counter()
             conn.execute("CREATE INDEX IF NOT EXISTS idx_name_lower ON files(name_lower)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_path_lower ON files(path_lower)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_size ON files(size)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_modified ON files(modified)")
             conn.commit()
             optimize_seconds = time.perf_counter() - optimize_started
             return {
@@ -742,6 +744,20 @@ class IndexEngine:
     def index_exists() -> bool:
         """检查索引数据库是否存在。"""
         return INDEX_DB.exists()
+
+    @staticmethod
+    def ensure_indexes():
+        """幂等补齐排序列索引（老库升级用，重建时已含）。"""
+        if not INDEX_DB.exists():
+            return
+        try:
+            conn = sqlite3.connect(str(INDEX_DB))
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_size ON files(size)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_modified ON files(modified)")
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     @staticmethod
     def index_file_count() -> int:
@@ -2166,6 +2182,10 @@ class FileSearcherApp:
         self._last_filters = {}
         self._total_results = 0
         self._loading_more = False
+        self._count_cache_key = None      # 计数缓存键 (query, 排序, filters, db_mtime)
+        self._count_cache_val = 0
+        self._query_seq = 0               # 查询序号（丢弃过期结果）
+        self._query_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="db-query")
         self._tray_index_after_id = None
         self._settings = IndexEngine.load_settings()
         self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
@@ -2212,6 +2232,7 @@ class FileSearcherApp:
         self._dbl_click_flag = False
         self._orig_wndproc = None
 
+        IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引
         self._build_ui()
         self._load_layout()
         self._setup_frameless()
@@ -3375,8 +3396,22 @@ class FileSearcherApp:
         self._run_query(self._search_text())
         return "break" if event is not None else None
 
+    def _count_cached(self, query: str, filters: dict) -> int:
+        """结果计数：同一 query+filters+排序 且 DB 未变时走缓存，翻页不重算。"""
+        try:
+            mtime = INDEX_DB.stat().st_mtime if INDEX_DB.exists() else 0
+        except Exception:
+            mtime = 0
+        key = (query, self._sort_col, self._sort_asc, json.dumps(filters, sort_keys=True), mtime)
+        if key == self._count_cache_key:
+            return self._count_cache_val
+        val = IndexEngine.result_count(query, filters=filters)
+        self._count_cache_key = key
+        self._count_cache_val = val
+        return val
+
     def _run_query(self, query: str, filters: dict | None = None):
-        """统一执行搜索查询：分页拉取当前页并刷新表格与分页栏。"""
+        """统一执行搜索查询：后台线程跑 DB，主线程只渲染；计数走缓存。"""
         filters = (filters if filters is not None else self._current_filters()).copy()
         self._last_query = query
         self._last_filters = filters
@@ -3390,26 +3425,41 @@ class FileSearcherApp:
             return
 
         self._set_loading(True)
-        try:
-            self._total_results = IndexEngine.result_count(query, filters=filters)
-            total_pages = self._total_pages()
-            self._page = max(1, min(self._page, total_pages))
-            offset = (self._page - 1) * self._page_size
-            if query:
-                self._results = IndexEngine.search(
-                    query, limit=self._page_size, offset=offset,
-                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
-                )
-            else:
-                self._results = IndexEngine.load_all(
-                    limit=self._page_size, offset=offset,
-                    order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
-                )
+        self._query_seq += 1
+        seq = self._query_seq
+        page, page_size = self._page, self._page_size
+        sort_col, sort_desc = self._sort_col, not self._sort_asc
+
+        def work():
+            total = self._count_cached(query, filters)
+            total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 1
+            pg = max(1, min(page, total_pages))
+            offset = (pg - 1) * page_size
+            fetch = IndexEngine.search if query else IndexEngine.load_all
+            rows = fetch(query, limit=page_size, offset=offset,
+                         order_col=sort_col, order_desc=sort_desc, filters=filters) if query else \
+                   fetch(limit=page_size, offset=offset,
+                         order_col=sort_col, order_desc=sort_desc, filters=filters)
+            return total, pg, rows
+
+        def done(fut):
+            if seq != self._query_seq:   # 期间又有新查询，丢弃过期结果
+                return
+            try:
+                total, pg, rows = fut.result()
+            except Exception:
+                self._set_loading(False)
+                return
+            self._total_results = total
+            self._page = pg
+            self._results = rows
             self._refresh_tree()
             self._update_sort_heading()
             self._update_result_status()
-        finally:
             self._set_loading(False)
+
+        fut = self._query_executor.submit(work)
+        fut.add_done_callback(lambda f: self.root.after(0, done, f))
 
     def _update_result_status(self):
         """分页栏承载计数与数字页码按钮；状态文字仅在索引状态之外显示搜索概况。"""
