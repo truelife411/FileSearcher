@@ -59,51 +59,52 @@ ROW_HEIGHT = 50     # 结果行高
 TITLEBAR_H = 40     # 自绘标题栏高度
 SPACING = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24}
 THEMES = {
-    # 深色「墨青」：近黑石墨底 + 青玉 accent
+    # 深色「墨玉」：深空玻璃拟态（Raycast 风）。surface 系为"白上浮"层次，
+    # border 系为"白描边"，选中态为 accent 半透明
     "dark": {
-        "bg": "#0C1014", "surface": "#131A21", "surface_alt": "#19222B",
-        "surface_3": "#212D38", "input": "#0F151B", "border": "#222D38",
-        "border_strong": "#31404E", "text": "#E9F0F3", "muted": "#8E9CAA",
-        "muted_2": "#5E6C79", "accent": "#3FC1B0", "accent_hover": "#59D2C2",
-        "accent_pressed": "#2CA295", "accent_grad_a": "#46C9B6", "accent_grad_b": "#2B9C8E",
-        "selected": "#193034", "selected_hover": "#1E3A3E", "row_alt": "#151D24",
-        "row_line": "#1B232B", "title_bg": "#10161C", "hover": "#1B242D",
-        "sel_text": "#59D2C2",
+        "bg": "#0A0C10", "surface": "#14181F", "surface_alt": "#1A1F28",
+        "surface_3": "#232935", "input": "#10141B", "border": "#232A35",
+        "border_strong": "#333D4B", "text": "#EDF2F4", "muted": "#7A8792",
+        "muted_2": "#5D6B77", "accent": "#6FD8C8", "accent_hover": "#8AE4D6",
+        "accent_pressed": "#4FC4B2", "accent_grad_a": "#3EDAC6", "accent_grad_b": "#1FA190",
+        "selected": "#16302D", "selected_hover": "#1B3B37", "row_alt": "#0E1116",
+        "row_line": "#171C24", "title_bg": "#0A0C10", "hover": "#161B23",
+        "sel_text": "#8AE4D6",
         "success": "#3ED598", "warning": "#F0B44C", "error": "#E4747E",
-        "menu_bg": "#151D25", "dialog_bg": "#151D25",
+        "menu_bg": "#151920", "dialog_bg": "#151920",
     },
-    # 浅色「晴白」：暖白底 + 深青 accent（保证对比度）
+    # 浅色「凝脂」：宣纸暖白 + 黛青 accent（纸感国风，直角小圆角体系）
     "light": {
-        "bg": "#F2F5F4", "surface": "#FFFFFF", "surface_alt": "#EFF3F2",
-        "surface_3": "#E2E9E7", "input": "#FFFFFF", "border": "#DFE6E3",
-        "border_strong": "#C3CFCB", "text": "#182228", "muted": "#61727B",
-        "muted_2": "#93A1A8", "accent": "#0F9C8B", "accent_hover": "#23B3A1",
-        "accent_pressed": "#0B8577", "accent_grad_a": "#23B3A1", "accent_grad_b": "#0B8577",
-        "selected": "#E4F4F1", "selected_hover": "#D8EEE9", "row_alt": "#F7FAF9",
-        "row_line": "#EDF1F0", "title_bg": "#E9EEEC", "hover": "#F0F5F3",
-        "sel_text": "#0B8577",
-        "success": "#18A058", "warning": "#D9962C", "error": "#D64545",
+        "bg": "#F5F3EE", "surface": "#FFFFFF", "surface_alt": "#F7F5EF",
+        "surface_3": "#EDEAE3", "input": "#FFFFFF", "border": "#E0DCD2",
+        "border_strong": "#C9C3B4", "text": "#23282C", "muted": "#6B6558",
+        "muted_2": "#8B8474", "accent": "#2E6E66", "accent_hover": "#3A837A",
+        "accent_pressed": "#255A53", "accent_grad_a": "#3A837A", "accent_grad_b": "#255A53",
+        "selected": "#EBF1EE", "selected_hover": "#DFEAE5", "row_alt": "#FAF8F3",
+        "row_line": "#EFEDE6", "title_bg": "#EDEAE3", "hover": "#F7F5EF",
+        "sel_text": "#255A53",
+        "success": "#2E8B57", "warning": "#C08A2E", "error": "#B05353",
         "menu_bg": "#FFFFFF", "dialog_bg": "#FFFFFF",
     },
 }
 
-# 文件类型徽章：(文字色, 底色)，按主题区分；底色为类型色低透明度混合预算值
+# 文件类型徽标色点 (fg, bg)，按主题区分；bg 供弹窗图标圆底等复用
 BADGE_STYLES = {
     "dark": {
-        "doc": ("#6FA8EF", "#1F2C3C"), "pdf": ("#E4747E", "#2E262D"),
-        "xls": ("#7CC784", "#21312E"), "ppt": ("#E8A569", "#2F2C2A"),
-        "img": ("#BE8FE0", "#29293A"), "code": ("#5AC8C8", "#1C3137"),
-        "zip": ("#D1A26B", "#2C2C2B"), "audio": ("#7FD4A8", "#213232"),
-        "video": ("#8FA5E8", "#232840"), "dir": ("#E5C56F", "#2E302B"),
-        "file": ("#8E9CAA", "#212D38"),
+        "doc": ("#6FA8EF", "#1B2634"), "pdf": ("#E4747E", "#2C2027"),
+        "xls": ("#7CC784", "#1D2C2A"), "ppt": ("#E8A569", "#2D2725"),
+        "img": ("#BE8FE0", "#252536"), "code": ("#5AC8C8", "#182D32"),
+        "zip": ("#D1A26B", "#2A2725"), "audio": ("#7FD4A8", "#1D2E2E"),
+        "video": ("#8FA5E8", "#20243C"), "dir": ("#E5C56F", "#2C2C26"),
+        "file": ("#7A8792", "#1F2733"),
     },
     "light": {
-        "doc": ("#2F6FD0", "#E9F1FB"), "pdf": ("#C94F5A", "#FAEDEE"),
-        "xls": ("#3E9B4F", "#EBF5ED"), "ppt": ("#C97A2B", "#FAF1E7"),
-        "img": ("#9A5BC4", "#F4EDFA"), "code": ("#1D9B9B", "#E7F5F5"),
-        "zip": ("#B07E3F", "#F7F1E8"), "audio": ("#3FA873", "#EBF6F0"),
-        "video": ("#5B6FC4", "#EDEFF9"), "dir": ("#B08F2E", "#F7F3E7"),
-        "file": ("#61727B", "#EFF3F2"),
+        "doc": ("#4A7FBC", "#EDF2F8"), "pdf": ("#B05353", "#F8EEEC"),
+        "xls": ("#5B8A5B", "#EDF3EC"), "ppt": ("#C97A2B", "#F8F0E5"),
+        "img": ("#8E5BB8", "#F3ECF8"), "code": ("#3A8A8A", "#E9F3F3"),
+        "zip": ("#A07B46", "#F5F0E6"), "audio": ("#3E9468", "#EAF4EF"),
+        "video": ("#5B6FC4", "#ECEDF7"), "dir": ("#A08A46", "#F5F1E6"),
+        "file": ("#6B6558", "#EFEDE6"),
     },
 }
 
@@ -1135,36 +1136,38 @@ class RoundedButton(tk.Canvas):
 
 
 class RoundedSearchBox(tk.Canvas):
-    """大圆角搜索外壳：内嵌 Entry、放大镜、聚焦光晕、Ctrl+F 提示胶囊与清空热区。"""
+    """墨玉风大搜索框：玻璃底、放大镜、聚焦 accent 描边、placeholder、清空热区。"""
 
-    def __init__(self, master, textvariable, colors, clear_command, height=56, font_size=None):
+    def __init__(self, master, textvariable, colors, clear_command, height=64, font_size=None,
+                 placeholder=""):
         super().__init__(master, height=height, bd=0, highlightthickness=0,
                          bg=master.cget("bg"))
         self.colors = colors
         self._focused = False
         self._hover = False
-        self._radius = 15
+        self._radius = 18
         self._font_size = font_size or FONT_INPUT
+        self._placeholder = placeholder
+        self._placeholder_on = False
+        self._var = textvariable
         self.entry = tk.Entry(self, textvariable=textvariable, relief="flat", bd=0,
                               bg=colors["input"], fg=colors["text"],
                               insertbackground=colors["accent"],
                               font=(FONT_FAMILY, self._font_size))
-        self._entry_window = self.create_window(52, height / 2, window=self.entry, anchor=tk.W)
+        self._entry_window = self.create_window(58, height / 2, window=self.entry, anchor=tk.W)
         self._clear_command = clear_command
-        self._kbd_font = (FONT_MONO, max(8, self._font_size - 5))
         self.bind("<Configure>", self._layout)
         self.bind("<Button-1>", self._click)
         self.bind("<Enter>", lambda _e: self._on_hover(True))
         self.bind("<Leave>", lambda _e: self._on_hover(False))
         self.entry.bind("<FocusIn>", self._focus_in, add="+")
         self.entry.bind("<FocusOut>", self._focus_out, add="+")
+        self._var.trace_add("write", lambda *_: self._draw())
         self._draw()
 
     def _layout(self, _event=None):
-        # entry 高度必须给足（= 壳高 - 上下留白），否则文字被裁剪
         h = max(24, self.winfo_height() - 10)
-        # 右侧预留：清空钮区 + kbd 胶囊区
-        self.itemconfigure(self._entry_window, width=max(20, self.winfo_width() - 176), height=h)
+        self.itemconfigure(self._entry_window, width=max(20, self.winfo_width() - 108), height=h)
         self._draw()
 
     def _on_hover(self, hover: bool):
@@ -1181,40 +1184,37 @@ class RoundedSearchBox(tk.Canvas):
             border = c["border_strong"]
         else:
             border = c["border"]
-        # 聚焦光晕：外层淡 accent 圆角描边
-        if self._focused:
-            _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius + 2,
-                          fill="", outline=c["selected"], width=5, tags="shell")
-        shell = _rounded_rect(self, 2.5, 2.5, width - 2.5, height - 2.5, self._radius,
-                              fill=c["input"], outline=border, width=1.6, tags="shell")
+        shell = _rounded_rect(self, 1.5, 1.5, width - 1.5, height - 1.5, self._radius,
+                              fill=c["input"], outline=border,
+                              width=1.8 if self._focused else 1, tags="shell")
         self.tag_lower(shell)
-        # 搜索图标（放大镜，聚焦时 accent 色）
+        # 放大镜（聚焦时 accent 色）
         icon_c = c["accent"] if self._focused else c["muted"]
-        cx, cy = 28, height / 2
-        self.create_oval(cx - 7.5, cy - 7.5, cx + 7.5, cy + 7.5,
-                         outline=icon_c, width=2.2, tags="shell")
-        self.create_line(cx + 6, cy + 6, cx + 12, cy + 12,
-                         fill=icon_c, width=2.8, capstyle=tk.ROUND, tags="shell")
-        # 右侧：Ctrl+F 快捷键胶囊（两块小胶囊）
-        kx = width - 96
-        for i, t in enumerate(("Ctrl", "F")):
-            w = 34 if i == 0 else 22
-            x0 = kx if i == 0 else kx + 38
-            _rounded_rect(self, x0, cy - 11, x0 + w, cy + 11, 6,
-                          fill=c["surface_3"], outline="", width=0, tags="shell")
-            self.create_text(x0 + w / 2, cy, text=t, fill=c["muted"],
-                             font=self._kbd_font, tags="shell")
-        # 清空按钮（hover/focus 时显示）
-        clear_x = width - 30
-        if self._hover or self._focused:
-            self.create_oval(clear_x - 12, cy - 12, clear_x + 12, cy + 12,
+        cx, cy = 32, height / 2
+        self.create_oval(cx - 8.5, cy - 8.5, cx + 8.5, cy + 8.5,
+                         outline=icon_c, width=2.4, tags="shell")
+        self.create_line(cx + 7, cy + 7, cx + 14, cy + 14,
+                         fill=icon_c, width=3, capstyle=tk.ROUND, tags="shell")
+        has_text = bool(self._var.get())
+        if has_text:
+            # 清空按钮
+            clear_x = width - 34
+            self.create_oval(clear_x - 13, cy - 13, clear_x + 13, cy + 13,
                              fill=c["surface_3"], outline="", tags="shell")
             self.create_text(clear_x, cy, text="✕", fill=c["muted"],
-                             font=(FONT_FAMILY, max(8, int(self._font_size * 0.75))), tags="shell")
+                             font=(FONT_FAMILY, max(8, int(self._font_size * 0.62))), tags="shell")
+        else:
+            # placeholder：画在 entry 之上（Entry 无内容时背景透明区可见此文字）
+            self.create_text(58, cy, text=self._placeholder, anchor=tk.W,
+                             fill=c["muted_2"], font=(FONT_FAMILY, self._font_size),
+                             tags=("shell", "placeholder"))
         self.tag_lower("shell", self._entry_window)
+        if not has_text:
+            # 占位文字须压在 entry 上层才可见（entry 透明，文字从其背景色区域透出）
+            self.tag_raise("placeholder", self._entry_window)
 
     def _click(self, event):
-        if event.x >= self.winfo_width() - 50:
+        if event.x >= self.winfo_width() - 56 and self._var.get():
             self._clear_command()
         else:
             self.entry.focus_set()
@@ -1226,44 +1226,6 @@ class RoundedSearchBox(tk.Canvas):
     def _focus_out(self, _event=None):
         self._focused = False
         self._draw()
-
-
-class StatusPill(tk.Canvas):
-    """索引状态胶囊：圆角全胶囊 + 状态圆点 + 文字。kind: ok 绿 / warn 黄 / off 灰。"""
-
-    def __init__(self, master, colors, height=30, font=None):
-        super().__init__(master, height=height, bd=0, highlightthickness=0,
-                         bg=master.cget("bg"))
-        self.colors = colors
-        self._font = font or (FONT_FAMILY, FONT_MICRO)
-        self._text = ""
-        self._kind = "off"
-        self.bind("<Configure>", lambda _e: self._draw())
-
-    def set_status(self, kind: str, text: str):
-        if kind != self._kind or text != self._text:
-            self._kind = kind
-            self._text = text
-            self._draw()
-
-    def _draw(self):
-        self.delete("all")
-        c = self.colors
-        h = max(2, self.winfo_height())
-        try:
-            import tkinter.font as tkfont
-            f = tkfont.Font(root=self.winfo_toplevel(), font=self._font)
-            tw = f.measure(self._text)
-        except Exception:
-            tw = len(self._text) * 9
-        w = tw + 58
-        self.configure(width=w)
-        _rounded_rect(self, 1, 1, w - 1, h - 1, (h - 2) / 2,
-                      fill=c["surface"], outline=c["border"], width=1)
-        dot_c = {"ok": c["success"], "warn": c["warning"]}.get(self._kind, c["muted_2"])
-        cy = h / 2
-        self.create_oval(16, cy - 4, 24, cy + 4, fill=dot_c, outline="")
-        self.create_text(34, cy, text=self._text, anchor=tk.W, fill=c["muted"], font=self._font)
 
 
 # ================================================================
@@ -1729,92 +1691,50 @@ class CtxMenu:
             acc += self._item_h
 
 
-class FileTable(tk.Canvas):
-    """自绘呼吸式表格：无网格线、行分隔线、类型徽章、列宽拖动、排序表头、行选中/悬停。
+class FileList(tk.Canvas):
+    """墨玉风行卡片列表：无表头无网格，行 = 色点图标 + 文件名 + 路径 + meta 一列。
 
     行数据结构：rows = [{"result": dict, "icon": PhotoImage, "values": tuple}]
-    values 顺序与列顺序对应（不含图标列）。
+    values = (name, path, type_text, size_text, modified)
     """
 
-    HEADER_H = 42
-
-    def __init__(self, master, colors, icon_cache, font_body, font_header,
-                 on_header_click=None, on_double=None, on_right=None,
-                 on_scroll_page=None, on_col_resize=None, badge_styles=None):
-        super().__init__(master, bd=0, highlightthickness=0, bg=colors["surface"],
-                         cursor="")
+    def __init__(self, master, colors, icon_cache, font_body,
+                 on_double=None, on_right=None, on_scroll_page=None, badge_styles=None):
+        super().__init__(master, bd=0, highlightthickness=0, bg=colors["bg"], cursor="")
         self.colors = colors
         self._icon_cache = icon_cache
         self._font_body = font_body
-        self._font_header = font_header
         self._badge_styles = badge_styles or BADGE_STYLES["dark"]
-        # 表格内所有文字统一正文大小（用户要求），仅保留风格区分：
-        # 路径/数字同号、徽章同号加粗、数字列等宽字体、表头同号加粗
         body_pt = font_body[1] if isinstance(font_body, tuple) else FONT_BODY
-        self._font_small = font_body
-        self._font_badge = (FONT_FAMILY, body_pt, "bold")
-        self._font_mono = (FONT_MONO, body_pt)
-        self._font_header = (FONT_FAMILY, body_pt, "bold")
-        # 表头高度随正文档位缩放（类常量 42 为兜底，构造时用实例值覆盖）
-        self.HEADER_H = max(40, int(body_pt * 1.7))
-        self._on_header_click = on_header_click
+        self._font_path = (FONT_FAMILY, max(8, body_pt - 2))
+        self._font_meta = (FONT_MONO, max(8, body_pt - 2))
+        self._font_name = font_body
         self._on_double = on_double
         self._on_right = on_right
         self._on_scroll_page = on_scroll_page
-        self._on_col_resize = on_col_resize
-        self._cols = []            # [(key, width)]
         self._rows = []
         self._selected = []
         self._hover_row = None
-        self._hover_col = None
-        self._hover_handle = None   # 悬停/拖动中的列宽手柄（列 key）
-        self._sort_col = None
-        self._sort_asc = True
-        self._drag_key = None
-        self._drag_start_x = 0
-        self._drag_orig_w = 0
-        self._drag_pref = set()   # 用户主动拖过宽度的列（fit 时最后压缩）
-        self._row_h = 50
-        self._labels = {}
+        self._row_h = 52
+        self._gap = 4
         try:
             import tkinter.font as tkfont
-            self._font_body_obj = tkfont.Font(root=master.winfo_toplevel(), font=font_body)
-            self._font_small_obj = tkfont.Font(root=master.winfo_toplevel(), font=self._font_small)
+            self._font_name_obj = tkfont.Font(root=master.winfo_toplevel(), font=self._font_name)
+            self._font_path_obj = tkfont.Font(root=master.winfo_toplevel(), font=self._font_path)
+            self._font_meta_obj = tkfont.Font(root=master.winfo_toplevel(), font=self._font_meta)
         except Exception:
-            self._font_body_obj = None
-            self._font_small_obj = None
+            self._font_name_obj = None
+            self._font_path_obj = None
+            self._font_meta_obj = None
         self.bind("<Configure>", lambda _e: self.redraw())
         self.bind("<Button-1>", self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click)
         self.bind("<Button-3>", self._on_btn3)
-        self.bind("<B1-Motion>", self._on_drag)
-        self.bind("<ButtonRelease-1>", self._on_release)
         self.bind("<MouseWheel>", self._on_wheel)
         self.bind("<Motion>", self._on_motion)
-        self.bind("<Leave>", lambda _e: self._set_hover(None, None))
+        self.bind("<Leave>", lambda _e: self._set_hover(None))
 
     # ============ 公共接口 ============
-
-    def set_columns(self, cols):
-        self._cols = list(cols)
-        self.redraw()
-
-    def column_width(self, key):
-        for k, w in self._cols:
-            if k == key:
-                return w
-        return 0
-
-    def set_column_width(self, key, w):
-        self._cols = [(k, max(40, w) if k == key else cw) for k, cw in self._cols]
-        if self._on_col_resize:
-            self._on_col_resize()
-        self.redraw()
-
-    def set_sort(self, col, asc):
-        self._sort_col = col
-        self._sort_asc = asc
-        self.redraw()
 
     def set_rows(self, rows):
         self._rows = rows
@@ -1822,7 +1742,7 @@ class FileTable(tk.Canvas):
         self.redraw()
 
     def set_row_h(self, h):
-        self._row_h = max(28, h)
+        self._row_h = max(36, h)
         self.redraw()
 
     def selected_results(self):
@@ -1834,77 +1754,12 @@ class FileTable(tk.Canvas):
 
     # ============ 布局与命中 ============
 
-    def _fit_cols(self, avail_w=None):
-        """返回适配可视宽度的列宽列表（双向）：
-        - 总宽超出可视区 → 按序压缩柔性列（path→name→type→modified→size，每列保底）；
-        - 总宽不足可视区 → 按偏好比例拉宽柔性列，填满容器。
-        刚性列 = 用户主动拖过的列（_drag_pref）+ 当前拖动的列，宽度不被调整；
-        拖动任何列都是 1:1 响应且释放后不弹回。
-        """
-        if avail_w is None:
-            avail_w = max(100, self.winfo_width())
-        cols = list(self._cols)
-        total = sum(w for _, w in cols)
-        mins = {"path": 220, "name": 240, "type": 110, "modified": 180, "size": 130}
-        rigid = set(getattr(self, "_drag_pref", None) or set())
-        if self._drag_key:
-            rigid.add(self._drag_key)
-        flex_keys = [k for k in ("path", "name", "type", "modified", "size") if k not in rigid]
-        flex_idx = [i for i, (k, _w) in enumerate(cols) if k in flex_keys]
-        if total > avail_w:
-            # 压缩：柔性列按序吸收溢出
-            deficit = total - avail_w
-            for key in flex_keys:
-                if deficit <= 0:
-                    break
-                for i, (k2, w) in enumerate(cols):
-                    if k2 == key:
-                        lo = mins.get(key, 40)
-                        take = min(max(0, w - lo), deficit)
-                        if take > 0:
-                            cols[i] = (key, w - take)
-                            deficit -= take
-                        break
-        elif total < avail_w and flex_idx:
-            # 拉宽：柔性列按偏好比例吸收剩余空间，填满容器
-            extra = avail_w - total
-            flex_total = sum(cols[i][1] for i in flex_idx)
-            if flex_total > 0:
-                for i in flex_idx:
-                    cols[i] = (cols[i][0], cols[i][1] + int(extra * cols[i][1] / flex_total))
-        return cols
-
-    def _col_layout(self):
-        x = 0
-        layout = []
-        for key, w in self._fit_cols():
-            layout.append((key, x, x + w))
-            x += w
-        return layout
-
-    def _hit(self, x, y):
-        if y < self.HEADER_H:
-            for key, x0, x1 in self._col_layout():
-                if x0 <= x < x1:
-                    return ("header", key)
-            return None
-        row = (y - self.HEADER_H) // self._row_h
-        if 0 <= row < len(self._rows):
-            return ("cell", row)
-        return None
-
-    def _resize_handle_at(self, x, y):
-        """列宽拖动手柄：表头内列间竖线 ±4px（图标列除外）。"""
-        if y >= self.HEADER_H:
-            return None
-        layout = self._col_layout()
-        for i, (key, _x0, x1) in enumerate(layout):
-            if i < len(self._cols) - 1 and key != "icon" and abs(x - x1) <= 4:
-                return key
-        return None
+    def _row_at(self, y):
+        i = y // (self._row_h + self._gap)
+        return i if 0 <= i < len(self._rows) else None
 
     def _truncate(self, text, max_w, font_obj=None):
-        font_obj = font_obj or self._font_body_obj
+        font_obj = font_obj or self._font_name_obj
         if font_obj is None or max_w < 20:
             return text
         if font_obj.measure(text) <= max_w:
@@ -1914,27 +1769,34 @@ class FileTable(tk.Canvas):
             t = t[:-1]
         return (t + "…") if t else ""
 
+    def _path_middle_ellipsis(self, path, max_w):
+        """路径过长时中间省略，保留首尾的目录信息。"""
+        f = self._font_path_obj
+        if f is None or max_w < 40:
+            return path
+        if f.measure(path) <= max_w:
+            return path
+        sep = "\\" if "\\" in path else "/"
+        parts = path.split(sep)
+        if len(parts) <= 2:
+            return self._truncate(path, max_w, f)
+        head, tail = parts[0], parts[-1]
+        mid = parts[1:-1]
+        while mid:
+            cand = head + sep + "…" + sep + sep.join(mid[1:] + [tail]) if len(mid) > 1 else head + sep + "…" + sep + tail
+            if f.measure(cand) <= max_w:
+                return cand
+            mid = mid[1:]
+        cand = head + sep + "…" + sep + tail
+        return cand if f.measure(cand) <= max_w else self._truncate(path, max_w, f)
+
     # ============ 事件 ============
 
     def _on_click(self, event):
         self.focus_set()
-        handle = self._resize_handle_at(event.x, event.y)
-        if handle:
-            self._drag_key = handle
-            self._drag_start_x = event.x
-            # 基准用 fit 后的实际宽度：压缩态下拖动手柄位置是压缩后的，直接
-            # 以实际宽度 + 位移写入偏好宽度，拖动才能"所见即所得"
-            self._drag_orig_w = self._fitted_width(handle)
+        row = self._row_at(event.y)
+        if row is None:
             return
-        hit = self._hit(event.x, event.y)
-        if hit is None:
-            return
-        kind, val = hit
-        if kind == "header":
-            if self._on_header_click:
-                self._on_header_click(val)
-            return
-        row = val
         ctrl = bool(event.state & 0x0004)
         shift = bool(event.state & 0x0001)
         if ctrl:
@@ -1951,81 +1813,32 @@ class FileTable(tk.Canvas):
         self.redraw()
 
     def _on_double_click(self, event):
-        hit = self._hit(event.x, event.y)
-        if hit and hit[0] == "cell" and self._on_double:
-            self._on_double(hit[1])
+        row = self._row_at(event.y)
+        if row is not None and self._on_double:
+            self._on_double(row)
 
     def _on_btn3(self, event):
-        hit = self._hit(event.x, event.y)
-        if hit and hit[0] == "cell":
-            row = hit[1]
+        row = self._row_at(event.y)
+        if row is not None:
             if row not in self._selected:
                 self._selected = [row]
                 self.redraw()
             if self._on_right:
                 self._on_right(event, row)
 
-    def _fitted_width(self, key):
-        """取某列 fit 后的实际显示宽度（无压缩时等于偏好宽度）。"""
-        for k, x0, x1 in self._col_layout():
-            if k == key:
-                return x1 - x0
-        return self.column_width(key)
-
-    def _on_drag(self, event):
-        if self._drag_key:
-            delta = event.x - self._drag_start_x
-            self.set_column_width(self._drag_key, self._drag_orig_w + delta)
-
-    def _on_release(self, event):
-        """释放拖动：记录该列为手动布局列（fit 最后压缩），并刷新手柄高亮。"""
-        if self._drag_key:
-            self._drag_pref.add(self._drag_key)
-            self._drag_key = None
-            self.redraw()
-
     def _on_wheel(self, event):
         if self._on_scroll_page:
             self._on_scroll_page(1 if event.delta < 0 else -1)
 
     def _on_motion(self, event):
-        handle = self._resize_handle_at(event.x, event.y)
-        if handle:
-            self.configure(cursor="sb_h_double_arrow")
-        else:
-            self.configure(cursor="")
-        if handle != self._hover_handle:
-            self._hover_handle = handle
-            self.redraw()
-        hit = self._hit(event.x, event.y)
-        if hit and hit[0] == "cell":
-            self._set_hover(hit[1], None)
-        else:
-            self._set_hover(None, hit[1] if hit and hit[0] == "header" else None)
+        self._set_hover(self._row_at(event.y))
 
-    def _set_hover(self, row, col):
-        if row != self._hover_row or col != self._hover_col:
+    def _set_hover(self, row):
+        if row != self._hover_row:
             self._hover_row = row
-            self._hover_col = col
             self.redraw()
 
     # ============ 绘制 ============
-
-    def _draw_badge(self, cx, cy, kind, text):
-        """绘制类型徽章：圆角胶囊底 + 类型色文字。"""
-        fg, bg = self._badge_styles.get(kind, self._badge_styles["file"])
-        try:
-            import tkinter.font as tkfont
-            f = tkfont.Font(root=self.winfo_toplevel(), font=self._font_badge)
-            tw = f.measure(text)
-        except Exception:
-            tw = len(text) * 12
-        bw = tw + 18
-        # 徽章高度随徽章字号缩放（胶囊需容纳同号加粗文字）
-        bh = max(24, int(self._font_badge[1] * 1.9))
-        _rounded_rect(self, cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2, bh / 2 - 1,
-                      fill=bg, outline="", width=0)
-        self.create_text(cx, cy, text=text, fill=fg, font=self._font_badge)
 
     def redraw(self):
         try:
@@ -2036,111 +1849,63 @@ class FileTable(tk.Canvas):
         w = max(2, self.winfo_width())
         h = max(2, self.winfo_height())
         c = self.colors
-        layout = self._col_layout()
-        self.create_rectangle(0, 0, w, h, fill=c["surface"], outline="")
+        self.create_rectangle(0, 0, w, h, fill=c["bg"], outline="")
 
-        pad_l = 18   # 单元格左内边距
-        # ---- 数据行 ----
-        row_h = self._row_h
+        pad_x = 2            # 列表左右留白（与外层 padding 对齐）
+        icon_r = 7           # 色点圆角图标尺寸半径
         for i, row in enumerate(self._rows):
-            y0 = self.HEADER_H + i * row_h
+            y0 = i * (self._row_h + self._gap)
             if y0 >= h:
                 break
-            y1 = y0 + row_h
+            y1 = y0 + self._row_h
             selected = i in self._selected
+            hovered = i == self._hover_row
             if selected:
-                bg = c["selected"]
-            elif i == self._hover_row:
-                bg = c["hover"]
-            else:
-                bg = c["surface"]
-            self.create_rectangle(0, y0, w, y1, fill=bg, outline="")
-            if selected:
-                # 左侧 accent 圆头指示条
-                inset = row_h * 0.18
-                _rounded_rect(self, 0, y0 + inset, 6, y1 - inset, 3,
-                              fill=c["accent"], outline="", width=0)
-            # 行分隔线（最后一行也画，视觉收敛）
-            self.create_line(0, y1, w, y1, fill=c["row_line"])
-            vals = row.get("values", ())
-            icon = row.get("icon")
-            result = row.get("result", {})
-            cy = (y0 + y1) / 2
-            for j, (key, x0, x1) in enumerate(layout):
-                if j == 0:
-                    if icon:
-                        self.create_image((x0 + x1) / 2, cy, image=icon)
-                    continue
-                idx = j - 1
-                if key == "type":
-                    kind = badge_kind_for(result.get("name", ""), bool(result.get("is_dir")))
-                    text = str(vals[idx]) if idx < len(vals) else ""
-                    if text:
-                        self._draw_badge((x0 + x1) / 2, cy, kind, text)
-                    continue
-                if key == "name":
-                    font, fg, fobj = self._font_body, (c["sel_text"] if selected else c["text"]), self._font_body_obj
-                    anchor, tx = "w", x0 + pad_l
-                elif key == "path":
-                    font, fg, fobj = self._font_small, c["muted"], self._font_small_obj
-                    anchor, tx = "w", x0 + pad_l
-                elif key == "size":
-                    font, fg, fobj = self._font_mono, c["muted"], self._font_small_obj
-                    anchor, tx = "e", x1 - pad_l
-                else:  # modified
-                    font, fg, fobj = self._font_mono, c["muted"], self._font_small_obj
-                    anchor, tx = "e", x1 - pad_l
-                text = self._truncate(str(vals[idx]), max(10, x1 - x0 - pad_l * 2), fobj) if idx < len(vals) else ""
-                if not text:
-                    continue
-                self.create_text(tx, cy, text=text, anchor=anchor, fill=fg, font=font)
+                _rounded_rect(self, pad_x, y0, w - pad_x, y1, 12,
+                              fill=c["selected"], outline=c["accent"], width=1)
+            elif hovered:
+                _rounded_rect(self, pad_x, y0, w - pad_x, y1, 12,
+                              fill=c["hover"], outline="", width=0)
 
-        # ---- 表头 ----
-        self.create_rectangle(0, 0, w, self.HEADER_H, fill=c["surface"], outline="")
-        self.create_line(0, self.HEADER_H, w, self.HEADER_H, fill=c["border"])
-        header_align = {"name": "w", "path": "w", "type": "center", "size": "e", "modified": "e"}
-        for j, (key, x0, x1) in enumerate(layout):
-            if j == 0:
-                continue
-            # 列间拖动手柄线：表头内中段竖线，悬停/拖动时 accent 加粗高亮
-            if j < len(layout) - 1:
-                active = (self._hover_handle == key) or (self._drag_key == key)
-                self.create_line(x1, self.HEADER_H * 0.30, x1, self.HEADER_H * 0.80,
-                                 fill=c["accent"] if active else c["border"],
-                                 width=2 if active else 1)
-            label = self._labels.get(key, key)
-            anchor = header_align.get(key, "w")
-            if anchor == "w":
-                tx = x0 + pad_l
-            elif anchor == "e":
-                tx = x1 - pad_l
-            else:
-                tx = (x0 + x1) / 2
-            if key == self._sort_col:
-                fg = c["accent"]
-            elif key == self._hover_col:
-                fg = c["text"]
-            else:
-                fg = c["muted_2"]
-            self.create_text(tx, self.HEADER_H / 2, text=label, anchor=anchor, fill=fg,
-                             font=self._font_header)
-            # 排序小三角（画在标签右侧）
-            if key == self._sort_col:
-                try:
-                    import tkinter.font as tkfont
-                    hf = tkfont.Font(root=self.winfo_toplevel(), font=self._font_header)
-                    lw = hf.measure(label)
-                except Exception:
-                    lw = len(label) * 9
-                tri_cx = tx + lw + 12 if anchor == "w" else (tx - lw - 12 if anchor == "e" else tx + lw / 2 + 10)
-                tri_cy = self.HEADER_H / 2
-                s = 5
-                if self._sort_asc:
-                    pts = (tri_cx - s, tri_cy + s * 0.6, tri_cx + s, tri_cy + s * 0.6, tri_cx, tri_cy - s * 0.8)
-                else:
-                    pts = (tri_cx - s, tri_cy - s * 0.6, tri_cx + s, tri_cy - s * 0.6, tri_cx, tri_cy + s * 0.8)
-                self.create_polygon(pts, fill=c["accent"], outline="")
+            result = row.get("result", {})
+            vals = row.get("values", ())
+            name = str(vals[0]) if len(vals) > 0 else ""
+            path = str(vals[1]) if len(vals) > 1 else ""
+            size_text = str(vals[3]) if len(vals) > 3 else ""
+            modified = str(vals[4]) if len(vals) > 4 else ""
+            is_dir = bool(result.get("is_dir"))
+            kind = badge_kind_for(result.get("name", ""), is_dir)
+            fg_kind, _bg_kind = self._badge_styles.get(kind, self._badge_styles["file"])
+
+            cy = (y0 + y1) / 2
+            # 色点图标（类型色圆角小方块，居中）
+            ix = pad_x + 16 + icon_r
+            _rounded_rect(self, ix - icon_r, cy - icon_r, ix + icon_r, cy + icon_r, 4,
+                          fill=fg_kind, outline="", width=0)
+
+            # meta 列（右对齐）：大小 · 日期；文件夹无大小只显日期
+            meta_text = modified[:10] if is_dir or not size_text else f"{size_text} · {modified[:10]}"
+            meta_w = self._font_meta_obj.measure(meta_text) if self._font_meta_obj else len(meta_text) * 8
+            meta_x = w - pad_x - 16
+            self.create_text(meta_x, cy, text=meta_text, anchor="e",
+                             fill=c["muted_2"], font=self._font_meta)
+
+            # 文件名与路径：按剩余宽度按比例分配
+            text_x0 = ix + icon_r + 14
+            avail = max(60, meta_x - meta_w - 18 - text_x0)
+            name_w = self._font_name_obj.measure(name) if self._font_name_obj else len(name) * 12
+            name_col = min(max(160, int(avail * 0.42)), max(160, name_w + 8))
+            name_col = min(name_col, avail - 80)
+            name_fg = c["sel_text"] if selected else c["text"]
+            self.create_text(text_x0, cy, text=self._truncate(name, name_col, self._font_name_obj),
+                             anchor="w", fill=name_fg, font=self._font_name)
+            path_x0 = text_x0 + name_col + 12
+            path_text = self._path_middle_ellipsis(path, max(30, avail - name_col - 12))
+            self.create_text(path_x0, cy, text=path_text, anchor="w",
+                             fill=c["muted_2"], font=self._font_path)
+
         self.configure(scrollregion=(0, 0, w, h))
+
 
 
 # ================================================================
@@ -2211,9 +1976,7 @@ class FileSearcherApp:
         self._dbl_click_flag = False
         self._orig_wndproc = None
 
-        self._path_options = self._build_path_options()
         self._build_ui()
-        self._load_layout()
         self._setup_frameless()
         self._setup_tray()
 
@@ -2221,7 +1984,6 @@ class FileSearcherApp:
         self._page = 1
         self._page_size = self._compute_page_size()
         self._view_resize_timer = None
-        self._layout_save_timer = None
 
         self.root.after(100, self._load_all)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -2292,7 +2054,6 @@ class FileSearcherApp:
         self._build_ui()
         self._set_search_value(saved["query"] if saved["query"] else "")
         self._refresh_tree()
-        self._update_sort_heading()
         self._update_result_status()
 
     def _ensure_maximized(self):
@@ -2606,64 +2367,92 @@ class FileSearcherApp:
             self._toggle_maximize()
         self.root.after(150, self._poll_dbl_click)
 
-    def _build_path_options(self):
-        home = Path.home()
-        candidates = {
-            "全部": None,
-            "桌面": home / "Desktop",
-            "文档": home / "Documents",
-            "下载": home / "Downloads",
-        }
-        return {name: str(path) if path else None for name, path in candidates.items()}
-
 
     # ================================================================
     #  UI 构建
     # ================================================================
 
     def _build_toolbar(self):
-        """构建单行搜索区：搜索框 + 索引状态胶囊 + 重建索引 + 设置，全部同一行。"""
+        """墨玉风搜索区：超大居中搜索框（绝对主角）+ 下方类型筛选 chip 排。"""
         c = self.colors
-        header = tk.Frame(self.root, bg=c["bg"])
-        header.pack(fill=tk.X, padx=self._s(26), pady=(self._s(12), self._s(8)))
-        header.columnconfigure(0, weight=1)
-        self._header = header
+        zone = tk.Frame(self.root, bg=c["bg"])
+        zone.pack(fill=tk.X, padx=self._s(24), pady=(self._s(22), 0))
+        self._header = zone
 
-        row_h = self._s(44)
-        btn_h = max(self._s(34), row_h - self._s(8))
-        pill_h = max(self._s(28), row_h - self._s(12))
+        # 搜索框：最大宽度 980，居中
+        search_wrap = tk.Frame(zone, bg=c["bg"])
+        search_wrap.pack(fill=tk.X)
+        search_wrap.columnconfigure(0, weight=1)
+        search_wrap.columnconfigure(1, weight=0)
+        search_wrap.columnconfigure(2, weight=1)
+        inner = tk.Frame(search_wrap, bg=c["bg"], width=self._s(980))
+        inner.grid(row=0, column=1, sticky="")
+        inner.pack_propagate(False)
 
-        # 搜索框（弹性占满剩余空间）
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
-        self.search_box = RoundedSearchBox(header, self.search_var, c, self._clear_search,
-                                           height=row_h, font_size=self._f(FONT_INPUT)[1])
-        self.search_box.grid(row=0, column=0, sticky="ew", padx=(0, self._s(10)))
+        row_h = self._s(62)
+        self.search_box = RoundedSearchBox(inner, self.search_var, c, self._clear_search,
+                                           height=row_h, font_size=self._f(FONT_INPUT)[1],
+                                           placeholder="搜索全盘文件…")
+        self.search_box.pack(fill=tk.X)
+        self.search_box.configure(width=self._s(980))
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
 
-        # 索引状态胶囊
-        self.index_status_var = tk.StringVar(value="尚未创建索引")
-        self.index_count_var = tk.StringVar(value="0 项")
-        self.index_updated_var = tk.StringVar(value="未更新")
-        self.index_info_var = tk.StringVar(value="尚未创建索引")
-        self.status_pill = StatusPill(header, c, height=pill_h,
-                                      font=self._f(FONT_MICRO))
-        self.status_pill.grid(row=0, column=1, sticky="w", padx=(0, self._s(10)))
+        # 类型筛选 chip 排
+        self._type_chip = tk.StringVar(value="全部")
+        chips_row = tk.Frame(zone, bg=c["bg"])
+        chips_row.pack(fill=tk.X, pady=(self._s(12), 0))
+        chips_inner = tk.Frame(chips_row, bg=c["bg"])
+        chips_inner.pack()
+        self._chip_canvases = []
+        for name in ("全部", "文件夹", "文档", "图片", "视频", "音频", "压缩包", "代码"):
+            cv = tk.Canvas(chips_inner, height=self._s(30), bd=0, highlightthickness=0,
+                           bg=c["bg"], cursor="hand2")
+            cv.pack(side=tk.LEFT, padx=self._s(4))
+            cv._chip_name = name
+            cv.bind("<Button-1>", lambda _e, n=name: self._on_chip(n))
+            cv.bind("<Configure>", lambda _e, cvs=cv: self._draw_chip(cvs))
+            self._chip_canvases.append(cv)
+        chips_row.after_idle(self._draw_all_chips)
 
-        # 设置图标钮 + 重建索引幽灵按钮（右侧）
-        self.settings_btn = RoundedButton(header, icon="⚙", command=self._open_settings,
-                                          width=self._s(36), height=btn_h, colors=c,
-                                          font_size=self._f(FONT_BODY)[1])
-        self.settings_btn.grid(row=0, column=3)
-        self.index_btn = RoundedButton(header, text="⟳  重建索引", command=self._toggle_index,
-                                       width=self._s(118), height=btn_h, colors=c,
-                                       kind="ghost", font_size=self._f(FONT_BODY)[1])
-        self.index_btn.grid(row=0, column=2, padx=(0, self._s(6)))
+    def _on_chip(self, name: str):
+        if name == self._type_chip.get():
+            return
+        self._type_chip.set(name)
+        self._page = 1
+        self._draw_all_chips()
+        self._run_query(self._search_text())
 
-    def _update_search_width(self):
-        """兼容旧调用：搜索框已全宽，无需联动调整。"""
-        return
+    def _draw_all_chips(self):
+        for cv in getattr(self, "_chip_canvases", []):
+            self._draw_chip(cv)
+
+    def _draw_chip(self, cv):
+        """绘制单个筛选 chip：全胶囊，选中 = accent 淡底 + accent 描边 + accent 文字。"""
+        cv.delete("all")
+        c = self.colors
+        name = cv._chip_name
+        font = self._f(FONT_SMALL, "bold")
+        try:
+            import tkinter.font as tkfont
+            f = tkfont.Font(root=self.root, font=font)
+            tw = f.measure(name)
+        except Exception:
+            tw = len(name) * 14
+        w = tw + self._s(28)
+        h = self._s(30)
+        cv.configure(width=w)
+        active = self._type_chip.get() == name
+        if active:
+            _rounded_rect(cv, 1, 1, w - 1, h - 1, (h - 2) / 2,
+                          fill=c["selected"], outline=c["accent"], width=1.2)
+        else:
+            _rounded_rect(cv, 1, 1, w - 1, h - 1, (h - 2) / 2,
+                          fill=c["surface"], outline=c["border"], width=1)
+        cv.create_text(w / 2, h / 2, text=name,
+                       fill=c["accent"] if active else c["muted"], font=font)
 
     def _set_search_value(self, value: str):
         """更新搜索变量但不触发查询，用于占位符和程序化清空。"""
@@ -2677,67 +2466,32 @@ class FileSearcherApp:
         return self.search_var.get().strip()
 
     def _current_filters(self):
-        """筛选功能已从界面移除，查询不带过滤条件。"""
-        return {}
+        """当前筛选条件：仅类型 chip（全部/文件夹/文档/图片/视频/音频/压缩包/代码）。"""
+        chip = getattr(self, "_type_chip", None)
+        name = chip.get() if chip else "全部"
+        return {} if name in ("全部", "") else {"type": name}
 
     def _build_tree(self):
-        """构建圆角结果容器、自绘呼吸式表格（FileTable）和底部固定分页栏。"""
+        """构建结果区：FileList 行卡片列表 + 空状态。页码与计数由底部快捷键栏承载。"""
         c = self.colors
         outer = tk.Frame(self.root, bg=c["bg"])
-        outer.pack(fill=tk.BOTH, expand=True, padx=self._s(26), pady=(0, self._s(10)))
-        self.result_canvas = tk.Canvas(outer, bd=0, highlightthickness=0, bg=c["bg"])
-        self.result_canvas.pack(fill=tk.BOTH, expand=True)
-        self.result_surface = tk.Frame(self.result_canvas, bg=c["surface"])
-        self._result_window = self.result_canvas.create_window(1, 1, window=self.result_surface, anchor=tk.NW)
-        self.result_canvas.bind("<Configure>", self._layout_result_container)
+        outer.pack(fill=tk.BOTH, expand=True, padx=self._s(24), pady=(self._s(6), self._s(4)))
+        self.result_canvas = outer
 
-        # 自绘呼吸式表格
-        self.table = FileTable(self.result_surface, c, self._icon_cache,
-                               self._f(FONT_BODY), self._f(FONT_HEADER),
-                               on_header_click=self._sort_by,
-                               on_double=self._on_double_click,
-                               on_right=self._on_right_click,
-                               on_scroll_page=self._goto_page_relative,
-                               on_col_resize=self._on_col_resize,
-                               badge_styles=BADGE_STYLES[self._theme_name])
-        self.table.pack(fill=tk.BOTH, expand=True, padx=1, pady=(1, 0))
-        self.table._labels = {"name": "文件名", "path": "路径", "type": "类型",
-                              "size": "大小", "modified": "修改时间"}
-        self.table._row_h = self._s(ROW_HEIGHT)
-        self._default_cols = [("name", self._s(340)), ("path", self._s(620)),
-                              ("type", self._s(130)), ("size", self._s(140)),
-                              ("modified", self._s(210))]
-        self.table._cols = [("icon", self._s(46))] + list(self._default_cols)
-
-        # 底部固定分页栏：左 总数 / 右 ‹ 1/12 ›
-        pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(40),
-                         highlightthickness=1, highlightbackground=c["row_line"])
-        pager.pack(fill=tk.X, padx=1, pady=(0, 1))
-        pager.pack_propagate(False)
-        self.pager_total_var = tk.StringVar(value="共 0 个结果")
-        tk.Label(pager, textvariable=self.pager_total_var, bg=c["surface"], fg=c["muted"],
-                 font=self._f(FONT_MICRO)).pack(side=tk.LEFT, padx=self._s(14))
-        self.pager_next = RoundedButton(pager, text="›",
-                                        command=lambda: self._goto_page_relative(1),
-                                        width=self._s(30), height=self._s(28), colors=c,
-                                        font_size=self._f(FONT_BODY)[1])
-        self.pager_next.pack(side=tk.RIGHT, padx=(self._s(4), self._s(10)),
-                             pady=(self._s(6), 0))
-        self.page_info_var = tk.StringVar(value="1 / 1")
-        tk.Label(pager, textvariable=self.page_info_var, bg=c["surface"], fg=c["muted"],
-                 font=(FONT_MONO, self._f(FONT_MICRO)[1])).pack(side=tk.RIGHT, padx=self._s(6),
-                                                                pady=(self._s(6), 0))
-        self.pager_prev = RoundedButton(pager, text="‹",
-                                        command=lambda: self._goto_page_relative(-1),
-                                        width=self._s(30), height=self._s(28), colors=c,
-                                        font_size=self._f(FONT_BODY)[1])
-        self.pager_prev.pack(side=tk.RIGHT, pady=(self._s(6), 0))
+        # 墨玉风行卡片列表
+        self.table = FileList(outer, c, self._icon_cache, self._f(FONT_BODY),
+                              on_double=self._on_double_click,
+                              on_right=self._on_right_click,
+                              on_scroll_page=self._goto_page_relative,
+                              badge_styles=BADGE_STYLES[self._theme_name])
+        self.table.pack(fill=tk.BOTH, expand=True)
+        self.table._row_h = self._s(52)
 
         # 空状态：同心圆 + 放大镜图标 + 主文案 + 副文案
-        empty_frame = tk.Frame(self.result_surface, bg=c["surface"])
+        empty_frame = tk.Frame(self.root, bg=c["bg"])
         icon_size = self._s(64)
         self._empty_icon = tk.Canvas(empty_frame, width=icon_size, height=icon_size, bd=0,
-                                     highlightthickness=0, bg=c["surface"])
+                                     highlightthickness=0, bg=c["bg"])
         self._empty_icon.pack()
         u = icon_size / 64.0
         self._empty_icon.create_oval(2 * u, 2 * u, 62 * u, 62 * u, outline=c["surface_3"],
@@ -2748,9 +2502,9 @@ class FileSearcherApp:
                                      width=max(2, 2.5 * u))
         self._empty_icon.create_line(35 * u, 35 * u, 44 * u, 44 * u, fill=c["muted_2"],
                                      width=max(2.5, 3 * u), capstyle=tk.ROUND)
-        tk.Label(empty_frame, text="没有匹配的结果", bg=c["surface"], fg=c["muted"],
+        tk.Label(empty_frame, text="没有匹配的结果", bg=c["bg"], fg=c["muted"],
                  font=self._f(FONT_LG)).pack(pady=(self._s(14), self._s(4)))
-        tk.Label(empty_frame, text="换个关键词试试，或检查拼写", bg=c["surface"], fg=c["muted_2"],
+        tk.Label(empty_frame, text="换个关键词试试，或检查拼写", bg=c["bg"], fg=c["muted_2"],
                  font=self._f(FONT_SMALL)).pack()
         self.empty_state = empty_frame
 
@@ -2763,10 +2517,10 @@ class FileSearcherApp:
     # ---- 分页 ----
 
     def _compute_page_size(self) -> int:
-        """页大小 = 可视行数（表头下方可容纳的行数），保证无页内滚动。"""
+        """页大小 = 可视行数（按行高+行距），保证无页内滚动。"""
         try:
-            h = self.table.winfo_height() - self.table.HEADER_H
-            return max(5, h // self.table._row_h)
+            h = self.table.winfo_height()
+            return max(5, h // (self.table._row_h + self.table._gap))
         except Exception:
             return 20
 
@@ -2786,15 +2540,6 @@ class FileSearcherApp:
 
     def _goto_page_relative(self, delta: int):
         self._goto_page(self._page + delta)
-
-    def _on_col_resize(self):
-        """列宽拖动后防抖保存布局。"""
-        if getattr(self, "_layout_save_timer", None) is not None:
-            try:
-                self.root.after_cancel(self._layout_save_timer)
-            except Exception:
-                pass
-        self._layout_save_timer = self.root.after(500, self._save_layout)
 
     def _on_view_resize(self, event=None):
         """窗口尺寸变化：页大小自适应（不动字号，只重查当前页）。"""
@@ -2821,16 +2566,6 @@ class FileSearcherApp:
                 self._run_query(self._search_text())
             else:
                 self._update_result_status()
-
-    def _layout_result_container(self, event):
-        if event.width < 4 or event.height < 4:
-            return
-        self.result_canvas.itemconfigure(self._result_window, width=event.width - 2, height=event.height - 2)
-        self.result_canvas.delete("container")
-        shape = _rounded_rect(self.result_canvas, 1, 1, event.width - 1, event.height - 1, 14,
-                              fill=self.colors["surface"], outline=self.colors["border"],
-                              width=1, tags="container")
-        self.result_canvas.tag_lower(shape)
 
     def _build_context_menu(self):
         """构建自绘右键菜单（圆角、阴影、悬停高亮）。"""
@@ -2859,28 +2594,62 @@ class FileSearcherApp:
         self._ctx_menu.show(event.x_root, event.y_root, items)
 
     def _build_statusbar(self):
-        """构建极简状态栏：title_bg 底、顶部细线、左状态点+文字、右页码。"""
+        """底部快捷键栏（Raycast 风）：左侧快捷键提示，右侧索引状态 + 结果计数 + 页码。"""
         c = self.colors
-        bar = tk.Frame(self.root, bg=c["title_bg"], height=self._s(34),
+        bar = tk.Frame(self.root, bg=c["title_bg"], height=self._s(44),
                        highlightthickness=1, highlightbackground=c["border"])
         bar.pack(fill=tk.X, side=tk.BOTTOM)
         bar.pack_propagate(False)
-        bar.columnconfigure(0, weight=1)
-        self.status_var = tk.StringVar(value="就绪 — 请先创建索引")
-        self._statusbar_dot = tk.Label(bar, text="●", bg=c["title_bg"], fg=c["muted_2"],
+
+        kbd_font = (FONT_MONO, self._f(FONT_MICRO)[1])
+        txt_font = self._f(FONT_SMALL)
+
+        # 左侧：快捷键提示
+        left = tk.Frame(bar, bg=c["title_bg"])
+        left.pack(side=tk.LEFT, padx=(self._s(18), 0))
+
+        # 索引状态点 + 文字（动作反馈也复用此处）
+        self._statusbar_dot = tk.Label(left, text="●", bg=c["title_bg"], fg=c["muted_2"],
                                        font=self._f(FONT_MICRO))
-        self._statusbar_dot.grid(row=0, column=0, sticky="w", padx=(self._s(22), self._s(8)))
-        self.status_label = tk.Label(bar, textvariable=self.status_var, bg=c["title_bg"], fg=c["muted"],
-                                     font=self._f(FONT_SMALL), anchor=tk.W)
-        self.status_label.grid(row=0, column=1, sticky="nsew")
-        self.progress_slot = tk.Frame(bar, bg=c["title_bg"], width=self._s(150), height=self._s(32))
-        self.progress_slot.grid(row=0, column=2, sticky="ns")
-        self.progress_slot.grid_propagate(False)
-        self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate", length=self._s(130))
+        self._statusbar_dot.pack(side=tk.LEFT, padx=(0, self._s(6)))
+        self.status_var = tk.StringVar(value="就绪")
+        self.status_label = tk.Label(left, textvariable=self.status_var, bg=c["title_bg"],
+                                     fg=c["muted"], font=txt_font, anchor=tk.W)
+        self.status_label.pack(side=tk.LEFT, padx=(0, self._s(18)))
+
+        # 不确定进度条（索引时显示）
+        self.progress_slot = tk.Frame(left, bg=c["title_bg"], width=self._s(120),
+                                      height=self._s(30))
+        self.progress_slot.pack(side=tk.LEFT, padx=(0, self._s(12)))
+        self.progress_slot.pack_propagate(False)
+        self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate",
+                                        length=self._s(100))
+
+        sep = tk.Frame(left, bg=c["border"], width=1)
+        sep.pack(side=tk.LEFT, fill=tk.Y, pady=self._s(11), padx=(0, self._s(14)))
+
+        for key, label in (("↵", "打开"), ("⌥↵", "定位"), ("^C", "复制"), ("⌫", "删除")):
+            tk.Label(left, text=key, bg=c["surface_3"], fg=c["muted"],
+                     font=kbd_font, padx=6, pady=1).pack(side=tk.LEFT)
+            tk.Label(left, text=label, bg=c["title_bg"], fg=c["muted_2"],
+                     font=txt_font).pack(side=tk.LEFT, padx=(self._s(5), self._s(12)))
+
+        # 右侧：结果计数 · 页码 · 设置钮 · 重建索引钮
+        right = tk.Frame(bar, bg=c["title_bg"])
+        right.pack(side=tk.RIGHT, padx=(0, self._s(10)))
+
         self.status_right_var = tk.StringVar(value="")
-        tk.Label(bar, textvariable=self.status_right_var, bg=c["title_bg"], fg=c["muted_2"],
-                 font=self._f(FONT_SMALL), anchor=tk.E, padx=self._s(22)).grid(row=0, column=3, sticky="nsew")
-        bar.rowconfigure(0, weight=1)
+        tk.Label(right, textvariable=self.status_right_var, bg=c["title_bg"], fg=c["muted_2"],
+                 font=txt_font, anchor=tk.E).pack(side=tk.LEFT, padx=(0, self._s(12)))
+
+        self.index_btn = RoundedButton(right, text="⟳ 重建索引", command=self._toggle_index,
+                                       width=self._s(104), height=self._s(30), colors=c,
+                                       kind="ghost", font_size=self._f(FONT_SMALL)[1])
+        self.index_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
+        self.settings_btn = RoundedButton(right, icon="⚙", command=self._open_settings,
+                                          width=self._s(34), height=self._s(30), colors=c,
+                                          font_size=self._f(FONT_BODY)[1])
+        self.settings_btn.pack(side=tk.LEFT)
 
     def _set_status(self, text: str, kind: str = "normal"):
         self.status_var.set(text)
@@ -2889,16 +2658,6 @@ class FileSearcherApp:
         self.status_label.configure(foreground=color)
         if hasattr(self, "_statusbar_dot"):
             self._statusbar_dot.configure(foreground=color)
-
-    def _set_index_dot(self, kind: str):
-        """更新状态胶囊圆点颜色（文字保持不变）。kind: ok 绿 / warn 黄 / off 灰。"""
-        if hasattr(self, "status_pill"):
-            self.status_pill.set_status(kind, self.status_pill._text)
-
-    def _pill(self, kind: str, text: str):
-        """一次性设置状态胶囊的颜色与文字。"""
-        if hasattr(self, "status_pill"):
-            self.status_pill.set_status(kind, text)
 
     def _set_loading(self, loading: bool, text: str = "正在加载结果…"):
         if loading:
@@ -2913,23 +2672,17 @@ class FileSearcherApp:
     # ================================================================
 
     def _update_index_button_text(self):
-        """更新索引按钮、状态胶囊、数量和更新时间。"""
+        """刷新索引按钮文字与底部状态文字。"""
         if IndexEngine.index_exists():
             count = IndexEngine.index_file_count()
             updated = datetime.fromtimestamp(INDEX_DB.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-            self.index_btn.config(text="⟳  重建索引")
-            self.index_status_var.set("索引就绪")
-            self.index_count_var.set(f"{count:,} 项")
-            self.index_updated_var.set(f"更新于 {updated}")
-            self.index_info_var.set(f"索引就绪 · {count:,} 个文件 · 更新于 {updated}")
-            self._pill("ok", f"索引就绪 · {count:,} 个文件 · 更新于 {updated}")
+            self.index_btn.config(text="⟳ 重建索引")
+            self._index_state_text = f"索引就绪 · {count:,} 个文件 · 更新于 {updated}"
+            self._set_status(self._index_state_text)
         else:
-            self.index_btn.config(text="⟳  创建索引")
-            self.index_status_var.set("尚未创建索引")
-            self.index_count_var.set("0 项")
-            self.index_updated_var.set("未更新")
-            self.index_info_var.set("尚未创建索引 · 0 个文件 · 未更新")
-            self._pill("off", "尚未创建索引 · 点击右侧按钮创建")
+            self.index_btn.config(text="⟳ 创建索引")
+            self._index_state_text = "尚未创建索引 · 点击右下按钮创建"
+            self._set_status(self._index_state_text, "warning")
 
     def _toggle_index(self):
         """点击索引按钮：运行中 → 询问是否停止；空闲 → 确认后创建/重建。"""
@@ -2937,7 +2690,7 @@ class FileSearcherApp:
             if _dialog_confirm(self, "停止索引", "索引正在后台运行，是否停止？\n已写入的数据会保留，下次可继续重建。",
                                kind="warn", ok_text="停止"):
                 self._stop_index()
-                self._pill("warn", "正在停止索引…")
+                self._set_status("正在停止索引…", "warning")
             return
         if self._engine_cancel:
             return
@@ -2957,7 +2710,6 @@ class FileSearcherApp:
         self.progress.pack(expand=True)
         self.progress.start(12)
         self._set_status("正在创建索引，扫描全盘文件…")
-        self._pill("warn", "正在建立索引 · 扫描全盘文件中…")
 
         engine = IndexEngine(
             progress_callback=lambda msg, n: self.root.after(0, self._on_index_progress, msg, n),
@@ -2981,10 +2733,7 @@ class FileSearcherApp:
 
     def _on_index_progress(self, msg: str, count: int):
         """索引进度回调。"""
-        self._set_status(msg)
-        self.index_count_var.set(f"已收录 {count:,} 项")
-        self.index_info_var.set(f"正在建立索引 · 已收录 {count:,} 个文件")
-        self._pill("warn", f"正在建立索引 · 已收录 {count:,} 个文件")
+        self._set_status(f"正在建立索引 · 已收录 {count:,} 个文件", "warning")
 
     def _on_index_done(self, stats):
         """索引完成回调，显示文件数和各阶段耗时。"""
@@ -3014,7 +2763,6 @@ class FileSearcherApp:
         self.progress.pack_forget()
         self._update_index_button_text()
         self._set_status(f"索引出错: {err}", "error")
-        self._pill("off", "索引出错 · 点击重试")
 
     def _do_index_silent(self):
         """静默后台重建索引，始终保证同一时间只有一个索引任务。"""
@@ -3226,15 +2974,15 @@ class FileSearcherApp:
             # 迷你界面预览
             if value == "system":
                 half = w / 2
-                cv.create_rectangle(3, 3, half, pv_h, fill="#0C1014", outline="")
-                cv.create_rectangle(half, 3, w - 3, pv_h, fill="#F2F5F4", outline="")
+                cv.create_rectangle(3, 3, half, pv_h, fill="#0A0C10", outline="")
+                cv.create_rectangle(half, 3, w - 3, pv_h, fill="#F5F3EE", outline="")
                 _rounded_rect(cv, s(10), s(10), w - s(10), s(26), 5,
                               fill="", outline=c["accent"], width=1.2)
             else:
-                pv_bg = "#0C1014" if value == "dark" else "#F2F5F4"
-                pv_bar = "#1C2630" if value == "dark" else "#DFE6E3"
-                pv_box = "#131A21" if value == "dark" else "#FFFFFF"
-                pv_row = "#1A222B" if value == "dark" else "#EFF3F2"
+                pv_bg = "#0A0C10" if value == "dark" else "#F5F3EE"
+                pv_bar = "#1A1F28" if value == "dark" else "#E0DCD2"
+                pv_box = "#10141B" if value == "dark" else "#FFFFFF"
+                pv_row = "#1B2229" if value == "dark" else "#EFEDE6"
                 _rounded_rect(cv, 3, 3, w - 3, pv_h, 9, fill=pv_bg,
                               outline=c["border_strong"], width=1)
                 _rounded_rect(cv, s(10), s(9), w * 0.55, s(15), 3, fill=pv_bar, outline="")
@@ -3254,7 +3002,7 @@ class FileSearcherApp:
                 cv.create_text(w - s(14), (6 + s(22)) / 2, text="✓", fill="#FFFFFF",
                                font=self._f(FONT_MICRO, "bold"))
 
-        for name, value in (("深色", "dark"), ("浅色", "light"), ("跟随系统", "system")):
+        for name, value in (("墨玉（深色）", "dark"), ("凝脂（浅色）", "light"), ("跟随系统", "system")):
             cv = tk.Canvas(theme_row, width=s(150), height=s(96), bd=0,
                            highlightthickness=0, bg=c["surface"], cursor="hand2")
             cv.pack(side=tk.LEFT, padx=(0, s(12)))
@@ -3358,7 +3106,7 @@ class FileSearcherApp:
                             width=max(2, 2.2 * u), capstyle=tk.ROUND)
         about_text = tk.Frame(about_top, bg=c["surface"])
         about_text.pack(side=tk.LEFT)
-        tk.Label(about_text, text="File Searcher · 霁青版", bg=c["surface"], fg=c["text"],
+        tk.Label(about_text, text="File Searcher · 墨玉版", bg=c["surface"], fg=c["text"],
                  font=self._f(FONT_LG, "bold")).pack(anchor=tk.W)
         tk.Label(about_text, text="全盘文件快速搜索工具，基于本地索引",
                  bg=c["surface"], fg=c["muted"], font=self._f(FONT_SMALL)).pack(
@@ -3451,22 +3199,24 @@ class FileSearcherApp:
                     order_col=self._sort_col, order_desc=not self._sort_asc, filters=filters,
                 )
             self._refresh_tree()
-            self._update_sort_heading()
             self._update_result_status()
         finally:
             self._set_loading(False)
 
     def _update_result_status(self):
-        """统一更新状态栏计数、分页信息与状态文字。"""
+        """更新底部右侧计数与页码；状态文字仅在索引状态之外显示搜索概况。"""
         total = self._total_results
         total_pages = self._total_pages()
-        self.pager_total_var.set(f"共 {total:,} 个结果")
-        self.page_info_var.set(f"{self._page} / {total_pages}")
-        self.status_right_var.set(f"第 {self._page} / {total_pages} 页")
-        if self._last_query:
-            self._set_status(f"搜索「{self._last_query}」— 第 {self._page} / {total_pages} 页，共 {total:,} 个结果")
+        if total > 0:
+            self.status_right_var.set(f"{total:,} 个结果 · 第 {self._page} / {total_pages} 页")
         else:
-            self._set_status(f"第 {self._page} / {total_pages} 页，共 {total:,} 个结果")
+            self.status_right_var.set("")
+        if self._index_running:
+            return
+        if self._last_query:
+            self._set_status(f"搜索「{self._last_query}」— 共 {total:,} 个结果")
+        elif IndexEngine.index_exists():
+            self._set_status(getattr(self, "_index_state_text", "就绪"))
 
     # ================================================================
     #  排除列表管理
@@ -3676,13 +3426,6 @@ class FileSearcherApp:
             _dialog_confirm(self, "删除失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
 
-    def _remove_from_results(self, path: str):
-        """从当前结果列表中移除指定路径并同步当前计数。"""
-        before = len(self._results)
-        self._results = [f for f in self._results if f["path"] != path]
-        if len(self._results) < before:
-            self._total_results = max(0, self._total_results - 1)
-
     # ================================================================
     #  拖拽到外部程序
     # ================================================================
@@ -3718,22 +3461,8 @@ class FileSearcherApp:
         self._drag_started = False
 
     # ================================================================
-    #  排序
+    #  快捷键
     # ================================================================
-
-    def _update_sort_heading(self):
-        """刷新表格表头的当前排序箭头。"""
-        self.table.set_sort(self._sort_col, self._sort_asc)
-
-    def _sort_by(self, col: str):
-        """点击列头排序，并按当前关键词重新查询第一页。"""
-        if self._sort_col == col:
-            self._sort_asc = not self._sort_asc
-        else:
-            self._sort_col = col
-            self._sort_asc = True
-        self._page = 1
-        self._run_query(self._search_text())
 
     def _bind_shortcuts(self):
         """绑定全局搜索快捷键和仅在结果列表生效的文件操作快捷键。"""
@@ -3764,48 +3493,6 @@ class FileSearcherApp:
         """仅在结果列表中全选有效结果行。"""
         self.table.select_all()
         return "break"
-
-    # ================================================================
-    #  列宽布局持久化
-    # ================================================================
-
-    def _load_layout(self):
-        """从 JSON 文件恢复上次的列宽（跨显示器按缩放系数换算）。
-
-        旧版文件没有 "scale" 字段（旧显示器绝对值），无法可靠换算，
-        直接忽略并采用当前显示器下的默认列宽。
-        """
-        if not IndexEngine.LAYOUT_FILE.exists() or not hasattr(self, "table"):
-            return
-        try:
-            data = json.loads(IndexEngine.LAYOUT_FILE.read_text(encoding="utf-8"))
-            saved_scale = data.pop("scale", None)
-            current = self._dpi_scale * self._font_scale * self.ui_scale
-            cols = [("icon", self._s(46))]
-            for key, default_w in self._default_cols:
-                w = int(data.get(key, default_w))
-                if saved_scale and saved_scale > 0 and abs(saved_scale - current) > 0.05:
-                    w = max(40, int(w * current / saved_scale))
-                # 畸形值保护：单列超过默认宽 1.5 倍（旧版拖动 bug 产物）→ 重置默认
-                if w < 40 or w > default_w * 1.5:
-                    w = default_w
-                cols.append((key, w))
-            self.table._cols = cols
-            self.table.redraw()
-        except Exception:
-            pass
-
-    def _save_layout(self):
-        """将当前列宽保存到 JSON 文件（含缩放系数，便于跨显示器还原）。"""
-        data = {"scale": round(self._dpi_scale * self._font_scale * self.ui_scale, 4)}
-        for key, w in self.table._cols:
-            if key != "icon":
-                data[key] = w
-        try:
-            IndexEngine.LAYOUT_FILE.write_text(
-                json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
 
     def _on_close(self):
         """关闭窗口 → 最小化到系统托盘。"""
@@ -3929,7 +3616,6 @@ class FileSearcherApp:
 
     def _do_exit(self):
         self._cancel_tray_auto_index_timer()
-        self._save_layout()
         self.root.destroy()
 
     # ================================================================
