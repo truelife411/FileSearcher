@@ -1975,8 +1975,8 @@ class FileTable(tk.Canvas):
             self.redraw()
 
     def _on_wheel(self, event):
-        if self._on_scroll_page:
-            self._on_scroll_page(1 if event.delta < 0 else -1)
+        """滚轮翻页已禁用：翻页改用底部数字页码按钮。"""
+        return
 
     def _on_motion(self, event):
         handle = self._resize_handle_at(event.x, event.y)
@@ -2666,29 +2666,17 @@ class FileSearcherApp:
                               ("modified", self._s(210))]
         self.table._cols = [("icon", self._s(46))] + list(self._default_cols)
 
-        # 底部分页栏：左「共 N 个结果」/ 右 ‹ 页码 ›
-        pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(38),
+        # 底部分页栏：左「共 N 个结果」/ 右大号数字页码按钮
+        pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(52),
                          highlightthickness=1, highlightbackground=c["row_line"])
         pager.pack(fill=tk.X, padx=1, pady=(0, 1))
         pager.pack_propagate(False)
         self.pager_total_var = tk.StringVar(value="共 0 个结果")
         tk.Label(pager, textvariable=self.pager_total_var, bg=c["surface"], fg=c["muted"],
-                 font=self._f(FONT_MICRO)).pack(side=tk.LEFT, padx=self._s(14))
-        self.pager_next = RoundedButton(pager, text="›",
-                                        command=lambda: self._goto_page_relative(1),
-                                        width=self._s(28), height=self._s(26), colors=c,
-                                        font_size=self._f(FONT_BODY)[1])
-        self.pager_next.pack(side=tk.RIGHT, padx=(self._s(4), self._s(10)),
-                             pady=(self._s(6), 0))
-        self.page_info_var = tk.StringVar(value="1 / 1")
-        tk.Label(pager, textvariable=self.page_info_var, bg=c["surface"], fg=c["muted"],
-                 font=(FONT_MONO, self._f(FONT_MICRO)[1])).pack(side=tk.RIGHT, padx=self._s(6),
-                                                                pady=(self._s(6), 0))
-        self.pager_prev = RoundedButton(pager, text="‹",
-                                        command=lambda: self._goto_page_relative(-1),
-                                        width=self._s(28), height=self._s(26), colors=c,
-                                        font_size=self._f(FONT_BODY)[1])
-        self.pager_prev.pack(side=tk.RIGHT, pady=(self._s(6), 0))
+                 font=self._f(FONT_SMALL)).pack(side=tk.LEFT, padx=self._s(16))
+        # 页码按钮容器（右侧，动态重建）
+        self._pager_btns_frame = tk.Frame(pager, bg=c["surface"])
+        self._pager_btns_frame.pack(side=tk.RIGHT, padx=self._s(12))
 
         # 空状态：同心圆 + 放大镜图标 + 主文案 + 副文案
         empty_frame = tk.Frame(self.result_surface, bg=c["surface"])
@@ -2719,13 +2707,11 @@ class FileSearcherApp:
 
     # ---- 分页 ----
 
+    PAGE_SIZE_FIXED = 100   # 固定每页 100 行
+
     def _compute_page_size(self) -> int:
-        """页大小 = 表头下方可视行数，保证无页内滚动。"""
-        try:
-            h = self.table.winfo_height() - self.table.HEADER_H
-            return max(5, h // self.table._row_h)
-        except Exception:
-            return 20
+        """固定页大小（100 行/页）。"""
+        return self.PAGE_SIZE_FIXED
 
     def _total_pages(self) -> int:
         if self._total_results <= 0:
@@ -2754,30 +2740,8 @@ class FileSearcherApp:
         self._layout_save_timer = self.root.after(500, self._save_layout)
 
     def _on_view_resize(self, event=None):
-        """窗口尺寸变化：页大小自适应（不动字号，只重查当前页）。"""
-        if event is not None and getattr(event, "widget", None) is not self.root:
-            return
-        if getattr(self, "_view_resize_timer", None) is not None:
-            try:
-                self.root.after_cancel(self._view_resize_timer)
-            except Exception:
-                pass
-        self._view_resize_timer = self.root.after(300, self._apply_view_resize)
-
-    def _apply_view_resize(self):
-        self._view_resize_timer = None
-        try:
-            if self.root.state() in ("withdrawn", "iconic"):
-                return
-        except Exception:
-            pass
-        new_ps = self._compute_page_size()
-        if new_ps != getattr(self, "_page_size", 0):
-            self._page_size = new_ps
-            if IndexEngine.index_exists():
-                self._run_query(self._search_text())
-            else:
-                self._update_result_status()
+        """窗口尺寸变化：页大小固定为 100，无需重算，仅触发布局重绘。"""
+        return
 
     def _layout_result_container(self, event):
         if event.width < 4 or event.height < 4:
@@ -3412,17 +3376,75 @@ class FileSearcherApp:
             self._set_loading(False)
 
     def _update_result_status(self):
-        """分页栏承载计数与页码；状态文字仅在索引状态之外显示搜索概况。"""
+        """分页栏承载计数与数字页码按钮；状态文字仅在索引状态之外显示搜索概况。"""
         total = self._total_results
         total_pages = self._total_pages()
         self.pager_total_var.set(f"共 {total:,} 个结果")
-        self.page_info_var.set(f"{self._page} / {total_pages}")
+        self._render_pager_buttons(total_pages)
         if self._index_running:
             return
         if self._last_query:
             self._set_status(f"搜索「{self._last_query}」— 共 {total:,} 个结果")
         elif IndexEngine.index_exists():
             self._set_status(getattr(self, "_index_state_text", "就绪"))
+
+    # ---- 大号数字页码 ----
+
+    def _page_sequence(self, total_pages: int) -> list:
+        """生成页码序列（含省略号）：1 … c-1 c c+1 … last。"""
+        cur = self._page
+        if total_pages <= 7:
+            return list(range(1, total_pages + 1))
+        pages = {1, total_pages, cur - 1, cur, cur + 1}
+        if cur <= 3:
+            pages.update((2, 3, 4))
+        if cur >= total_pages - 2:
+            pages.update((total_pages - 1, total_pages - 2, total_pages - 3))
+        seq, prev = [], 0
+        for p in sorted(pages):
+            if prev and p - prev > 1:
+                seq.append("…")
+            seq.append(p)
+            prev = p
+        return seq
+
+    def _render_pager_buttons(self, total_pages: int):
+        """重建右侧大号页码按钮：‹ 数字… ›，当前页 accent 高亮。"""
+        frame = getattr(self, "_pager_btns_frame", None)
+        if frame is None:
+            return
+        for w in frame.winfo_children():
+            w.destroy()
+        c = self.colors
+        s = self._s
+        if total_pages <= 1:
+            return
+        btn_h = s(34)
+        num_w = s(40)
+        arrow_w = s(36)
+        fsize = self._f(FONT_BODY)[1]
+
+        def _nav(text, cmd, enabled=True):
+            b = RoundedButton(frame, text=text, command=cmd, width=arrow_w, height=btn_h,
+                              colors=c, font_size=fsize)
+            if not enabled:
+                b.config(state=tk.DISABLED)
+            b.pack(side=tk.LEFT, padx=(0, s(6)))
+            return b
+
+        _nav("‹", lambda: self._goto_page_relative(-1), enabled=self._page > 1)
+        for item in self._page_sequence(total_pages):
+            if item == "…":
+                tk.Label(frame, text="…", bg=c["surface"], fg=c["muted_2"],
+                         font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, s(6)))
+                continue
+            p = item
+            active = (p == self._page)
+            b = RoundedButton(frame, text=str(p), command=lambda pg=p: self._goto_page(pg),
+                              width=num_w, height=btn_h, colors=c,
+                              kind="accent" if active else "normal", font_size=fsize)
+            b.pack(side=tk.LEFT, padx=(0, s(6)))
+        _nav("›", lambda: self._goto_page_relative(1), enabled=self._page < total_pages)
 
     # ================================================================
     #  排除列表管理
