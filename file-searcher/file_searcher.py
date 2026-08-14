@@ -1746,6 +1746,9 @@ class FileTable(tk.Canvas):
         self._row_h = 50
         self._labels = {}
         self._scroll_y = 0        # 行区域纵向滚动偏移（px，表头固定不滚）
+        self._scroll_target = 0   # 滚动目标（动量平滑用）
+        self._scroll_anim = None  # 滚动动画 after id
+        self._scrolling = False   # 滚动期间暂停 hover 重绘
         try:
             import tkinter.font as tkfont
             self._font_body_obj = tkfont.Font(root=master.winfo_toplevel(), font=font_body)
@@ -1789,6 +1792,8 @@ class FileTable(tk.Canvas):
     def set_rows(self, rows):
         self._rows = rows
         self._selected = []
+        self._scroll_y = 0
+        self._scroll_target = 0
         self.redraw()
 
     def set_row_h(self, h):
@@ -1976,14 +1981,39 @@ class FileTable(tk.Canvas):
             self.redraw()
 
     def _on_wheel(self, event):
-        """滚轮滚动行区域（表头固定）；仅在内容超出可视高度时生效，不再翻页。"""
+        """滚轮平滑滚动：按系统滚动行数折算像素 + 动量动画到目标偏移。"""
         max_scroll = max(0, len(self._rows) * self._row_h - (self.winfo_height() - self.HEADER_H))
         if max_scroll <= 0:
             return
-        step = self._row_h * 2
-        new = self._scroll_y + (step if event.delta < 0 else -step)
-        self._scroll_y = max(0, min(max_scroll, new))
+        # event.delta=±120；读系统"滚动行数"设置（默认3行/格）折算像素
+        try:
+            val = ctypes.c_uint(3)
+            ctypes.windll.user32.SystemParametersInfoW(0x0068, 0, ctypes.byref(val), 0)
+            lines = max(1, val.value)
+        except Exception:
+            lines = 3
+        px = max(40, int(self._row_h * lines / 1.2))
+        self._scroll_target = max(0, min(max_scroll,
+            self._scroll_target + (px if event.delta < 0 else -px)))
+        self._scrolling = True
+        if self._scroll_anim is None:
+            self._scroll_anim = self.after(16, self._scroll_step)
+
+    def _scroll_step(self):
+        """动量动画：每帧向目标靠近 25%，足够接近后停并恢复 hover。"""
+        diff = self._scroll_target - self._scroll_y
+        if abs(diff) < 1.5:
+            self._scroll_y = self._scroll_target
+            self._scroll_anim = None
+            self.redraw()
+            self.after(60, self._end_scroll)
+            return
+        self._scroll_y += diff * 0.25
         self.redraw()
+        self._scroll_anim = self.after(16, self._scroll_step)
+
+    def _end_scroll(self):
+        self._scrolling = False
 
     def _on_motion(self, event):
         handle = self._resize_handle_at(event.x, event.y)
@@ -2001,6 +2031,9 @@ class FileTable(tk.Canvas):
             self._set_hover(None, hit[1] if hit and hit[0] == "header" else None)
 
     def _set_hover(self, row, col):
+        # 滚动动画进行中不重绘 hover（减少每帧工作量，滚动更顺滑）
+        if self._scrolling:
+            return
         if row != self._hover_row or col != self._hover_col:
             self._hover_row = row
             self._hover_col = col
