@@ -2599,37 +2599,26 @@ class FileSearcherApp:
     # ================================================================
 
     def _build_toolbar(self):
-        """墨玉风搜索区：超大居中搜索框（绝对主角）+ 下方类型筛选 chip 排。"""
+        """凝脂风搜索区：居中搜索框（限宽 980）+ 下方类型筛选 chip 排。"""
         c = self.colors
         zone = tk.Frame(self.root, bg=c["bg"])
-        zone.pack(fill=tk.X, padx=self._s(24), pady=(self._s(22), 0))
+        zone.pack(fill=tk.X, padx=self._s(24), pady=(self._s(20), 0))
         self._header = zone
-
-        # 搜索框：最大宽度 980，居中
-        search_wrap = tk.Frame(zone, bg=c["bg"])
-        search_wrap.pack(fill=tk.X)
-        search_wrap.columnconfigure(0, weight=1)
-        search_wrap.columnconfigure(1, weight=0)
-        search_wrap.columnconfigure(2, weight=1)
-        inner = tk.Frame(search_wrap, bg=c["bg"], width=self._s(980))
-        inner.grid(row=0, column=1, sticky="")
-        inner.pack_propagate(False)
 
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search_changed())
-        row_h = self._s(62)
-        self.search_box = RoundedSearchBox(inner, self.search_var, c, self._clear_search,
+        row_h = self._s(58)
+        self.search_box = RoundedSearchBox(zone, self.search_var, c, self._clear_search,
                                            height=row_h, font_size=self._f(FONT_INPUT)[1],
                                            placeholder="搜索全盘文件…")
-        self.search_box.pack(fill=tk.X)
-        self.search_box.configure(width=self._s(980))
+        self.search_box.pack(fill=tk.X, padx=self._s(24))
         self.search_entry = self.search_box.entry
         self.search_entry.bind("<Return>", self._do_search)
 
         # 类型筛选 chip 排
         self._type_chip = tk.StringVar(value="全部")
         chips_row = tk.Frame(zone, bg=c["bg"])
-        chips_row.pack(fill=tk.X, pady=(self._s(12), 0))
+        chips_row.pack(fill=tk.X, pady=(self._s(12), 0), padx=self._s(24))
         chips_inner = tk.Frame(chips_row, bg=c["bg"])
         chips_inner.pack()
         self._chip_canvases = []
