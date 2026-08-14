@@ -2671,7 +2671,7 @@ class FileSearcherApp:
                               ("modified", self._s(210))]
         self.table._cols = [("icon", self._s(46))] + list(self._default_cols)
 
-        # 底部分页栏：左「共 N 个结果」、大号数字页码按钮居中
+        # 底部分页栏：左「共 N 个结果」、大号数字页码居中、翻页钮钉在两端的内侧固定区
         pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(52),
                          highlightthickness=1, highlightbackground=c["row_line"])
         pager.pack(fill=tk.X, padx=1, pady=(0, 1))
@@ -2680,9 +2680,14 @@ class FileSearcherApp:
         total_lbl = tk.Label(pager, textvariable=self.pager_total_var, bg=c["surface"],
                              fg=c["muted"], font=self._f(FONT_SMALL))
         total_lbl.place(relx=0.0, rely=0.5, anchor=tk.W, x=self._s(16))
-        # 页码按钮容器（整体居中，动态重建）
+        # 数字页码容器（整体居中，动态重建）
         self._pager_btns_frame = tk.Frame(pager, bg=c["surface"])
         self._pager_btns_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        # 「上一页/下一页」固定容器：锚定中轴两侧，内容向内对齐 → 位置永不随页码数量变化
+        self._pager_prev_frame = tk.Frame(pager, bg=c["surface"])
+        self._pager_prev_frame.place(relx=0.5, rely=0.5, anchor=tk.E, x=-self._s(200))
+        self._pager_next_frame = tk.Frame(pager, bg=c["surface"])
+        self._pager_next_frame.place(relx=0.5, rely=0.5, anchor=tk.W, x=self._s(200))
 
         # 空状态：同心圆 + 放大镜图标 + 主文案 + 副文案
         empty_frame = tk.Frame(self.result_surface, bg=c["surface"])
@@ -3442,12 +3447,15 @@ class FileSearcherApp:
         return seq
 
     def _render_pager_buttons(self, total_pages: int):
-        """重建右侧大号页码按钮：‹ 数字… ›，当前页 accent 高亮。"""
-        frame = getattr(self, "_pager_btns_frame", None)
-        if frame is None:
+        """重建分页按钮：翻页钮钉在中轴两侧固定位（不随页码数量动），数字页码居中。"""
+        center = getattr(self, "_pager_btns_frame", None)
+        prev_f = getattr(self, "_pager_prev_frame", None)
+        next_f = getattr(self, "_pager_next_frame", None)
+        if center is None or prev_f is None or next_f is None:
             return
-        for w in frame.winfo_children():
-            w.destroy()
+        for f in (center, prev_f, next_f):
+            for w in f.winfo_children():
+                w.destroy()
         c = self.colors
         s = self._s
         if total_pages <= 1:
@@ -3455,30 +3463,34 @@ class FileSearcherApp:
         btn_h = s(34)
         num_w = s(40)
         nav_w = s(72)        # 「上一页/下一页」按钮宽
-        gap = s(12)          # 按钮间距（数字/翻页钮/省略号统一）
+        gap = s(12)          # 数字页码间距
         fsize = self._f(FONT_BODY)[1]
+        nav_fsize = self._f(FONT_SMALL)[1]
 
-        def _nav(text, cmd, enabled=True):
-            b = RoundedButton(frame, text=text, command=cmd, width=nav_w, height=btn_h,
-                              colors=c, font_size=self._f(FONT_SMALL)[1])
-            if not enabled:
-                b.config(state=tk.DISABLED)
-            b.pack(side=tk.LEFT, padx=(0, gap))
-            return b
+        # 翻页钮：prev 容器内右对齐（anchor=E），next 容器内左对齐（anchor=W）→ 始终贴着中轴两侧固定位
+        pb = RoundedButton(prev_f, text="上一页", command=lambda: self._goto_page_relative(-1),
+                           width=nav_w, height=btn_h, colors=c, font_size=nav_fsize)
+        if self._page <= 1:
+            pb.config(state=tk.DISABLED)
+        pb.pack(side=tk.RIGHT)
+        nb = RoundedButton(next_f, text="下一页", command=lambda: self._goto_page_relative(1),
+                           width=nav_w, height=btn_h, colors=c, font_size=nav_fsize)
+        if self._page >= total_pages:
+            nb.config(state=tk.DISABLED)
+        nb.pack(side=tk.LEFT)
 
-        _nav("上一页", lambda: self._goto_page_relative(-1), enabled=self._page > 1)
+        # 数字页码：居中排布
         for item in self._page_sequence(total_pages):
             if item == "…":
-                tk.Label(frame, text="…", bg=c["surface"], fg=c["muted_2"],
+                tk.Label(center, text="…", bg=c["surface"], fg=c["muted_2"],
                          font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, gap))
                 continue
             p = item
             active = (p == self._page)
-            b = RoundedButton(frame, text=str(p), command=lambda pg=p: self._goto_page(pg),
+            b = RoundedButton(center, text=str(p), command=lambda pg=p: self._goto_page(pg),
                               width=num_w, height=btn_h, colors=c,
                               kind="accent" if active else "normal", font_size=fsize)
             b.pack(side=tk.LEFT, padx=(0, gap))
-        _nav("下一页", lambda: self._goto_page_relative(1), enabled=self._page < total_pages)
 
     # ================================================================
     #  排除列表管理
