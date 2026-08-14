@@ -1745,6 +1745,7 @@ class FileTable(tk.Canvas):
         self._drag_pref = set()   # 用户主动拖过宽度的列（fit 时最后压缩）
         self._row_h = 50
         self._labels = {}
+        self._scroll_y = 0        # 行区域纵向滚动偏移（px，表头固定不滚）
         try:
             import tkinter.font as tkfont
             self._font_body_obj = tkfont.Font(root=master.winfo_toplevel(), font=font_body)
@@ -1857,7 +1858,7 @@ class FileTable(tk.Canvas):
                 if x0 <= x < x1:
                     return ("header", key)
             return None
-        row = (y - self.HEADER_H) // self._row_h
+        row = (y - self.HEADER_H + self._scroll_y) // self._row_h
         if 0 <= row < len(self._rows):
             return ("cell", row)
         return None
@@ -1975,8 +1976,14 @@ class FileTable(tk.Canvas):
             self.redraw()
 
     def _on_wheel(self, event):
-        """滚轮翻页已禁用：翻页改用底部数字页码按钮。"""
-        return
+        """滚轮滚动行区域（表头固定）；仅在内容超出可视高度时生效，不再翻页。"""
+        max_scroll = max(0, len(self._rows) * self._row_h - (self.winfo_height() - self.HEADER_H))
+        if max_scroll <= 0:
+            return
+        step = self._row_h * 2
+        new = self._scroll_y + (step if event.delta < 0 else -step)
+        self._scroll_y = max(0, min(max_scroll, new))
+        self.redraw()
 
     def _on_motion(self, event):
         handle = self._resize_handle_at(event.x, event.y)
@@ -2030,10 +2037,13 @@ class FileTable(tk.Canvas):
         self.create_rectangle(0, 0, w, h, fill=c["surface"], outline="")
 
         pad_l = 18   # 单元格左内边距
-        # ---- 数据行 ----
+        # ---- 数据行（含纵向滚动偏移，表头固定）----
         row_h = self._row_h
+        sy = self._scroll_y
         for i, row in enumerate(self._rows):
-            y0 = self.HEADER_H + i * row_h
+            y0 = self.HEADER_H + i * row_h - sy
+            if y0 + row_h <= self.HEADER_H:
+                continue
             if y0 >= h:
                 break
             y1 = y0 + row_h
@@ -2136,6 +2146,19 @@ class FileTable(tk.Canvas):
                 else:
                     pts = (tri_cx - s, tri_cy - s * 0.6, tri_cx + s, tri_cy - s * 0.6, tri_cx, tri_cy + s * 0.8)
                 self.create_polygon(pts, fill=c["accent"], outline="")
+        # ---- 纵向滚动条（自绘，仅在内容超出时显示；表头不滚）----
+        content_h = len(self._rows) * row_h
+        view_h = h - self.HEADER_H
+        if content_h > view_h and view_h > 0:
+            track_x0, track_x1 = w - 7, w - 3
+            self.create_rectangle(track_x0 - 1, self.HEADER_H, track_x1 + 1, h,
+                                  fill=c["surface"], outline="")
+            thumb_h = max(28, view_h * view_h / content_h)
+            max_scroll = content_h - view_h
+            ratio = self._scroll_y / max_scroll if max_scroll > 0 else 0
+            ty0 = self.HEADER_H + ratio * (view_h - thumb_h)
+            _rounded_rect(self, track_x0, ty0, track_x1, ty0 + thumb_h, 2,
+                          fill=c["border_strong"], outline="", width=0)
         self.configure(scrollregion=(0, 0, w, h))
 
 
@@ -2666,17 +2689,18 @@ class FileSearcherApp:
                               ("modified", self._s(210))]
         self.table._cols = [("icon", self._s(46))] + list(self._default_cols)
 
-        # 底部分页栏：左「共 N 个结果」/ 右大号数字页码按钮
+        # 底部分页栏：左「共 N 个结果」、大号数字页码按钮居中
         pager = tk.Frame(self.result_surface, bg=c["surface"], height=self._s(52),
                          highlightthickness=1, highlightbackground=c["row_line"])
         pager.pack(fill=tk.X, padx=1, pady=(0, 1))
         pager.pack_propagate(False)
         self.pager_total_var = tk.StringVar(value="共 0 个结果")
-        tk.Label(pager, textvariable=self.pager_total_var, bg=c["surface"], fg=c["muted"],
-                 font=self._f(FONT_SMALL)).pack(side=tk.LEFT, padx=self._s(16))
-        # 页码按钮容器（右侧，动态重建）
+        total_lbl = tk.Label(pager, textvariable=self.pager_total_var, bg=c["surface"],
+                             fg=c["muted"], font=self._f(FONT_SMALL))
+        total_lbl.place(relx=0.0, rely=0.5, anchor=tk.W, x=self._s(16))
+        # 页码按钮容器（整体居中，动态重建）
         self._pager_btns_frame = tk.Frame(pager, bg=c["surface"])
-        self._pager_btns_frame.pack(side=tk.RIGHT, padx=self._s(12))
+        self._pager_btns_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
         # 空状态：同心圆 + 放大镜图标 + 主文案 + 副文案
         empty_frame = tk.Frame(self.result_surface, bg=c["surface"])
@@ -2723,6 +2747,7 @@ class FileSearcherApp:
         page = max(1, min(total_pages, page))
         if page != self._page:
             self._page = page
+            self.table._scroll_y = 0   # 翻页回到顶部
             self._run_query(self._search_text())
         else:
             self._update_result_status()
@@ -3391,8 +3416,8 @@ class FileSearcherApp:
     # ---- 大号数字页码 ----
 
     def _page_sequence(self, total_pages: int) -> list:
-        """生成页码序列（含省略号）：1 … c-1 c c+1 … last。"""
-        cur = self._page
+        """生成页码序列（含省略号）：1 … c-1 c c+1 … last。页码恒 >= 1。"""
+        cur = max(1, self._page)
         if total_pages <= 7:
             return list(range(1, total_pages + 1))
         pages = {1, total_pages, cur - 1, cur, cur + 1}
@@ -3400,6 +3425,8 @@ class FileSearcherApp:
             pages.update((2, 3, 4))
         if cur >= total_pages - 2:
             pages.update((total_pages - 1, total_pages - 2, total_pages - 3))
+        # 下限保护：过滤非法页码（如 cur=1 时 cur-1=0）
+        pages = {p for p in pages if 1 <= p <= total_pages}
         seq, prev = [], 0
         for p in sorted(pages):
             if prev and p - prev > 1:
