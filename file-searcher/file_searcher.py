@@ -3482,6 +3482,7 @@ class FileSearcherApp:
         btn_h = s(34)
         num_w = s(40)
         arrow_w = s(36)
+        gap = s(12)          # 按钮间距（数字/箭头/省略号统一）
         fsize = self._f(FONT_BODY)[1]
 
         def _nav(text, cmd, enabled=True):
@@ -3489,21 +3490,21 @@ class FileSearcherApp:
                               colors=c, font_size=fsize)
             if not enabled:
                 b.config(state=tk.DISABLED)
-            b.pack(side=tk.LEFT, padx=(0, s(6)))
+            b.pack(side=tk.LEFT, padx=(0, gap))
             return b
 
         _nav("‹", lambda: self._goto_page_relative(-1), enabled=self._page > 1)
         for item in self._page_sequence(total_pages):
             if item == "…":
                 tk.Label(frame, text="…", bg=c["surface"], fg=c["muted_2"],
-                         font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, s(6)))
+                         font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, gap))
                 continue
             p = item
             active = (p == self._page)
             b = RoundedButton(frame, text=str(p), command=lambda pg=p: self._goto_page(pg),
                               width=num_w, height=btn_h, colors=c,
                               kind="accent" if active else "normal", font_size=fsize)
-            b.pack(side=tk.LEFT, padx=(0, s(6)))
+            b.pack(side=tk.LEFT, padx=(0, gap))
         _nav("›", lambda: self._goto_page_relative(1), enabled=self._page < total_pages)
 
     # ================================================================
