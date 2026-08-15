@@ -2484,9 +2484,11 @@ class FileSearcherApp:
             app = self
 
             def wnd_proc(hwnd, msg, wparam, lparam):
-                # 吞掉最大化命令（最大化钮/系统菜单/任务栏右键「最大化」）
-                if msg == WM_SYSCOMMAND and (wparam & 0xFFF0) == SC_MAXIMIZE:
-                    return 0
+                # 吞掉最大化/还原命令：窗口锁定在最大化，点「还原」钮/系统菜单/任务栏右键都无效
+                if msg == WM_SYSCOMMAND:
+                    cmd = wparam & 0xFFF0
+                    if cmd in (SC_MAXIMIZE, SC_RESTORE):
+                        return 0
                 # 吞掉双击标题栏（默认会最大化/还原）
                 if msg == WM_NCLBUTTONDBLCLK and wparam == HTCAPTION:
                     return 0
@@ -2506,47 +2508,35 @@ class FileSearcherApp:
             _diag(f"[frameless] wndproc FAIL {e!r}")
 
     def _maximize_to_workarea(self):
-        """将窗口铺满工作区（排除任务栏），并在程序内禁缩放/最大化拖拽。
+        """启动即「真正最大化」：Tk 原生 zoomed。
 
-        用 Win32 SetWindowPos 直接设窗口矩形为工作区（物理像素，坐标系准确，绕过 Tk
-        geometry 在高 DPI 下的缩放坑）；随后把 maxsize 钳到工作区（拖边角也超不过），
-        配合 WndProc 拦截最大化 → 窗口不能真正放大或最大化。
+        之前手动 SetWindowPos/ShowWindow(SW_MAXIMIZE) 都被 Tk 布局用「内容请求尺寸」覆盖
+        （实测 SetWindowPos 2560x1368 → 缩回 640x426；ShowWindow → 缩回 960x620，state 仍
+        normal）。Tk 原生 `state('zoomed')` 会让 Tk 进入 zoomed 状态，Tk 自己维护窗口大小
+        （=工作区），不再被内容尺寸覆盖。原 overrideredirect 时代 zoomed 失效，原生标题栏
+        下无此问题。窗口进入 zoomed 后右上角「还原」钮被 WndProc 拦 SC_RESTORE → 锁定最大化。
         """
         if sys.platform != "win32":
             return
         try:
             from ctypes import wintypes
-            user32 = ctypes.windll.user32
-            rect = wintypes.RECT()
-            user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
-            w = rect.right - rect.left
-            h = rect.bottom - rect.top
-            hwnd = self.root.winfo_id()
-            # 先抬 minsize 到工作区：Tk 会用「内容请求尺寸」在重新布局时覆盖 SetWindowPos，
-            # 导致窗口被缩回（实测 SetWindowPos 2560x1368 后被缩成 640x426）。minsize=工作区
-            # 让 Tk 内部尺寸目标就是工作区，不再缩回；maxsize 同步钳制，拖边角也超不出。
-            try:
-                self.root.minsize(w, h)
-                self.root.maxsize(w, h)
-            except Exception:
-                pass
-            SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
-            user32.SetWindowPos(hwnd, 0, rect.left, rect.top, w, h,
-                                SWP_NOZORDER | SWP_NOACTIVATE)
+            self.root.state("zoomed")
             self.root.update_idletasks()
             self._normal_rect = None
-            _diag(f"[maximize] SetWindowPos workarea=({rect.left},{rect.top}) {w}x{h}")
-            # idle 后回读实际窗口矩形，确认铺满未被 DWM/布局回缩
+            _diag(f"[maximize] state('zoomed') -> state={self.root.state()}")
+            # idle 后回读实际窗口矩形确认铺满
             def _verify():
                 try:
+                    hwnd = self.root.winfo_id()
                     r = wintypes.RECT()
                     ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
-                    _diag(f"[maximize] actual rect=({r.left},{r.top}) {r.right-r.left}x{r.bottom-r.top}")
+                    _diag(f"[maximize] actual rect=({r.left},{r.top}) "
+                          f"{r.right - r.left}x{r.bottom - r.top} state={self.root.state()}")
                 except Exception:
                     pass
             self.root.after_idle(_verify)
         except Exception as e:
-            _diag(f"[maximize] FAIL {e!r}")
+            _diag(f"[maximize] zoomed FAIL {e!r}")
 
 
     # ================================================================
