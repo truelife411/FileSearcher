@@ -3829,12 +3829,6 @@ class FileSearcherApp:
         try:
             user32 = ctypes.windll.user32
             shell32 = ctypes.windll.shell32
-            # ① 独立任务栏分组：不设则任务栏归 pythonw.exe → 显示 python 图标
-            try:
-                shell32.SetCurrentProcessExplicitAppUserModelID(
-                    ctypes.c_wchar_p("FileSearcher.App"))
-            except Exception as e:
-                _diag(f"[icon] AUMID FAIL {e!r}")
             hwnd = self.root.winfo_id()
             IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
             WM_SETICON = 0x0080
@@ -3847,6 +3841,9 @@ class FileSearcherApp:
             user32.SendMessageW.restype = wintypes.LPARAM
             h_small = user32.LoadImageW(0, ico_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
             h_big = user32.LoadImageW(0, ico_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+            # ① 先设窗口图标（大+小）——必须在 AUMID 之前！
+            #    Windows 首次设置 AUMID 时会用「当时的窗口图标」给任务栏分组做快照；
+            #    若 AUMID 在前，快照到的是通用默认图标（第一次启动显示通用图标的根因）。
             if h_small:
                 user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_small)
                 self._hicon_small = h_small   # 保活
@@ -3858,6 +3855,13 @@ class FileSearcherApp:
                 self.root.iconbitmap(ico_path)
             except Exception:
                 pass
+            # ③ 最后设 AUMID（此时窗口已有正确图标，快照即正确图标）
+            #    值带 .2 后缀：强制 Windows 丢弃之前缓存的通用图标分组
+            try:
+                shell32.SetCurrentProcessExplicitAppUserModelID(
+                    ctypes.c_wchar_p("FileSearcher.App.2"))
+            except Exception as e:
+                _diag(f"[icon] AUMID FAIL {e!r}")
             _diag(f"[icon] small={bool(h_small)} big={bool(h_big)}")
         except Exception as e:
             _diag(f"[icon] FAIL {e!r}")
