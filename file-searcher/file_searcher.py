@@ -2261,6 +2261,8 @@ class FileSearcherApp:
         # 原生标题栏（无边框方案已废弃）：铺满工作区、禁用最大化
         self._frameless = False
         self._normal_rect = None
+        self._wnd_proc_holder = None   # 保活 WndProc 回调（防 GC）
+        self._orig_wndproc = None
 
         IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引
         self._build_ui()
@@ -2440,11 +2442,68 @@ class FileSearcherApp:
                 user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
                                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
                                     | SWP_NOZORDER | SWP_NOOWNERZORDER)
+                after = user32.GetWindowLongW(hwnd, GWL_STYLE)
+                _diag(f"[frameless] style before={cur:#010x} after={after:#010x} maximbox_removed={not bool(after & WS_MAXIMIZEBOX)}")
             except Exception:
                 pass
+            # 子类化窗口过程：系统层拦截最大化（最大化钮/双击标题栏/系统菜单都无效）
+            self._install_no_maximize_wndproc()
             _diag(f"[frameless] native titlebar, maximized-to-workarea, no-maximize-box, state={self.root.state()}")
         except Exception as e:
             _diag(f"[frameless] FAIL {e!r}")
+
+    def _install_no_maximize_wndproc(self):
+        """子类化窗口过程，系统层拦截最大化：最大化钮/双击标题栏/系统菜单/Aero 吸附全部失效。
+
+        Tk 的原生标题栏对按钮控制很弱（去掉 WS_MAXIMIZEBOX 也不置灰按钮）。这条路直接在
+        WndProc 里吞掉 WM_SYSCOMMAND(SC_MAXIMIZE) 和 WM_NCLBUTTONDBLCLK(HTCAPTION)，
+        最大化这个操作根本到不了窗口 → 按钮点了没反应、双击标题栏不放大。窗口仍可缩放
+        （铺满工作区生效的前提），拖边角由 _maximize_to_workarea 的 maxsize 钳在工作区。
+        """
+        if sys.platform != "win32":
+            return
+        try:
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            if ctypes.sizeof(ctypes.c_void_p) == 8:
+                GetW, SetW = user32.GetWindowLongPtrW, user32.SetWindowLongPtrW
+            else:
+                GetW, SetW = user32.GetWindowLongW, user32.SetWindowLongW
+            SetW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+            SetW.restype = ctypes.c_ssize_t
+            GetW.argtypes = [wintypes.HWND, ctypes.c_int]
+            GetW.restype = ctypes.c_ssize_t
+            user32.CallWindowProcW.argtypes = [ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
+                                               ctypes.c_ssize_t, ctypes.c_ssize_t]
+            user32.CallWindowProcW.restype = ctypes.c_ssize_t
+
+            GWLP_WNDPROC = -4
+            WM_SYSCOMMAND, WM_NCLBUTTONDBLCLK, WM_GETMINMAXINFO = 0x0112, 0x00A3, 0x0024
+            SC_MAXIMIZE, SC_RESTORE = 0xF030, 0xF120
+            HTCAPTION = 2
+            app = self
+
+            def wnd_proc(hwnd, msg, wparam, lparam):
+                # 吞掉最大化命令（最大化钮/系统菜单/任务栏右键「最大化」）
+                if msg == WM_SYSCOMMAND and (wparam & 0xFFF0) == SC_MAXIMIZE:
+                    return 0
+                # 吞掉双击标题栏（默认会最大化/还原）
+                if msg == WM_NCLBUTTONDBLCLK and wparam == HTCAPTION:
+                    return 0
+                return user32.CallWindowProcW(app._orig_wndproc, hwnd, msg, wparam, lparam)
+
+            WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
+                                         ctypes.c_ssize_t, ctypes.c_ssize_t)
+            proc = WNDPROC(wnd_proc)
+            hwnd = self.root.winfo_id()
+            self._orig_wndproc = GetW(hwnd, GWLP_WNDPROC)
+            if not self._orig_wndproc:
+                return
+            self._wnd_proc_holder = proc   # 保活回调，防 GC
+            SetW(hwnd, GWLP_WNDPROC, ctypes.cast(proc, ctypes.c_void_p).value or proc)
+            _diag("[frameless] no-maximize wndproc installed")
+        except Exception as e:
+            _diag(f"[frameless] wndproc FAIL {e!r}")
 
     def _maximize_to_workarea(self):
         """将窗口铺满工作区（排除任务栏），并在程序内禁缩放/最大化拖拽。
