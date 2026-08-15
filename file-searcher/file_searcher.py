@@ -4104,8 +4104,39 @@ class FileSearcherApp:
         self._open_new_window()
 
     def _do_exit(self):
+        """托盘「退出」：彻底结束进程，不留后台 pythonw 残留。
+
+        只 root.destroy() 不够：ThreadPoolExecutor 的工作线程、pystray 图标线程、
+        以及挂着的 after 定时器都会让 pythonw 进程继续存活 → 后台残留。
+        这里 shutdown 线程池、停托盘、销毁窗口，最后 os._exit 兜底确保进程结束。
+        """
         self._cancel_tray_auto_index_timer()
-        self.root.destroy()
+        # 停托盘图标线程
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            try:
+                tray.stop()
+            except Exception:
+                pass
+            self._tray = None
+        # 关掉 DB 查询线程池（不等新查询）
+        executor = getattr(self, "_query_executor", None)
+        if executor is not None:
+            try:
+                executor.shutdown(wait=False)
+            except Exception:
+                pass
+            self._query_executor = None
+        # 销毁窗口并退出主循环
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+        # 兜底：确保进程真正结束（托盘/线程若仍挂住则强退）
+        try:
+            os._exit(0)
+        except Exception:
+            sys.exit(0)
 
     # ================================================================
     #  复制 / 剪切路径
