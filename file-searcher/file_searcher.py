@@ -2258,13 +2258,9 @@ class FileSearcherApp:
         self._window_scale = 1.0
         self.ui_scale = 1.0
 
-        # 自绘标题栏 + 无边框窗口（Windows 专属，失败自动回退原生标题栏）
+        # 原生标题栏（无边框方案已废弃）：铺满工作区、禁用最大化
         self._frameless = False
         self._normal_rect = None
-        self._tb_buttons = []
-        self._tb_hit_rects = []
-        self._dbl_click_flag = False
-        self._orig_wndproc = None
 
         IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引
         self._build_ui()
@@ -2418,68 +2414,6 @@ class FileSearcherApp:
     #  自绘标题栏 + 无边框窗口（Windows）
     # ================================================================
 
-    def _build_titlebar(self):
-        """构建自绘标题栏：渐变圆角 logo、标题+副标题、最小化/关闭按钮。"""
-        c = self.colors
-        self._titlebar_h = self._s(TITLEBAR_H)
-        self._tb_buttons = []
-        self._tb_hit_rects = []
-        bar = tk.Frame(self.root, bg=c["title_bg"], height=self._titlebar_h)
-        bar.pack(fill=tk.X, side=tk.TOP)
-        bar.pack_propagate(False)
-        self._titlebar = bar
-
-        # logo：渐变圆角方块 + 白色放大镜
-        logo_size = self._s(20)
-        logo = tk.Canvas(bar, width=logo_size, height=logo_size, bd=0, highlightthickness=0,
-                         bg=c["title_bg"])
-        logo.pack(side=tk.LEFT, padx=(self._s(14), self._s(10)),
-                  pady=(self._titlebar_h - logo_size) // 2)
-        grad = _make_gradient_pix(self.root, logo_size, logo_size, self._s(5),
-                                  c["accent_grad_a"], c["accent_grad_b"])
-        logo.create_image(0, 0, image=grad, anchor=tk.NW)
-        u = logo_size / 20.0  # 以 20px 为基准的单位缩放
-        logo.create_oval(5 * u, 5 * u, 11.5 * u, 11.5 * u, outline="#FFFFFF",
-                         width=max(1.5, 1.8 * u))
-        logo.create_line(10.8 * u, 10.8 * u, 15 * u, 15 * u, fill="#FFFFFF",
-                         width=max(2, 2.2 * u), capstyle=tk.ROUND)
-
-        tk.Label(bar, text="File Searcher", bg=c["title_bg"], fg=c["text"],
-                 font=self._f(FONT_TITLE, "bold")).pack(side=tk.LEFT)
-        tk.Label(bar, text="全盘文件搜索", bg=c["title_bg"], fg=c["muted_2"],
-                 font=self._f(FONT_MICRO)).pack(side=tk.LEFT, padx=(self._s(9), 0))
-
-        def _make_tb_btn(text, hover_bg=None, command=None):
-            btn = tk.Label(bar, text=text, bg=c["title_bg"], fg=c["muted_2"],
-                           font=self._f(FONT_TITLE, "normal"), width=4, cursor="hand2")
-            btn.pack(side=tk.RIGHT, fill=tk.Y)
-            btn.bind("<Enter>", lambda _e: btn.configure(bg=hover_bg or c["surface_3"], fg=c["text"]))
-            btn.bind("<Leave>", lambda _e: btn.configure(bg=c["title_bg"], fg=c["muted_2"]))
-            if command:
-                btn.bind("<Button-1>", lambda _e: command())
-            self._tb_buttons.append(btn)
-            return btn
-
-        # 右侧按钮从右往左：关闭 → 最小化（程序启动即最大化，无需最大化按钮）
-        _make_tb_btn("✕", hover_bg="#D64545", command=self._on_close)
-        _make_tb_btn("—", command=self._minimize_window)
-        # 双击标题栏空白处：铺满/还原
-        bar.bind("<Double-Button-1>", self._toggle_maximize)
-        for child in bar.winfo_children():
-            if child not in self._tb_buttons:
-                child.bind("<Double-Button-1>", self._toggle_maximize)
-        bar.bind("<Configure>", lambda _e: self.root.after_idle(self._update_tb_hit_rects))
-
-    def _update_tb_hit_rects(self):
-        """缓存标题栏按钮在窗口内的矩形，供 WM_NCHITTEST 区分按钮点击。"""
-        rects = []
-        for w in self._tb_buttons:
-            try:
-                rects.append((w.winfo_x(), w.winfo_y(), w.winfo_width(), w.winfo_height()))
-            except Exception:
-                pass
-        self._tb_hit_rects = rects
-
     def _setup_frameless(self):
         """使用系统原生标题栏：任务栏图标/最小化/关闭/缩放走系统。
 
@@ -2487,6 +2421,12 @@ class FileSearcherApp:
         启动时铺满工作区（保留任务栏）。托盘行为：✕ 收进托盘，— 最小化到任务栏。
         """
         self._frameless = False
+        # 禁用最大化：窗口可最小化、可关进托盘，但不可缩放/最大化（最大化钮自动置灰消失）
+        # 用 Tk 原生 resizable(False,False) 比 ctypes 改样式位可靠，与多 DPI 不冲突
+        try:
+            self.root.resizable(False, False)
+        except Exception:
+            pass
         if sys.platform != "win32":
             try:
                 self.root.state("zoomed")
@@ -2496,131 +2436,9 @@ class FileSearcherApp:
         try:
             self.root.deiconify()
             self._maximize_to_workarea()   # 铺满工作区（不依赖 zoomed）
-            # 去掉最大化按钮（WS_MAXIMIZEBOX）→ 标题栏最大化按钮置灰/隐藏；
-            # 改完样式必须 SetWindowPos(SWP_FRAMECHANGED) 强制重绘非客户区(标题栏)，
-            # 否则 Windows 不会刷新按钮状态，最大化钮依旧可点。
-            try:
-                hwnd = self.root.winfo_id()
-                user32 = ctypes.windll.user32
-                GWL_STYLE = -16
-                WS_MAXIMIZEBOX = 0x00010000
-                SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE = 0x0020, 0x0002, 0x0001
-                SWP_NOZORDER, SWP_NOOWNERZORDER = 0x0004, 0x0200
-                cur = user32.GetWindowLongW(hwnd, GWL_STYLE)
-                user32.SetWindowLongW(hwnd, GWL_STYLE, cur & ~WS_MAXIMIZEBOX)
-                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
-                                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
-                                    | SWP_NOZORDER | SWP_NOOWNERZORDER)
-            except Exception:
-                pass
-            _diag(f"[frameless] native titlebar, no-maximize, state={self.root.state()}")
+            _diag(f"[frameless] native titlebar, resizable=False(no-maximize), state={self.root.state()}")
         except Exception as e:
             _diag(f"[frameless] FAIL {e!r}")
-
-    def _apply_frameless_wndproc(self):
-        """挂载 WM_NCHITTEST 窗口过程：标题栏系统级拖动、四边缩放、双击最大化。"""
-        from ctypes import wintypes
-        user32 = ctypes.windll.user32
-        if ctypes.sizeof(ctypes.c_void_p) == 8:
-            SetWindowLong = ctypes.windll.user32.SetWindowLongPtrW
-            GetWindowLong = ctypes.windll.user32.GetWindowLongPtrW
-        else:
-            SetWindowLong = ctypes.windll.user32.SetWindowLongW
-            GetWindowLong = ctypes.windll.user32.GetWindowLongW
-        SetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
-        SetWindowLong.restype = ctypes.c_ssize_t
-        GetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int]
-        GetWindowLong.restype = ctypes.c_ssize_t
-        user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-        # 64 位 Windows 上 WPARAM/LPARAM 是 64 位，wintypes 里是 32 位，必须用 c_ssize_t
-        user32.CallWindowProcW.argtypes = [ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
-                                           ctypes.c_ssize_t, ctypes.c_ssize_t]
-        user32.CallWindowProcW.restype = ctypes.c_ssize_t
-
-        WM_NCHITTEST = 0x0084
-        WM_NCCALCSIZE = 0x0083
-        WM_NCLBUTTONDBLCLK = 0x00A3
-        HTCLIENT = 1
-        HTCAPTION = 2
-        HTLEFT, HTRIGHT, HTTOP, HTBOTTOM = 10, 11, 12, 15
-        HTTOPLEFT, HTTOPRIGHT = 13, 14
-        HTBOTTOMLEFT, HTBOTTOMRIGHT = 16, 17
-        EDGE = 6
-
-        hwnd = self.root.winfo_id()
-        self._frameless_hwnd = hwnd
-        self._tb_hit_rects = []
-        self.root.update_idletasks()
-        self._update_tb_hit_rects()
-        app = self
-
-        def wnd_proc(hwnd, msg, wparam, lparam):
-            if msg == WM_NCCALCSIZE:
-                # 裁剪原生标题栏：客户区扩展到整个窗口（返回全客户区）
-                if wparam:
-                    return 0
-                # wparam==0 时返回 0 表示客户区=窗口区
-                return 0
-            if msg == WM_NCHITTEST:
-                rect = wintypes.RECT()
-                user32.GetWindowRect(hwnd, ctypes.byref(rect))
-                x = lparam & 0xFFFF
-                y = (lparam >> 16) & 0xFFFF
-                if x >= 0x8000:
-                    x -= 0x10000
-                if y >= 0x8000:
-                    y -= 0x10000
-                lx, ly = x - rect.left, y - rect.top
-                w = rect.right - rect.left
-                h = rect.bottom - rect.top
-                # 标题栏区域：按钮 → HTCLIENT（可点击），其余 → HTCAPTION（可拖动）
-                if 0 <= ly < app._titlebar_h:
-                    for (bx, by, bw, bh) in app._tb_hit_rects:
-                        if bx <= lx < bx + bw and by <= ly < by + bh:
-                            return HTCLIENT
-                    return HTCAPTION
-                # 边框缩放
-                if lx <= EDGE and ly <= EDGE:
-                    return HTTOPLEFT
-                if lx >= w - EDGE and ly <= EDGE:
-                    return HTTOPRIGHT
-                if lx <= EDGE and ly >= h - EDGE:
-                    return HTBOTTOMLEFT
-                if lx >= w - EDGE and ly >= h - EDGE:
-                    return HTBOTTOMRIGHT
-                if ly <= EDGE:
-                    return HTTOP
-                if ly >= h - EDGE:
-                    return HTBOTTOM
-                if lx <= EDGE:
-                    return HTLEFT
-                if lx >= w - EDGE:
-                    return HTRIGHT
-                return HTCLIENT
-            if msg == WM_NCLBUTTONDBLCLK and wparam == HTCAPTION:
-                app._dbl_click_flag = True
-                return 0
-            return user32.CallWindowProcW(app._orig_wndproc, hwnd, msg, wparam, lparam)
-
-        self._wnd_proc_fn = wnd_proc
-        WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
-                                     ctypes.c_ssize_t, ctypes.c_ssize_t)
-        self._wnd_proc_type = WNDPROC
-        proc_ptr = WNDPROC(wnd_proc)
-        self._wnd_proc_holder = proc_ptr
-        self._orig_wndproc = GetWindowLong(hwnd, -4)  # GWL_WNDPROC
-        if not self._orig_wndproc:
-            raise OSError("GetWindowLong failed")
-        SetWindowLong(hwnd, -4, ctypes.cast(proc_ptr, ctypes.c_void_p).value or proc_ptr)
-        # 保留原生窗口样式（不设 overrideredirect）→ 任务栏按钮/最小化/还原走系统机制
-        # 仅去掉系统菜单（自绘标题栏不需要），保留任务栏按钮相关样式
-        try:
-            GWL_STYLE = -16
-            WS_SYSMENU = 0x00080000
-            cur_style = GetWindowLong(hwnd, GWL_STYLE)
-            SetWindowLong(hwnd, GWL_STYLE, cur_style & ~WS_SYSMENU)
-        except Exception:
-            pass
 
     def _maximize_to_workarea(self):
         """将窗口铺满工作区（排除任务栏）。用 Tk geometry 设置，避免被内部布局重置。"""
@@ -2638,48 +2456,6 @@ class FileSearcherApp:
             self._normal_rect = None
         except Exception:
             pass
-
-    def _restore_normal_size(self):
-        """从铺满状态还原为居中的常规尺寸。"""
-        try:
-            from ctypes import wintypes
-            user32 = ctypes.windll.user32
-            rect = wintypes.RECT()
-            user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
-            wa_w = rect.right - rect.left
-            wa_h = rect.bottom - rect.top
-            w = int(min(1200, wa_w * 0.86))
-            h = int(min(800, wa_h * 0.88))
-            x = rect.left + (wa_w - w) // 2
-            y = rect.top + (wa_h - h) // 2
-            self.root.geometry(f"{w}x{h}+{x}+{y}")
-            self.root.update_idletasks()
-            self._normal_rect = (x, y, w, h)
-        except Exception:
-            pass
-
-    def _toggle_maximize(self, _event=None):
-        """双击标题栏：铺满工作区 / 还原常规尺寸 之间切换。"""
-        if self._frameless:
-            if self._normal_rect is None:
-                self._restore_normal_size()
-            else:
-                self._maximize_to_workarea()
-        else:
-            try:
-                if self.root.state() == "zoomed":
-                    self.root.state("normal")
-                else:
-                    self.root.state("zoomed")
-            except Exception:
-                pass
-
-    def _poll_dbl_click(self):
-        """轮询 WndProc 里的双击标志（WndProc 中不能直接调用 Tk）。"""
-        if getattr(self, "_dbl_click_flag", False):
-            self._dbl_click_flag = False
-            self._toggle_maximize()
-        self.root.after(150, self._poll_dbl_click)
 
 
     # ================================================================
@@ -3943,14 +3719,12 @@ class FileSearcherApp:
     def _set_win_icon(self, img: Image.Image):
         """设置窗口图标（标题栏 + 任务栏 + Alt+Tab）。
 
-        pythonw 进程默认任务栏会显示 python 图标，因为窗口没有 WS_EX_APPWINDOW、
-        且没显式设置小/大图标。这里用 ctypes 走 WM_SETICON 同时设置 ICON_SMALL/ICON_BIG
-        （任务栏/标题栏用 SMALL，Alt+Tab 用 BIG），并置 WS_EX_APPWINDOW 让窗口拥有独立
-        任务栏项并显示窗口图标，而不是被归组到 pythonw.exe。
+        关键点：给本进程设独立 AppUserModelID（SetCurrentProcessExplicitAppUserModelID），
+        任务栏才不归组到 pythonw.exe 的默认图标；再 WM_SETICON 设小图标（标题栏/任务栏用）。
+        只设 ICON_SMALL 并保活 HICON（Windows 不会帮我们保活，会被 GC 后图标失效）。
         """
         import tempfile as _tf
         from ctypes import wintypes
-        user32 = ctypes.windll.user32
         try:
             tmp = _tf.NamedTemporaryFile(suffix=".ico", delete=False)
             tmp.close()
@@ -3966,41 +3740,31 @@ class FileSearcherApp:
                 pass
             return
         try:
+            user32 = ctypes.windll.user32
+            shell32 = ctypes.windll.shell32
+            # ① 独立任务栏分组：不设则任务栏归 pythonw.exe → 显示 python 图标
+            try:
+                shell32.SetCurrentProcessExplicitAppUserModelID(
+                    ctypes.c_wchar_p("FileSearcher.App"))
+            except Exception as e:
+                _diag(f"[icon] SetAppUserModelID FAIL {e!r}")
+            # ② 设窗口小图标（标题栏/任务栏）
             hwnd = self.root.winfo_id()
-            IMAGE_ICON = 1
-            LR_LOADFROMFILE = 0x0010
-            WM_SETICON = 0x0080
-            ICON_SMALL, ICON_BIG = 0, 1
-            GWL_EXSTYLE = -20
-            WS_EX_APPWINDOW = 0x00040000
-            SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE = 0x0020, 0x0002, 0x0001
-            SWP_NOZORDER, SWP_NOOWNERZORDER = 0x0004, 0x0200
-            # 显式声明类型，避免 64 位下 HANDLE 被当 c_int 截断导致图标句柄损坏
+            IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
+            WM_SETICON, ICON_SMALL = 0x0080, 0
             user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR,
                                           wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT]
             user32.LoadImageW.restype = wintypes.HANDLE
-            user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                            wintypes.WPARAM, wintypes.LPARAM]
             user32.SendMessageW.restype = wintypes.LPARAM
             h_small = user32.LoadImageW(0, self._ico_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
-            h_big = user32.LoadImageW(0, self._ico_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
             if h_small:
                 user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_small)
-            if h_big:
-                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_big)
-            # 独立任务栏项（显示窗口图标而非 pythonw）
-            cur_ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur_ex | WS_EX_APPWINDOW)
-            # 重绘非客户区（标题栏图标/按钮）
-            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
-                                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
-                                | SWP_NOZORDER | SWP_NOOWNERZORDER)
-            _diag(f"[icon] WM_SETICON small={bool(h_small)} big={bool(h_big)} ex_appwindow=1")
+                self._hicon_small = h_small   # 保活：不被 GC，否则图标被销毁
+            _diag(f"[icon] AppUserModelID set, h_small={bool(h_small)}")
         except Exception as e:
-            _diag(f"[icon] WM_SETICON FAIL {e!r}")
-            try:
-                self.root.iconbitmap(self._ico_path)
-            except Exception:
-                pass
+            _diag(f"[icon] FAIL {e!r}")
 
     def _create_tray_icon(self, size: int = 64) -> Image.Image:
         """生成程序图标（渐变圆角方块 + 白色放大镜）。size=64 供任务栏高清；托盘用 32 缩放。"""
