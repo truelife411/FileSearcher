@@ -2508,8 +2508,9 @@ class FileSearcherApp:
     def _maximize_to_workarea(self):
         """将窗口铺满工作区（排除任务栏），并在程序内禁缩放/最大化拖拽。
 
-        铺满用 Tk geometry 设工作区矩形；随后把 maxsize 钳到工作区（用户拖边角也超不过
-        工作区），配合 _setup_frameless 去掉最大化钮 → 窗口不能真正放大或最大化。
+        用 Win32 SetWindowPos 直接设窗口矩形为工作区（物理像素，坐标系准确，绕过 Tk
+        geometry 在高 DPI 下的缩放坑）；随后把 maxsize 钳到工作区（拖边角也超不过），
+        配合 WndProc 拦截最大化 → 窗口不能真正放大或最大化。
         """
         if sys.platform != "win32":
             return
@@ -2520,17 +2521,32 @@ class FileSearcherApp:
             user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
             w = rect.right - rect.left
             h = rect.bottom - rect.top
-            self.root.geometry(f"{w}x{h}+{rect.left}+{rect.top}")
-            self.root.update_idletasks()
-            # 程序内钳制：拖边角最多到工作区大小；最小可缩到 640x400 便于查看
+            hwnd = self.root.winfo_id()
+            # 先抬 minsize 到工作区：Tk 会用「内容请求尺寸」在重新布局时覆盖 SetWindowPos，
+            # 导致窗口被缩回（实测 SetWindowPos 2560x1368 后被缩成 640x426）。minsize=工作区
+            # 让 Tk 内部尺寸目标就是工作区，不再缩回；maxsize 同步钳制，拖边角也超不出。
             try:
+                self.root.minsize(w, h)
                 self.root.maxsize(w, h)
-                self.root.minsize(640, 400)
             except Exception:
                 pass
+            SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
+            user32.SetWindowPos(hwnd, 0, rect.left, rect.top, w, h,
+                                SWP_NOZORDER | SWP_NOACTIVATE)
+            self.root.update_idletasks()
             self._normal_rect = None
-        except Exception:
-            pass
+            _diag(f"[maximize] SetWindowPos workarea=({rect.left},{rect.top}) {w}x{h}")
+            # idle 后回读实际窗口矩形，确认铺满未被 DWM/布局回缩
+            def _verify():
+                try:
+                    r = wintypes.RECT()
+                    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
+                    _diag(f"[maximize] actual rect=({r.left},{r.top}) {r.right-r.left}x{r.bottom-r.top}")
+                except Exception:
+                    pass
+            self.root.after_idle(_verify)
+        except Exception as e:
+            _diag(f"[maximize] FAIL {e!r}")
 
 
     # ================================================================
