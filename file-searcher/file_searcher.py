@@ -2265,7 +2265,6 @@ class FileSearcherApp:
         self._tb_hit_rects = []
         self._dbl_click_flag = False
         self._orig_wndproc = None
-        self._min_to_taskbar = False   # 「—」标准最小化标志（区别于「✕」进托盘）
 
         IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引
         self._build_ui()
@@ -2281,7 +2280,8 @@ class FileSearcherApp:
 
         self.root.after(100, self._load_all)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.root.bind("<Unmap>", self._on_minimize)
+        # 不再绑 <Unmap>：它在子控件 unmap 时也冒泡触发，会误把窗口收进托盘。
+        # 「✕」进托盘走 _on_close；「—」留任务栏走 _minimize_window 的 iconify。
         self.root.bind("<Configure>", self._on_view_resize, add="+")
         self.root.after(150, self._ensure_maximized)
         self.root.after(1500, self._log_diag)
@@ -2311,7 +2311,7 @@ class FileSearcherApp:
         """构建全部主界面控件（支持按新缩放重建）。"""
         self._configure_theme()
         self._icon_cache = WindowsShellIconCache(self.root, self.colors["surface"], size=self._s(22))
-        self._build_titlebar()
+        # 用系统原生标题栏（含最小化/最大化/关闭按钮与任务栏图标），不再自绘标题栏
         self._build_toolbar()
         self._build_tree()
         self._build_statusbar()
@@ -2481,29 +2481,33 @@ class FileSearcherApp:
         self._tb_hit_rects = rects
 
     def _setup_frameless(self):
-        """尝试启用无边框自绘标题栏；任何失败都回退到系统原生标题栏。"""
+        """使用系统原生标题栏：任务栏图标/最小化/关闭/缩放走系统。
+
+        自绘标题栏已移除；去掉最大化按钮（WS_MAXIMIZEBOX，用户不需要最大化），
+        启动时铺满工作区（保留任务栏）。托盘行为：✕ 收进托盘，— 最小化到任务栏。
+        """
+        self._frameless = False
         if sys.platform != "win32":
-            # 非 Windows：隐藏自绘标题栏，用原生标题栏 + 最大化
             try:
-                self._titlebar.pack_forget()
                 self.root.state("zoomed")
             except Exception:
                 pass
             return
         try:
-            self.root.overrideredirect(True)
-            self._apply_frameless_wndproc()
-            self._maximize_to_workarea()
-            self._frameless = True
-            self.root.after(200, self._poll_dbl_click)
-        except Exception:
-            self._frameless = False
+            self.root.deiconify()
+            # 去掉最大化按钮（WS_MAXIMIZEBOX）→ 标题栏最大化按钮自动置灰/隐藏
             try:
-                self.root.overrideredirect(False)
-                self._titlebar.pack_forget()
-                self.root.state("zoomed")
+                hwnd = self.root.winfo_id()
+                GWL_STYLE = -16
+                WS_MAXIMIZEBOX = 0x00010000
+                cur = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, cur & ~WS_MAXIMIZEBOX)
             except Exception:
                 pass
+            self._maximize_to_workarea()   # 铺满工作区（不依赖 zoomed）
+            _diag(f"[frameless] native titlebar, no-maximize, state={self.root.state()}")
+        except Exception as e:
+            _diag(f"[frameless] FAIL {e!r}")
 
     def _apply_frameless_wndproc(self):
         """挂载 WM_NCHITTEST 窗口过程：标题栏系统级拖动、四边缩放、双击最大化。"""
@@ -2526,6 +2530,7 @@ class FileSearcherApp:
         user32.CallWindowProcW.restype = ctypes.c_ssize_t
 
         WM_NCHITTEST = 0x0084
+        WM_NCCALCSIZE = 0x0083
         WM_NCLBUTTONDBLCLK = 0x00A3
         HTCLIENT = 1
         HTCAPTION = 2
@@ -2542,6 +2547,12 @@ class FileSearcherApp:
         app = self
 
         def wnd_proc(hwnd, msg, wparam, lparam):
+            if msg == WM_NCCALCSIZE:
+                # 裁剪原生标题栏：客户区扩展到整个窗口（返回全客户区）
+                if wparam:
+                    return 0
+                # wparam==0 时返回 0 表示客户区=窗口区
+                return 0
             if msg == WM_NCHITTEST:
                 rect = wintypes.RECT()
                 user32.GetWindowRect(hwnd, ctypes.byref(rect))
@@ -2593,12 +2604,13 @@ class FileSearcherApp:
         if not self._orig_wndproc:
             raise OSError("GetWindowLong failed")
         SetWindowLong(hwnd, -4, ctypes.cast(proc_ptr, ctypes.c_void_p).value or proc_ptr)
-        # 让无边框窗口保留任务栏按钮
+        # 保留原生窗口样式（不设 overrideredirect）→ 任务栏按钮/最小化/还原走系统机制
+        # 仅去掉系统菜单（自绘标题栏不需要），保留任务栏按钮相关样式
         try:
-            GWL_EXSTYLE = -20
-            WS_EX_APPWINDOW = 0x00040000
-            cur = GetWindowLong(hwnd, GWL_EXSTYLE)
-            SetWindowLong(hwnd, GWL_EXSTYLE, cur | WS_EX_APPWINDOW)
+            GWL_STYLE = -16
+            WS_SYSMENU = 0x00080000
+            cur_style = GetWindowLong(hwnd, GWL_STYLE)
+            SetWindowLong(hwnd, GWL_STYLE, cur_style & ~WS_SYSMENU)
         except Exception:
             pass
 
@@ -3906,58 +3918,72 @@ class FileSearcherApp:
 
     def _on_close(self):
         """点「✕」→ 收进系统托盘（任务栏不留图标，托盘可还原/退出）。"""
-        self._min_to_taskbar = False
         self.root.withdraw()
         self._start_tray_auto_index_timer()
 
     def _minimize_window(self):
-        """点「—」→ 标准最小化（任务栏留图标，点任务栏可还原）。
-
-        无边框 overrideredirect 窗口不响应 Tk 的 iconify，需直接发 SC_MINIMIZE。
-        标志位 _min_to_taskbar 让 _on_minimize 跳过托盘收回逻辑。
-        """
-        self._min_to_taskbar = True
+        """点「—」→ 标准最小化到任务栏（保留原生窗口框架后 iconify 有效）。"""
         try:
-            hwnd = self.root.winfo_id()
-            ctypes.windll.user32.PostMessageW(hwnd, 0x0112, 0xF020, 0)  # WM_SYSCOMMAND, SC_MINIMIZE
-        except Exception:
-            try:
-                self.root.iconify()
-            except Exception:
-                pass
+            self.root.iconify()
+        except Exception as e:
+            _diag(f"[min] iconify fail {e!r}")
 
     # ================================================================
     #  系统托盘
     # ================================================================
 
-    def _create_tray_icon(self) -> Image.Image:
-        """用 Pillow 生成 32x32 的托盘图标（渐变底 + 白色放大镜）。"""
-        img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+    def _set_win_icon(self, img: Image.Image):
+        """设置窗口图标（任务栏/Alt+Tab/标题栏）。
+
+        Tk 的 iconphoto 对任务栏大图标有时不生效；用 iconbitmap 加载 .ico 文件最可靠
+        （Windows 原生路径，任务栏图标跟随）。临时 .ico 写系统临时目录，保活引用。
+        """
+        try:
+            import tempfile as _tf
+            tmp = _tf.NamedTemporaryFile(suffix=".ico", delete=False)
+            tmp.close()
+            img.save(tmp.name, format="ICO", sizes=[(256, 256), (64, 64), (32, 32), (16, 16)])
+            self.root.iconbitmap(tmp.name)
+            self._ico_path = tmp.name   # 保活防 GC
+        except Exception:
+            pass
+
+    def _create_tray_icon(self, size: int = 64) -> Image.Image:
+        """生成程序图标（渐变圆角方块 + 白色放大镜）。size=64 供任务栏高清；托盘用 32 缩放。"""
+        s = max(16, int(size))
+        img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
         c = self.colors
         rgb1 = tuple(int(c["accent_grad_a"].lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
         rgb2 = tuple(int(c["accent_grad_b"].lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
         # 垂直渐变圆角方块底
-        grad = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+        grad = Image.new("RGBA", (s, s), (0, 0, 0, 0))
         gd = ImageDraw.Draw(grad)
-        for y in range(32):
-            t = y / 31
+        for y in range(s):
+            t = y / (s - 1)
             col = tuple(int(rgb1[i] + (rgb2[i] - rgb1[i]) * t) for i in range(3))
-            gd.line([(0, y), (31, y)], fill=col + (255,))
-        mask = Image.new("L", (32, 32), 0)
-        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 31, 31), radius=8, fill=255)
+            gd.line([(0, y), (s - 1, y)], fill=col + (255,))
+        mask = Image.new("L", (s, s), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, s - 1, s - 1), radius=max(2, s // 4), fill=255)
         grad.putalpha(mask)
-        # 白色放大镜
+        # 白色放大镜（按 s 缩放）
         draw = ImageDraw.Draw(grad)
-        draw.ellipse([9, 8, 21, 20], outline=(255, 255, 255, 255), width=3)
-        draw.line([18.5, 18.5, 25, 25], fill=(255, 255, 255, 255), width=4)
+        u = s / 32.0
+        draw.ellipse([9 * u, 8 * u, 21 * u, 20 * u], outline=(255, 255, 255, 255),
+                     width=max(2, int(3 * u)))
+        draw.line([18.5 * u, 18.5 * u, 25 * u, 25 * u], fill=(255, 255, 255, 255),
+                  width=max(2, int(4 * u)))
         return grad
 
     def _setup_tray(self):
         """创建系统托盘图标和菜单。"""
         try:
-            icon = self._create_tray_icon()
+            icon = self._create_tray_icon(32)
             try:
-                self.root.iconphoto(True, ImageTk.PhotoImage(icon, master=self.root))
+                # 必须保存 PhotoImage 引用（否则被 GC，任务栏退回默认图标）；
+                # 任务栏/标题栏用 64px 高清版
+                self._taskbar_photo = ImageTk.PhotoImage(self._create_tray_icon(64), master=self.root)
+                self.root.iconphoto(True, self._taskbar_photo)
+                self._set_win_icon(self._create_tray_icon(64))
             except Exception:
                 pass
             menu = pystray.Menu(
@@ -3973,15 +3999,6 @@ class FileSearcherApp:
         except Exception:
             self._tray = None
 
-    def _on_minimize(self, event=None):
-        """最小化处理：「—」最小化（_min_to_taskbar）留在任务栏；其余（✕）收进托盘。"""
-        if getattr(self, "_min_to_taskbar", False):
-            self._min_to_taskbar = False   # 标准最小化：保留任务栏图标，不进托盘
-            return
-        if self.root.state() == "iconic":
-            self.root.after(100, self.root.withdraw)
-            self._start_tray_auto_index_timer()
-
     def _tray_restore(self, icon=None, item=None):
         """双击托盘图标：恢复窗口。"""
         if self._tray is None:
@@ -3993,16 +4010,7 @@ class FileSearcherApp:
         self._cancel_tray_auto_index_timer()
         self.root.deiconify()
         self.root.lift()
-        if self._frameless:
-            self._maximize_to_workarea()
-        else:
-            try:
-                if sys.platform == "win32":
-                    self.root.state("zoomed")
-                else:
-                    self.root.attributes("-zoomed", True)
-            except Exception:
-                pass
+        self._maximize_to_workarea()   # 恢复也铺满工作区（不依赖 zoomed）
         self.root.focus_force()
         # 搜索框聚焦；有内容则全选，无内容光标归零。
         self.search_entry.focus_set()
