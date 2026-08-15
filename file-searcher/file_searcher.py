@@ -403,56 +403,24 @@ def format_size(size: int) -> str:
 def open_with_default(path: str):
     """用系统默认软件打开文件（失败时抛出 OSError，由调用方提示）。
 
-    Windows 用 ShellExecuteExW（与资源管理器双击同一路径），对走 DDE 握手的
-    关联程序（部分视频播放器）比 os.startfile 更可靠——后者在后台线程发起 DDE
-    易出现"程序窗口起来了但没加载文件"的空窗口。仍放后台线程避免 UI 阻塞。
+    必须在主线程调用 os.startfile：它底层走 ShellExecute，依赖调用线程的
+    COM 初始化与消息循环。后台守护线程没有这些，对某些文件关联（DDE/shell
+    extension）会出现「程序窗口起来了但文件没传过去」的空窗口。os.startfile
+    本身是异步的（发消息即返回），不会阻塞 UI。文档中心在主线程调用故正常。
     """
-    def _run():
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(path))
+        else:
+            subprocess.Popen(["xdg-open", path])
+    except OSError as e:
         try:
-            if sys.platform == "win32":
-                _shell_open(path)
-            else:
-                subprocess.Popen(["xdg-open", path])
-        except OSError as e:
-            try:
-                with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
-                    fo.write(f"[open-error] {path} -> {e}\n")
-            except Exception:
-                pass
-    threading.Thread(target=_run, daemon=True).start()
+            with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
+                fo.write(f"[open-error] {path} -> {e}\n")
+        except Exception:
+            pass
+        raise
 
-
-def _shell_open(path: str):
-    """ShellExecuteExW 以默认「open」动词打开文件（等待 DDE 握手完成）。"""
-    from ctypes import wintypes
-
-    class SHELLEXECUTEINFOW(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD), ("fMask", wintypes.ULONG),
-            ("hwnd", wintypes.HWND), ("lpVerb", wintypes.LPCWSTR),
-            ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
-            ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int),
-            ("hInstApp", wintypes.HINSTANCE), ("lpIDList", ctypes.c_void_p),
-            ("lpClass", wintypes.LPCWSTR), ("hkeyClass", ctypes.c_void_p),
-            ("dwHotKey", wintypes.DWORD), ("hIcon", wintypes.HANDLE),
-            ("hProcess", wintypes.HANDLE),
-        ]
-
-    SEE_MASK_FLAG_DDEWAIT = 0x00000100
-    SEE_MASK_NOASYNC = 0x00010000          # 同步等待关联程序就绪（含 DDE）
-    SW_SHOWNORMAL = 1
-    info = SHELLEXECUTEINFOW()
-    info.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
-    info.fMask = SEE_MASK_FLAG_DDEWAIT | SEE_MASK_NOASYNC
-    info.hwnd = None
-    info.lpVerb = "open"
-    info.lpFile = os.path.normpath(path)
-    info.lpParameters = None
-    info.lpDirectory = None
-    info.nShow = SW_SHOWNORMAL
-    info.hInstApp = None
-    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)):
-        raise OSError(f"ShellExecuteEx 失败: {path}")
 
 def open_file_location(path: str):
     """在资源管理器中定位并选中文件"""
