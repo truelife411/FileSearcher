@@ -3828,7 +3828,6 @@ class FileSearcherApp:
             return
         try:
             user32 = ctypes.windll.user32
-            shell32 = ctypes.windll.shell32
             hwnd = self.root.winfo_id()
             IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
             WM_SETICON = 0x0080
@@ -3855,14 +3854,19 @@ class FileSearcherApp:
                 self.root.iconbitmap(ico_path)
             except Exception:
                 pass
-            # ③ 最后设 AUMID（此时窗口已有正确图标，快照即正确图标）
-            #    值带 .2 后缀：强制 Windows 丢弃之前缓存的通用图标分组
-            try:
-                shell32.SetCurrentProcessExplicitAppUserModelID(
-                    ctypes.c_wchar_p("FileSearcher.App.2"))
-            except Exception as e:
-                _diag(f"[icon] AUMID FAIL {e!r}")
-            _diag(f"[icon] small={bool(h_small)} big={bool(h_big)}")
+            # ③ 设 WS_EX_APPWINDOW：让窗口拥有独立任务栏按钮，图标取窗口 WM_SETICON
+            #    （进程级 AUMID 的图标 Windows 从可执行文件 pythonw.exe 取，拿不到窗口图标，
+            #    导致通用图标；故弃用 AUMID，改窗口级方案）
+            GWL_EXSTYLE = -20
+            WS_EX_APPWINDOW = 0x00040000
+            SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE = 0x0020, 0x0002, 0x0001
+            SWP_NOZORDER, SWP_NOOWNERZORDER = 0x0004, 0x0200
+            cur_ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur_ex | WS_EX_APPWINDOW)
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
+                                | SWP_NOZORDER | SWP_NOOWNERZORDER)
+            _diag(f"[icon] small={bool(h_small)} big={bool(h_big)} appwindow=1")
         except Exception as e:
             _diag(f"[icon] FAIL {e!r}")
 
