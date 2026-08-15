@@ -403,17 +403,17 @@ def format_size(size: int) -> str:
 def open_with_default(path: str):
     """用系统默认软件打开文件（失败时抛出 OSError，由调用方提示）。
 
-    ShellExecute 在关联程序响应慢（DDE 握手、大文件预读）时会同步等待，
-    因此放入后台线程执行，保证双击后 UI 立即响应、不卡顿。
+    Windows 用 ShellExecuteExW（与资源管理器双击同一路径），对走 DDE 握手的
+    关联程序（部分视频播放器）比 os.startfile 更可靠——后者在后台线程发起 DDE
+    易出现"程序窗口起来了但没加载文件"的空窗口。仍放后台线程避免 UI 阻塞。
     """
     def _run():
         try:
             if sys.platform == "win32":
-                os.startfile(os.path.normpath(path))
+                _shell_open(path)
             else:
                 subprocess.Popen(["xdg-open", path])
         except OSError as e:
-            # 后台线程无法弹窗，记录到日志便于排查
             try:
                 with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
                     fo.write(f"[open-error] {path} -> {e}\n")
@@ -421,6 +421,38 @@ def open_with_default(path: str):
                 pass
     threading.Thread(target=_run, daemon=True).start()
 
+
+def _shell_open(path: str):
+    """ShellExecuteExW 以默认「open」动词打开文件（等待 DDE 握手完成）。"""
+    from ctypes import wintypes
+
+    class SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD), ("fMask", wintypes.ULONG),
+            ("hwnd", wintypes.HWND), ("lpVerb", wintypes.LPCWSTR),
+            ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
+            ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int),
+            ("hInstApp", wintypes.HINSTANCE), ("lpIDList", ctypes.c_void_p),
+            ("lpClass", wintypes.LPCWSTR), ("hkeyClass", ctypes.c_void_p),
+            ("dwHotKey", wintypes.DWORD), ("hIcon", wintypes.HANDLE),
+            ("hProcess", wintypes.HANDLE),
+        ]
+
+    SEE_MASK_FLAG_DDEWAIT = 0x00000100
+    SEE_MASK_NOASYNC = 0x00010000          # 同步等待关联程序就绪（含 DDE）
+    SW_SHOWNORMAL = 1
+    info = SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+    info.fMask = SEE_MASK_FLAG_DDEWAIT | SEE_MASK_NOASYNC
+    info.hwnd = None
+    info.lpVerb = "open"
+    info.lpFile = os.path.normpath(path)
+    info.lpParameters = None
+    info.lpDirectory = None
+    info.nShow = SW_SHOWNORMAL
+    info.hInstApp = None
+    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)):
+        raise OSError(f"ShellExecuteEx 失败: {path}")
 
 def open_file_location(path: str):
     """在资源管理器中定位并选中文件"""
@@ -2233,6 +2265,7 @@ class FileSearcherApp:
         self._tb_hit_rects = []
         self._dbl_click_flag = False
         self._orig_wndproc = None
+        self._min_to_taskbar = False   # 「—」标准最小化标志（区别于「✕」进托盘）
 
         IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引
         self._build_ui()
@@ -2429,7 +2462,7 @@ class FileSearcherApp:
 
         # 右侧按钮从右往左：关闭 → 最小化（程序启动即最大化，无需最大化按钮）
         _make_tb_btn("✕", hover_bg="#D64545", command=self._on_close)
-        _make_tb_btn("—", command=self._on_close)
+        _make_tb_btn("—", command=self._minimize_window)
         # 双击标题栏空白处：铺满/还原
         bar.bind("<Double-Button-1>", self._toggle_maximize)
         for child in bar.winfo_children():
@@ -3872,9 +3905,26 @@ class FileSearcherApp:
             pass
 
     def _on_close(self):
-        """关闭窗口 → 最小化到系统托盘。"""
+        """点「✕」→ 收进系统托盘（任务栏不留图标，托盘可还原/退出）。"""
+        self._min_to_taskbar = False
         self.root.withdraw()
         self._start_tray_auto_index_timer()
+
+    def _minimize_window(self):
+        """点「—」→ 标准最小化（任务栏留图标，点任务栏可还原）。
+
+        无边框 overrideredirect 窗口不响应 Tk 的 iconify，需直接发 SC_MINIMIZE。
+        标志位 _min_to_taskbar 让 _on_minimize 跳过托盘收回逻辑。
+        """
+        self._min_to_taskbar = True
+        try:
+            hwnd = self.root.winfo_id()
+            ctypes.windll.user32.PostMessageW(hwnd, 0x0112, 0xF020, 0)  # WM_SYSCOMMAND, SC_MINIMIZE
+        except Exception:
+            try:
+                self.root.iconify()
+            except Exception:
+                pass
 
     # ================================================================
     #  系统托盘
@@ -3924,7 +3974,10 @@ class FileSearcherApp:
             self._tray = None
 
     def _on_minimize(self, event=None):
-        """窗口最小化时隐藏到托盘，并按设置启动定时索引。"""
+        """最小化处理：「—」最小化（_min_to_taskbar）留在任务栏；其余（✕）收进托盘。"""
+        if getattr(self, "_min_to_taskbar", False):
+            self._min_to_taskbar = False   # 标准最小化：保留任务栏图标，不进托盘
+            return
         if self.root.state() == "iconic":
             self.root.after(100, self.root.withdraw)
             self._start_tray_auto_index_timer()
