@@ -2279,7 +2279,6 @@ class FileSearcherApp:
         # 不再绑 <Unmap>：它在子控件 unmap 时也冒泡触发，会误把窗口收进托盘。
         # 「✕」进托盘走 _on_close；「—」留任务栏走 _minimize_window 的 iconify。
         self.root.bind("<Configure>", self._on_view_resize, add="+")
-        self.root.after(150, self._ensure_maximized)
         self.root.after(1500, self._log_diag)
         if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
             self.root.after(500, self._do_index_silent)
@@ -2346,11 +2345,6 @@ class FileSearcherApp:
         self._refresh_tree()
         self._update_result_status()
 
-    def _ensure_maximized(self):
-        """启动后强制铺满工作区（无边框模式）。"""
-        if self._frameless and self._normal_rect is None:
-            self._maximize_to_workarea()
-
     def _apply_theme(self):
         """主题切换立即生效：换配色并重建主界面（保留搜索词与结果）。"""
         self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
@@ -2415,18 +2409,15 @@ class FileSearcherApp:
     # ================================================================
 
     def _setup_frameless(self):
-        """使用系统原生标题栏：任务栏图标/最小化/关闭/缩放走系统。
+        """使用系统原生标题栏：任务栏图标/最小化/关闭走系统；启动即铺满工作区。
 
-        自绘标题栏已移除；去掉最大化按钮（WS_MAXIMIZEBOX，用户不需要最大化），
-        启动时铺满工作区（保留任务栏）。托盘行为：✕ 收进托盘，— 最小化到任务栏。
+        启动铺满工作区（保留任务栏）= _maximize_to_workarea()。
+        最大化「不可用」：窗口保持可缩放（铺满生效的前提，resizable(False) 会钳制尺寸），
+        通过 ① 去掉 WS_MAXIMIZEBOX 样式位（最大化钮置灰）+ ② 拦截双击标题栏最大化
+        + ③ _maximize_to_workarea 里程序内禁缩放拖拽，三路共同保证不能真正放大窗口。
+        托盘行为：✕ 收进托盘，— 最小化到任务栏。
         """
         self._frameless = False
-        # 禁用最大化：窗口可最小化、可关进托盘，但不可缩放/最大化（最大化钮自动置灰消失）
-        # 用 Tk 原生 resizable(False,False) 比 ctypes 改样式位可靠，与多 DPI 不冲突
-        try:
-            self.root.resizable(False, False)
-        except Exception:
-            pass
         if sys.platform != "win32":
             try:
                 self.root.state("zoomed")
@@ -2435,13 +2426,32 @@ class FileSearcherApp:
             return
         try:
             self.root.deiconify()
-            self._maximize_to_workarea()   # 铺满工作区（不依赖 zoomed）
-            _diag(f"[frameless] native titlebar, resizable=False(no-maximize), state={self.root.state()}")
+            self._maximize_to_workarea()   # 启动即铺满工作区（不依赖 zoomed）
+            # 去掉最大化样式位（最大化钮置灰；去掉后即使用户点也无最大化能力）
+            try:
+                hwnd = self.root.winfo_id()
+                user32 = ctypes.windll.user32
+                GWL_STYLE = -16
+                WS_MAXIMIZEBOX = 0x00010000
+                SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE = 0x0020, 0x0002, 0x0001
+                SWP_NOZORDER, SWP_NOOWNERZORDER = 0x0004, 0x0200
+                cur = user32.GetWindowLongW(hwnd, GWL_STYLE)
+                user32.SetWindowLongW(hwnd, GWL_STYLE, cur & ~WS_MAXIMIZEBOX)
+                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
+                                    | SWP_NOZORDER | SWP_NOOWNERZORDER)
+            except Exception:
+                pass
+            _diag(f"[frameless] native titlebar, maximized-to-workarea, no-maximize-box, state={self.root.state()}")
         except Exception as e:
             _diag(f"[frameless] FAIL {e!r}")
 
     def _maximize_to_workarea(self):
-        """将窗口铺满工作区（排除任务栏）。用 Tk geometry 设置，避免被内部布局重置。"""
+        """将窗口铺满工作区（排除任务栏），并在程序内禁缩放/最大化拖拽。
+
+        铺满用 Tk geometry 设工作区矩形；随后把 maxsize 钳到工作区（用户拖边角也超不过
+        工作区），配合 _setup_frameless 去掉最大化钮 → 窗口不能真正放大或最大化。
+        """
         if sys.platform != "win32":
             return
         try:
@@ -2453,6 +2463,12 @@ class FileSearcherApp:
             h = rect.bottom - rect.top
             self.root.geometry(f"{w}x{h}+{rect.left}+{rect.top}")
             self.root.update_idletasks()
+            # 程序内钳制：拖边角最多到工作区大小；最小可缩到 640x400 便于查看
+            try:
+                self.root.maxsize(w, h)
+                self.root.minsize(640, 400)
+            except Exception:
+                pass
             self._normal_rect = None
         except Exception:
             pass
