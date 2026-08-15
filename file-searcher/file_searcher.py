@@ -2495,16 +2495,24 @@ class FileSearcherApp:
             return
         try:
             self.root.deiconify()
-            # 去掉最大化按钮（WS_MAXIMIZEBOX）→ 标题栏最大化按钮自动置灰/隐藏
+            self._maximize_to_workarea()   # 铺满工作区（不依赖 zoomed）
+            # 去掉最大化按钮（WS_MAXIMIZEBOX）→ 标题栏最大化按钮置灰/隐藏；
+            # 改完样式必须 SetWindowPos(SWP_FRAMECHANGED) 强制重绘非客户区(标题栏)，
+            # 否则 Windows 不会刷新按钮状态，最大化钮依旧可点。
             try:
                 hwnd = self.root.winfo_id()
+                user32 = ctypes.windll.user32
                 GWL_STYLE = -16
                 WS_MAXIMIZEBOX = 0x00010000
-                cur = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
-                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, cur & ~WS_MAXIMIZEBOX)
+                SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE = 0x0020, 0x0002, 0x0001
+                SWP_NOZORDER, SWP_NOOWNERZORDER = 0x0004, 0x0200
+                cur = user32.GetWindowLongW(hwnd, GWL_STYLE)
+                user32.SetWindowLongW(hwnd, GWL_STYLE, cur & ~WS_MAXIMIZEBOX)
+                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
+                                    | SWP_NOZORDER | SWP_NOOWNERZORDER)
             except Exception:
                 pass
-            self._maximize_to_workarea()   # 铺满工作区（不依赖 zoomed）
             _diag(f"[frameless] native titlebar, no-maximize, state={self.root.state()}")
         except Exception as e:
             _diag(f"[frameless] FAIL {e!r}")
@@ -3933,20 +3941,66 @@ class FileSearcherApp:
     # ================================================================
 
     def _set_win_icon(self, img: Image.Image):
-        """设置窗口图标（任务栏/Alt+Tab/标题栏）。
+        """设置窗口图标（标题栏 + 任务栏 + Alt+Tab）。
 
-        Tk 的 iconphoto 对任务栏大图标有时不生效；用 iconbitmap 加载 .ico 文件最可靠
-        （Windows 原生路径，任务栏图标跟随）。临时 .ico 写系统临时目录，保活引用。
+        pythonw 进程默认任务栏会显示 python 图标，因为窗口没有 WS_EX_APPWINDOW、
+        且没显式设置小/大图标。这里用 ctypes 走 WM_SETICON 同时设置 ICON_SMALL/ICON_BIG
+        （任务栏/标题栏用 SMALL，Alt+Tab 用 BIG），并置 WS_EX_APPWINDOW 让窗口拥有独立
+        任务栏项并显示窗口图标，而不是被归组到 pythonw.exe。
         """
+        import tempfile as _tf
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
         try:
-            import tempfile as _tf
             tmp = _tf.NamedTemporaryFile(suffix=".ico", delete=False)
             tmp.close()
-            img.save(tmp.name, format="ICO", sizes=[(256, 256), (64, 64), (32, 32), (16, 16)])
-            self.root.iconbitmap(tmp.name)
+            img.save(tmp.name, format="ICO",
+                     sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
             self._ico_path = tmp.name   # 保活防 GC
         except Exception:
-            pass
+            return
+        if sys.platform != "win32":
+            try:
+                self.root.iconbitmap(self._ico_path)
+            except Exception:
+                pass
+            return
+        try:
+            hwnd = self.root.winfo_id()
+            IMAGE_ICON = 1
+            LR_LOADFROMFILE = 0x0010
+            WM_SETICON = 0x0080
+            ICON_SMALL, ICON_BIG = 0, 1
+            GWL_EXSTYLE = -20
+            WS_EX_APPWINDOW = 0x00040000
+            SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE = 0x0020, 0x0002, 0x0001
+            SWP_NOZORDER, SWP_NOOWNERZORDER = 0x0004, 0x0200
+            # 显式声明类型，避免 64 位下 HANDLE 被当 c_int 截断导致图标句柄损坏
+            user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR,
+                                          wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+            user32.LoadImageW.restype = wintypes.HANDLE
+            user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            user32.SendMessageW.restype = wintypes.LPARAM
+            h_small = user32.LoadImageW(0, self._ico_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+            h_big = user32.LoadImageW(0, self._ico_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+            if h_small:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_small)
+            if h_big:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_big)
+            # 独立任务栏项（显示窗口图标而非 pythonw）
+            cur_ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur_ex | WS_EX_APPWINDOW)
+            # 重绘非客户区（标题栏图标/按钮）
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
+                                | SWP_NOZORDER | SWP_NOOWNERZORDER)
+            _diag(f"[icon] WM_SETICON small={bool(h_small)} big={bool(h_big)} ex_appwindow=1")
+        except Exception as e:
+            _diag(f"[icon] WM_SETICON FAIL {e!r}")
+            try:
+                self.root.iconbitmap(self._ico_path)
+            except Exception:
+                pass
 
     def _create_tray_icon(self, size: int = 64) -> Image.Image:
         """生成程序图标（渐变圆角方块 + 白色放大镜）。size=64 供任务栏高清；托盘用 32 缩放。"""
@@ -3979,10 +4033,7 @@ class FileSearcherApp:
         try:
             icon = self._create_tray_icon(32)
             try:
-                # 必须保存 PhotoImage 引用（否则被 GC，任务栏退回默认图标）；
-                # 任务栏/标题栏用 64px 高清版
-                self._taskbar_photo = ImageTk.PhotoImage(self._create_tray_icon(64), master=self.root)
-                self.root.iconphoto(True, self._taskbar_photo)
+                # 用 WM_SETICON + WS_EX_APPWINDOW 设置窗口/任务栏图标（见 _set_win_icon）
                 self._set_win_icon(self._create_tray_icon(64))
             except Exception:
                 pass
