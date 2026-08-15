@@ -3797,26 +3797,32 @@ class FileSearcherApp:
     #  系统托盘
     # ================================================================
 
-    def _set_win_icon(self, img: Image.Image):
+    def _set_win_icon(self, img=None):
         """设置窗口图标（标题栏 + 任务栏 + Alt+Tab）。
 
-        关键点：给本进程设独立 AppUserModelID（SetCurrentProcessExplicitAppUserModelID），
-        任务栏才不归组到 pythonw.exe 的默认图标；再 WM_SETICON 设小图标（标题栏/任务栏用）。
-        只设 ICON_SMALL 并保活 HICON（Windows 不会帮我们保活，会被 GC 后图标失效）。
+        任务栏图标机制：Windows 任务栏按钮请求 WM_GETICON 优先取 ICON_BIG(32)，取不到才
+        回退 ICON_SMALL(16)，两者都没有则回退进程可执行文件图标（pythonw 的 python 图标）。
+        所以必须同时设 ICON_SMALL + ICON_BIG 并保活 HICON；再叠 Tk iconbitmap 双保险。
+        独立 AppUserModelID 让任务栏不归组到 pythonw。
         """
         import tempfile as _tf
         from ctypes import wintypes
-        try:
-            tmp = _tf.NamedTemporaryFile(suffix=".ico", delete=False)
-            tmp.close()
-            img.save(tmp.name, format="ICO",
-                     sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-            self._ico_path = tmp.name   # 保活防 GC
-        except Exception:
-            return
+        # 生成 / 复用 .ico（延迟重设时 img=None 直接复用已保存文件）
+        if getattr(self, "_ico_path", None) is None:
+            if img is None:
+                return
+            try:
+                tmp = _tf.NamedTemporaryFile(suffix=".ico", delete=False)
+                tmp.close()
+                img.save(tmp.name, format="ICO",
+                         sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+                self._ico_path = tmp.name   # 保活防 GC
+            except Exception:
+                return
+        ico_path = self._ico_path
         if sys.platform != "win32":
             try:
-                self.root.iconbitmap(self._ico_path)
+                self.root.iconbitmap(ico_path)
             except Exception:
                 pass
             return
@@ -3828,22 +3834,31 @@ class FileSearcherApp:
                 shell32.SetCurrentProcessExplicitAppUserModelID(
                     ctypes.c_wchar_p("FileSearcher.App"))
             except Exception as e:
-                _diag(f"[icon] SetAppUserModelID FAIL {e!r}")
-            # ② 设窗口小图标（标题栏/任务栏）
+                _diag(f"[icon] AUMID FAIL {e!r}")
             hwnd = self.root.winfo_id()
             IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
-            WM_SETICON, ICON_SMALL = 0x0080, 0
+            WM_SETICON = 0x0080
+            ICON_SMALL, ICON_BIG = 0, 1
             user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR,
                                           wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT]
             user32.LoadImageW.restype = wintypes.HANDLE
             user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
                                             wintypes.WPARAM, wintypes.LPARAM]
             user32.SendMessageW.restype = wintypes.LPARAM
-            h_small = user32.LoadImageW(0, self._ico_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+            h_small = user32.LoadImageW(0, ico_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+            h_big = user32.LoadImageW(0, ico_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
             if h_small:
                 user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_small)
-                self._hicon_small = h_small   # 保活：不被 GC，否则图标被销毁
-            _diag(f"[icon] AppUserModelID set, h_small={bool(h_small)}")
+                self._hicon_small = h_small   # 保活
+            if h_big:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_big)
+                self._hicon_big = h_big       # 保活
+            # ② Tk 官方双保险
+            try:
+                self.root.iconbitmap(ico_path)
+            except Exception:
+                pass
+            _diag(f"[icon] small={bool(h_small)} big={bool(h_big)}")
         except Exception as e:
             _diag(f"[icon] FAIL {e!r}")
 
@@ -3878,8 +3893,11 @@ class FileSearcherApp:
         try:
             icon = self._create_tray_icon(32)
             try:
-                # 用 WM_SETICON + WS_EX_APPWINDOW 设置窗口/任务栏图标（见 _set_win_icon）
+                # 用 WM_SETICON(small+big) + AppUserModelID + iconbitmap 设置窗口/任务栏图标
                 self._set_win_icon(self._create_tray_icon(64))
+                # 窗口显示后再重设一次（应对任务栏图标快照时机 / 缩放后丢失）
+                self.root.after(400, lambda: self._set_win_icon(None))
+                self.root.after(1200, lambda: self._set_win_icon(None))
             except Exception:
                 pass
             menu = pystray.Menu(
