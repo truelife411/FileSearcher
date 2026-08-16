@@ -13,7 +13,7 @@ import threading
 import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Windows DPI 感知
 if sys.platform == "win32":
@@ -118,10 +118,6 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a"}
 ARCHIVE_EXTENSIONS = {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".cab"}
 CODE_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".go", ".rs", ".php", ".rb", ".swift", ".kt", ".html", ".css", ".scss", ".json", ".xml", ".yaml", ".yml", ".sql", ".sh", ".ps1"}
-TYPE_FILTERS = {
-    "文档": DOCUMENT_EXTENSIONS, "图片": IMAGE_EXTENSIONS, "视频": VIDEO_EXTENSIONS,
-    "音频": AUDIO_EXTENSIONS, "压缩包": ARCHIVE_EXTENSIONS, "代码": CODE_EXTENSIONS,
-}
 
 
 def _build_badge_kind_map() -> dict:
@@ -835,11 +831,11 @@ class IndexEngine:
         finally:
             IndexEngine._build_lock.release()
 
-    _schema_cache = (0.0, False, True, False)  # (db_mtime, has_is_dir, modified_is_text, fts_ok)
+    _schema_cache = (0.0, False, False)  # (db_mtime, has_is_dir, fts_ok)
 
     @classmethod
     def _db_schema(cls):
-        """返回库结构信息（带 db_mtime 缓存）：(has_is_dir, modified_is_text, fts_ok)。
+        """返回库结构信息（带 db_mtime 缓存）：(has_is_dir, fts_ok)。
 
         fts_ok = FTS 表存在且已有数据（空表视为未回填，走 LIKE 路径，
         回填完成后 mtime 变化自动切换）。
@@ -849,8 +845,8 @@ class IndexEngine:
         except Exception:
             mtime = 0.0
         if cls._schema_cache[0] == mtime:
-            return cls._schema_cache[1], cls._schema_cache[2], cls._schema_cache[3]
-        has_is_dir, mod_text, fts_ok = False, True, False
+            return cls._schema_cache[1], cls._schema_cache[2]
+        has_is_dir, fts_ok = False, False
         if INDEX_DB.exists():
             try:
                 conn = sqlite3.connect(str(INDEX_DB))
@@ -858,7 +854,6 @@ class IndexEngine:
                     cols = {row[1]: row[2]
                             for row in conn.execute("PRAGMA table_info(files)")}
                     has_is_dir = "is_dir" in cols
-                    mod_text = cols.get("modified", "TEXT") != "INTEGER"
                     fts_ok = bool(conn.execute(
                         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='files_fts'"
                     ).fetchone())
@@ -869,8 +864,8 @@ class IndexEngine:
                     conn.close()
             except Exception:
                 pass
-        cls._schema_cache = (mtime, has_is_dir, mod_text, fts_ok)
-        return has_is_dir, mod_text, fts_ok
+        cls._schema_cache = (mtime, has_is_dir, fts_ok)
+        return has_is_dir, fts_ok
 
     @staticmethod
     def _fts_query_ids(conn, q: str):
@@ -893,13 +888,13 @@ class IndexEngine:
         except sqlite3.OperationalError:
             pass
 
-    _COL_DB = {"name": "name_lower", "path": "path_lower", "type": "name_lower", "size": "size", "modified": "modified"}
+    _COL_DB = {"name": "name_lower", "path": "path_lower", "size": "size", "modified": "modified"}
 
     @staticmethod
     def _query_files(query: str = "", limit: int = PAGE_SIZE, offset: int = 0,
-                     order_col: str = "name", order_desc: bool = False, filters: dict | None = None,
+                     order_col: str = "name", order_desc: bool = False,
                      count_only: bool = False):
-        """使用参数化条件查询索引，统一支持搜索、筛选、排序、计数和分页。
+        """使用参数化条件查询索引，统一支持搜索、排序、计数和分页。
 
         搜索路径：关键词 ≥3 字符且 FTS 可用 → FTS5 trigram 子串匹配
         （MATCH 结果 rowid 落临时表后 JOIN files 排序分页）；
@@ -907,10 +902,9 @@ class IndexEngine:
         """
         if not INDEX_DB.exists():
             return 0 if count_only else []
-        filters = filters or {}
         conn = sqlite3.connect(str(INDEX_DB))
         conn.row_factory = sqlite3.Row
-        has_is_dir, mod_text, fts_ok = IndexEngine._db_schema()
+        has_is_dir, fts_ok = IndexEngine._db_schema()
         is_dir_sql = "is_dir" if has_is_dir else "0"
         clauses, params = [], []
         q = query.strip().lower()
@@ -922,53 +916,6 @@ class IndexEngine:
                 eq = (q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"))
                 clauses.append("(name_lower LIKE ? ESCAPE '\\' OR path_lower LIKE ? ESCAPE '\\')")
                 params.extend((f"%{eq}%", f"%{eq}%"))
-
-        path_prefix = filters.get("path_prefix")
-        if path_prefix:
-            prefix = os.path.normcase(os.path.normpath(path_prefix)).lower()
-            child_prefix = prefix.rstrip("\\/") + os.sep
-            escaped_child_prefix = (child_prefix.replace("\\", "\\\\")
-                                    .replace("%", "\\%")
-                                    .replace("_", "\\_"))
-            clauses.append("(path_lower = ? OR path_lower LIKE ? ESCAPE '\\')")
-            params.extend((prefix, escaped_child_prefix + "%"))
-
-        type_name = filters.get("type", "全部")
-        if type_name == "文件夹":
-            clauses.append(f"{is_dir_sql} = 1")
-        elif type_name != "全部":
-            clauses.append(f"{is_dir_sql} = 0")
-            extensions = TYPE_FILTERS.get(type_name, set())
-            if extensions:
-                ext_clauses = []
-                for ext in sorted(extensions):
-                    ext_clauses.append("name_lower LIKE ?")
-                    params.append("%" + ext)
-                clauses.append("(" + " OR ".join(ext_clauses) + ")")
-
-        time_name = filters.get("time", "全部")
-        days = {"今天": 0, "近7天": 7, "近30天": 30}.get(time_name)
-        if days is not None:
-            start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            if days:
-                start -= timedelta(days=days - 1)
-            if mod_text:
-                clauses.append("modified >= ?")
-                params.append(start.strftime("%Y-%m-%d %H:%M:%S"))
-            else:
-                clauses.append("modified >= ?")
-                params.append(int(start.timestamp()))
-
-        size_name = filters.get("size", "全部")
-        if size_name == "<1MB":
-            clauses.append(f"({is_dir_sql} = 0 AND size < ?)")
-            params.append(1024 * 1024)
-        elif size_name == "1-100MB":
-            clauses.append(f"({is_dir_sql} = 0 AND size >= ? AND size <= ?)")
-            params.extend((1024 * 1024, 100 * 1024 * 1024))
-        elif size_name == ">100MB":
-            clauses.append(f"({is_dir_sql} = 0 AND size > ?)")
-            params.append(100 * 1024 * 1024)
 
         join = ""
         if fts_ids is not None:
@@ -1006,17 +953,17 @@ class IndexEngine:
 
     @staticmethod
     def search(query: str, limit: int = PAGE_SIZE, offset: int = 0, order_col: str = "name",
-               order_desc: bool = False, filters: dict | None = None) -> list[dict]:
-        return IndexEngine._query_files(query, limit, offset, order_col, order_desc, filters)
+               order_desc: bool = False) -> list[dict]:
+        return IndexEngine._query_files(query, limit, offset, order_col, order_desc)
 
     @staticmethod
     def load_all(limit: int = PAGE_SIZE, offset: int = 0, order_col: str = "size",
-                 order_desc: bool = True, filters: dict | None = None) -> list[dict]:
-        return IndexEngine._query_files("", limit, offset, order_col, order_desc, filters)
+                 order_desc: bool = True) -> list[dict]:
+        return IndexEngine._query_files("", limit, offset, order_col, order_desc)
 
     @staticmethod
-    def result_count(query: str = "", filters: dict | None = None) -> int:
-        return IndexEngine._query_files(query, filters=filters, count_only=True)
+    def result_count(query: str = "") -> int:
+        return IndexEngine._query_files(query, count_only=True)
 
     @staticmethod
     def index_file_count() -> int:
@@ -1990,7 +1937,7 @@ class FileTable(tk.Canvas):
 
     def __init__(self, master, colors, icon_cache, font_body, font_header,
                  on_header_click=None, on_double=None, on_right=None,
-                 on_col_resize=None, badge_styles=None):
+                 on_col_resize=None, on_scroll_page=None, badge_styles=None):
         super().__init__(master, bd=0, highlightthickness=0, bg=colors["surface"],
                          cursor="")
         self.colors = colors
@@ -2011,6 +1958,8 @@ class FileTable(tk.Canvas):
         self._on_double = on_double
         self._on_right = on_right
         self._on_col_resize = on_col_resize
+        self._on_scroll_page = on_scroll_page   # 翻页回调 delta（±1 页），滚轮/PgUp/PgDn 使用
+        self._wheel_accum = 0                    # 滚轮累积量（防抖：攒满 120 翻一页）
         self._cols = []            # [(key, width)]
         self._rows = []
         self._selected = []
@@ -2042,6 +1991,13 @@ class FileTable(tk.Canvas):
         self.bind("<MouseWheel>", self._on_wheel)
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda _e: self._set_hover(None, None))
+        # 键盘导航：↑/↓ 移动选中，PgUp/PgDn 翻页（Linux 无 <MouseWheel>，用 Button-4/5）
+        self.bind("<Up>", self._on_key_move)
+        self.bind("<Down>", self._on_key_move)
+        self.bind("<Prior>", lambda _e: self._scroll_page(-1))
+        self.bind("<Next>", lambda _e: self._scroll_page(1))
+        self.bind("<Button-4>", lambda _e: self._scroll_page(-1))
+        self.bind("<Button-5>", lambda _e: self._scroll_page(1))
 
     # ============ 公共接口 ============
 
@@ -2257,8 +2213,41 @@ class FileTable(tk.Canvas):
             self.redraw()
 
     def _on_wheel(self, event):
-        """滚轮不滚动、不翻页（页大小自适应可视行数，翻页用底部按钮）。"""
-        return
+        """滚轮翻页（防抖）：累积 delta，攒满一格（120）翻一页。
+
+        一页正好铺满可视区，滚轮语义 = 翻页而非滚动行；
+        快速连续滚动时累积量自然合并，不会一格格顿挫。
+        """
+        delta = event.delta
+        if sys.platform == "darwin":
+            delta = int(delta * 120)   # macOS 每格 delta=±1
+        self._wheel_accum += delta
+        if abs(self._wheel_accum) >= 120:
+            pages = int(self._wheel_accum // 120)
+            self._wheel_accum %= 120
+            self._scroll_page(-pages)   # 向上滚（delta>0）→ 上一页
+
+    def _scroll_page(self, delta: int):
+        """翻页：delta=±1（负=上一页）。翻页后把焦点留在表格，继续可用键盘。"""
+        if self._on_scroll_page:
+            self._on_scroll_page(delta)
+        self.focus_set()
+
+    def _on_key_move(self, event):
+        """↑/↓ 移动选中行（单选，clamp 到行范围）。"""
+        if not self._rows:
+            return "break"
+        last = self._selected[-1] if self._selected else None
+        if event.keysym == "Up":
+            target = (last - 1) if last is not None else 0
+        else:
+            target = (last + 1) if last is not None else 0
+        target = max(0, min(len(self._rows) - 1, target))
+        if self._selected != [target]:
+            self._selected = [target]
+            self._hover_row = target
+            self.redraw()
+        return "break"
 
     def _on_motion(self, event):
         handle = self._resize_handle_at(event.x, event.y)
@@ -2443,7 +2432,6 @@ class FileSearcherApp:
         self._sort_col = "size"
         self._sort_asc = False
         self._last_query = ""
-        self._last_filters = {}
         self._total_results = 0
         self._loading_more = False
         self._count_cache_key = None      # 计数缓存键 (query, 排序, filters, db_mtime)
@@ -2494,6 +2482,9 @@ class FileSearcherApp:
         self._wnd_proc_holder = None   # 保活 WndProc 回调（防 GC）
         self._orig_wndproc = None
 
+        # Tkinter 回调异常统一写日志（windowed 打包下 stderr 不可见，异常全丢）
+        self.root.report_callback_exception = self._report_callback_exception
+
         IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引 + FTS 空表
         # 老库升级：后台回填 FTS 表（回填完成前搜索自动走 LIKE，不卡启动）
         if IndexEngine.index_exists():
@@ -2543,6 +2534,14 @@ class FileSearcherApp:
             self._load_all()
         else:
             self._update_result_status()
+
+    def _report_callback_exception(self, exc, val, tb):
+        """Tkinter 回调异常统一写 INDEX_DIR/debug.log（windowed 打包下 stderr 不可见）。"""
+        try:
+            import traceback
+            _diag("[tk-error] " + "".join(traceback.format_exception(exc, val, tb)).rstrip())
+        except Exception:
+            pass
 
     def _log_diag(self):
         """启动 1.5s 后记录缩放关键参数到 INDEX_DIR/debug.log，用于诊断字号问题。"""
@@ -2829,10 +2828,6 @@ class FileSearcherApp:
     def _search_text(self):
         return self.search_var.get().strip()
 
-    def _current_filters(self):
-        """筛选已移除，查询不带过滤条件。"""
-        return {}
-
     def _build_tree(self):
         """构建凝脂风结果区：纸面卡片容器 + 呼吸式表格 + 底部分页栏（左计数/右页码）。"""
         c = self.colors
@@ -2851,6 +2846,7 @@ class FileSearcherApp:
                                on_double=self._on_double_click,
                                on_right=self._on_right_click,
                                on_col_resize=self._on_col_resize,
+                               on_scroll_page=self._goto_page_relative,
                                badge_styles=BADGE_STYLES[self._theme_name])
         self.table.pack(fill=tk.BOTH, expand=True, padx=1, pady=(1, 0))
         self.table._labels = {"name": "文件名", "path": "路径", "type": "类型",
@@ -3607,25 +3603,23 @@ class FileSearcherApp:
         self._run_query(self._search_text())
         return "break" if event is not None else None
 
-    def _count_cached(self, query: str, filters: dict) -> int:
-        """结果计数：同一 query+filters+排序 且 DB 未变时走缓存，翻页不重算。"""
+    def _count_cached(self, query: str) -> int:
+        """结果计数：同一 query+排序 且 DB 未变时走缓存，翻页不重算。"""
         try:
             mtime = INDEX_DB.stat().st_mtime if INDEX_DB.exists() else 0
         except Exception:
             mtime = 0
-        key = (query, self._sort_col, self._sort_asc, json.dumps(filters, sort_keys=True), mtime)
+        key = (query, self._sort_col, self._sort_asc, mtime)
         if key == self._count_cache_key:
             return self._count_cache_val
-        val = IndexEngine.result_count(query, filters=filters)
+        val = IndexEngine.result_count(query)
         self._count_cache_key = key
         self._count_cache_val = val
         return val
 
-    def _run_query(self, query: str, filters: dict | None = None):
+    def _run_query(self, query: str):
         """统一执行搜索查询：后台线程跑 DB，主线程只渲染；计数走缓存。"""
-        filters = (filters if filters is not None else self._current_filters()).copy()
         self._last_query = query
-        self._last_filters = filters
         if not IndexEngine.index_exists():
             self._results = []
             self._total_results = 0
@@ -3642,15 +3636,16 @@ class FileSearcherApp:
         sort_col, sort_desc = self._sort_col, not self._sort_asc
 
         def work():
-            total = self._count_cached(query, filters)
+            total = self._count_cached(query)
             total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 1
             pg = max(1, min(page, total_pages))
             offset = (pg - 1) * page_size
-            fetch = IndexEngine.search if query else IndexEngine.load_all
-            rows = fetch(query, limit=page_size, offset=offset,
-                         order_col=sort_col, order_desc=sort_desc, filters=filters) if query else \
-                   fetch(limit=page_size, offset=offset,
-                         order_col=sort_col, order_desc=sort_desc, filters=filters)
+            if query:
+                rows = IndexEngine.search(query, limit=page_size, offset=offset,
+                                          order_col=sort_col, order_desc=sort_desc)
+            else:
+                rows = IndexEngine.load_all(limit=page_size, offset=offset,
+                                            order_col=sort_col, order_desc=sort_desc)
             return total, pg, rows
 
         def done(fut):
