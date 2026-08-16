@@ -47,8 +47,8 @@ PAGE_SIZE = 5000
 
 FONT_FAMILY = "Microsoft YaHei UI" if sys.platform == "win32" else "sans-serif"
 FONT_MONO = "Consolas" if sys.platform == "win32" else "monospace"
-# 全局字号体系（基础 pt，最终渲染 pt = base × dpi_scale × font_scale，dpi_scale 为真实 DPI/96）
-# 240 DPI（250% 缩放）舒适档正文 = 12 × 2.5 × 1.5 = 45pt ≈ 60px 物理，与系统其他应用一致
+# 全局字号体系（基础 pt，最终渲染 pt = base × dpi_scale × font_scale，dpi_scale 为折中后的 DPI 系数）
+# 240 DPI（250% 缩放）舒适档正文 = 12 × 1.581 × 1.5 ≈ 28.5pt ≈ 38px 物理，接近系统应用观感
 # MICRO≈19pt 表头·胶囊·徽章·状态栏 / SMALL≈21pt 辅助·路径·说明 / BODY≈25pt 正文·文件名·按钮
 # INPUT≈27pt 搜索框（主角稍大）/ LG≈29pt 弹窗标题·空状态 / XL≈31pt 设置页大标题
 FONT_MICRO = 9
@@ -2453,13 +2453,17 @@ class FileSearcherApp:
             _dpi = float(ctypes.windll.user32.GetDpiForSystem())
             if _dpi < 72:
                 _dpi = 96.0
-            self._dpi_scale = max(1.0, _dpi / 96.0)
+            # 部分 DPI 缩放：全量 dpi/96（如 250% → 2.5×）在 4K 高缩放屏上字号/行高
+            # 会远超系统其他应用（实测观感"大得不像话"），取平方根折中
+            # （250% → 1.581×、200% → 1.414×、150% → 1.225×）；
+            # 96 DPI（100%）下恒为 1.0，低缩放屏行为不变。
+            self._dpi_scale = max(1.0, (_dpi / 96.0) ** 0.5)
         except Exception:
             self._dpi_scale = 1.0
         # 正文目标 pt：BODY 渲染 = base × dpi_scale × font_scale = text_pt × dpi_scale
-        # （Tk pt→px ≈ ×4/3，144 DPI 下 14/16/18pt 档分别约 28/32/36px 物理，
-        # 240 DPI 下约 47/53/60px——与系统缩放后其他应用的字号一致）。
-        # 用户基线：96 DPI 下 14pt（19px）为可接受的紧凑下限 → 紧凑 14 / 标准 16 / 舒适 18。
+        # （Tk pt→px ≈ ×4/3，240 DPI 下 14/16/18pt 档分别约 30/34/38px 物理，
+        # 96 DPI 下约 19/21/24px）。dpi_scale 取 sqrt(dpi/96) 折中（见上），
+        # 高缩放屏不至于超过系统其他应用太多。
         # 旧档位（10/12/14，上一版校准）统一迁移到 14。
         try:
             self._text_pt = int(self._settings.get("text_pt", 14))
@@ -2633,6 +2637,9 @@ class FileSearcherApp:
         self._font_scale = self._text_pt / FONT_BODY
         self._configure_theme()
         self._rebuild_ui()
+        # 重建后表格尚未布局（winfo_height=1），页大小必须等布局完成后重算，
+        # 否则 _page_size 停留旧行高算出的值 → 切档位后可见行数不随字号变化
+        self.root.after(80, self._apply_view_resize)
 
     def _resolve_theme(self, theme: str) -> str:
         if theme != "system":
