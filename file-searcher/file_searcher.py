@@ -90,6 +90,32 @@ THEMES = {
         "success": "#2E8B57", "warning": "#C08A2E", "error": "#B05353",
         "menu_bg": "#FFFFFF", "dialog_bg": "#FFFFFF",
     },
+    # 浅色「雾沙」：柔和暖灰米白（低对比护眼，替代纯白扎眼）
+    "mist": {
+        "bg": "#ECE9E3", "surface": "#F5F2EC", "surface_alt": "#E5E1D9",
+        "surface_3": "#DBD6CC", "input": "#F8F5F0", "border": "#D4CFC4",
+        "border_strong": "#BDB7A9", "text": "#3E3C37", "muted": "#6E6A60",
+        "muted_2": "#8F8A7E", "accent": "#5F7D72", "accent_hover": "#6E8C81",
+        "accent_pressed": "#526C62", "accent_grad_a": "#6E8C81", "accent_grad_b": "#4C6B60",
+        "selected": "#E2E6DF", "selected_hover": "#D8DED5", "row_alt": "#F1EEE7",
+        "row_line": "#E4E0D7", "title_bg": "#E4E0D8", "hover": "#EFECE4",
+        "sel_text": "#4C6B60",
+        "success": "#5E8C6E", "warning": "#B08A45", "error": "#B0625C",
+        "menu_bg": "#F5F2EC", "dialog_bg": "#F5F2EC",
+    },
+    # 深色「青墨」：柔和绿灰（护眼深色，替代纯黑压抑）
+    "jade": {
+        "bg": "#1C2320", "surface": "#242C28", "surface_alt": "#2A342F",
+        "surface_3": "#333F39", "input": "#19201D", "border": "#36423B",
+        "border_strong": "#4A5A51", "text": "#C8D1CB", "muted": "#87948C",
+        "muted_2": "#66736B", "accent": "#7FBFA8", "accent_hover": "#93CBB6",
+        "accent_pressed": "#6BAB95", "accent_grad_a": "#7FBFA8", "accent_grad_b": "#55967F",
+        "selected": "#2C3D35", "selected_hover": "#32463D", "row_alt": "#1A211E",
+        "row_line": "#28312C", "title_bg": "#1C2320", "hover": "#222A26",
+        "sel_text": "#9CD4BF",
+        "success": "#6FBF8F", "warning": "#D3A24E", "error": "#CE7878",
+        "menu_bg": "#242C28", "dialog_bg": "#242C28",
+    },
 }
 
 # 文件类型徽标色点 (fg, bg)，按主题区分；bg 供弹窗图标圆底等复用
@@ -109,6 +135,22 @@ BADGE_STYLES = {
         "zip": ("#A07B46", "#F5F0E6"), "audio": ("#3E9468", "#EAF4EF"),
         "video": ("#5B6FC4", "#ECEDF7"), "dir": ("#A08A46", "#F5F1E6"),
         "file": ("#6B6558", "#EFEDE6"),
+    },
+    "mist": {
+        "doc": ("#5A7FA8", "#E8EEF4"), "pdf": ("#A85A5A", "#F4EAE8"),
+        "xls": ("#5E8A62", "#E9F1E8"), "ppt": ("#B0783C", "#F3ECE2"),
+        "img": ("#8A62A8", "#EFEAF4"), "code": ("#4A8585", "#E6F0F0"),
+        "zip": ("#95784E", "#F1ECE3"), "audio": ("#4A8A6E", "#E7F1EB"),
+        "video": ("#5E6FB0", "#E9EBF4"), "dir": ("#937E44", "#F1EDE2"),
+        "file": ("#6E6A60", "#EBE8E0"),
+    },
+    "jade": {
+        "doc": ("#7FA8D8", "#1E2A38"), "pdf": ("#D88A8A", "#332527"),
+        "xls": ("#8EC28E", "#1F2E23"), "ppt": ("#D8A56E", "#332A22"),
+        "img": ("#A98ED0", "#272438"), "code": ("#6EC0C0", "#1B2E30"),
+        "zip": ("#C0A070", "#2E2922"), "audio": ("#8EC8A8", "#1E2E28"),
+        "video": ("#9AA8D8", "#232638"), "dir": ("#D0B46E", "#2E2C22"),
+        "file": ("#87948C", "#26302B"),
     },
 }
 
@@ -1096,7 +1138,7 @@ class IndexEngine:
         "auto_index_on_start": False,   # 启动时自动增量更新索引
         "tray_auto_index": False,        # 最小化到托盘后自动更新索引
         "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
-        "theme": "light",
+        "theme": "mist",
         "text_pt": 16,                   # 主字号（表格正文基准 pt，10~40 可调）
     }
 
@@ -1110,7 +1152,7 @@ class IndexEngine:
                 settings.update({k: v for k, v in data.items() if k in settings})
             except Exception:
                 pass
-        if settings.get("theme") not in {"dark", "light", "system"}:
+        if settings.get("theme") not in THEMES:
             settings["theme"] = cls.DEFAULT_SETTINGS["theme"]
         return settings
 
@@ -1945,7 +1987,7 @@ class FileTable(tk.Canvas):
         self._icon_cache = icon_cache
         self._font_body = font_body
         self._font_header = font_header
-        self._badge_styles = badge_styles or BADGE_STYLES["dark"]
+        self._badge_styles = badge_styles or BADGE_STYLES["mist"]
         # 表格内所有文字统一正文大小（用户要求），仅保留风格区分：
         # 路径/数字同号、徽章同号加粗、数字列等宽字体、表头同号加粗
         body_pt = font_body[1] if isinstance(font_body, tuple) else FONT_BODY
@@ -2441,7 +2483,7 @@ class FileSearcherApp:
         self._query_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="db-query")
         self._tray_index_after_id = None
         self._settings = IndexEngine.load_settings()
-        self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
+        self._theme_name = self._resolve_theme(self._settings.get("theme", "mist"))
         self.colors = THEMES[self._theme_name]
 
         # 缩放体系：Tk 8.6 在 Windows 上按 96 DPI 布局，tk scaling 对字体渲染无效且会污染
@@ -2621,7 +2663,7 @@ class FileSearcherApp:
 
     def _apply_theme(self):
         """主题切换立即生效：换配色并重建主界面（保留搜索词与结果）。"""
-        self._theme_name = self._resolve_theme(self._settings.get("theme", "dark"))
+        self._theme_name = self._resolve_theme(self._settings.get("theme", "mist"))
         self.colors = THEMES[self._theme_name]
         self._configure_theme()
         self._rebuild_ui()
@@ -2642,16 +2684,8 @@ class FileSearcherApp:
         self.root.after(80, self._apply_view_resize)
 
     def _resolve_theme(self, theme: str) -> str:
-        if theme != "system":
-            return theme if theme in THEMES else "dark"
-        if sys.platform == "win32":
-            try:
-                import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
-                return "light" if winreg.QueryValueEx(key, "AppsUseLightTheme")[0] else "dark"
-            except Exception:
-                pass
-        return "dark"
+        # 无「跟随系统」：未知/旧值（含 system）一律落到默认雾沙
+        return theme if theme in THEMES else "mist"
 
     def _configure_theme(self):
         c = self.colors
@@ -3323,7 +3357,7 @@ class FileSearcherApp:
         auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
         tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
         minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
-        theme_var = tk.StringVar(value=self._settings.get("theme", "dark"))
+        theme_var = tk.StringVar(value=self._settings.get("theme", "mist"))
 
         def _persist_general():
             try:
@@ -3428,25 +3462,19 @@ class FileSearcherApp:
             active = theme_var.get() == value
             name_h = s(26)
             pv_h = h - name_h - 6
-            # 迷你界面预览
-            if value == "system":
-                half = w / 2
-                cv.create_rectangle(3, 3, half, pv_h, fill="#0A0C10", outline="")
-                cv.create_rectangle(half, 3, w - 3, pv_h, fill="#F5F3EE", outline="")
-                _rounded_rect(cv, s(10), s(10), w - s(10), s(26), 5,
-                              fill="", outline=c["accent"], width=1.2)
-            else:
-                pv_bg = "#0A0C10" if value == "dark" else "#F5F3EE"
-                pv_bar = "#1A1F28" if value == "dark" else "#E0DCD2"
-                pv_box = "#10141B" if value == "dark" else "#FFFFFF"
-                pv_row = "#1B2229" if value == "dark" else "#EFEDE6"
-                _rounded_rect(cv, 3, 3, w - 3, pv_h, 9, fill=pv_bg,
-                              outline=c["border_strong"], width=1)
-                _rounded_rect(cv, s(10), s(9), w * 0.55, s(15), 3, fill=pv_bar, outline="")
-                _rounded_rect(cv, s(10), s(20), w - s(10), s(34), 6, fill=pv_box,
-                              outline=c["accent"] if active else c["border"], width=1)
-                _rounded_rect(cv, s(10), s(40), w * 0.8, s(48), 4, fill=c["selected"], outline="")
-                _rounded_rect(cv, s(10), s(54), w * 0.65, s(62), 4, fill=pv_row, outline="")
+            # 迷你界面预览（按主题实际配色绘制）
+            t = THEMES.get(value, THEMES["mist"])
+            pv_bg = t["bg"]
+            pv_bar = t["surface_alt"]
+            pv_box = t["input"]
+            pv_row = t["row_line"]
+            _rounded_rect(cv, 3, 3, w - 3, pv_h, 9, fill=pv_bg,
+                          outline=c["border_strong"], width=1)
+            _rounded_rect(cv, s(10), s(9), w * 0.55, s(15), 3, fill=pv_bar, outline="")
+            _rounded_rect(cv, s(10), s(20), w - s(10), s(34), 6, fill=pv_box,
+                          outline=c["accent"] if active else c["border"], width=1)
+            _rounded_rect(cv, s(10), s(40), w * 0.8, s(48), 4, fill=c["selected"], outline="")
+            _rounded_rect(cv, s(10), s(54), w * 0.65, s(62), 4, fill=pv_row, outline="")
             # 名称区
             cv.create_text(w / 2, pv_h + name_h / 2 + 3, text=cv._theme_name,
                            fill=c["sel_text"] if active else c["muted"],
@@ -3459,8 +3487,9 @@ class FileSearcherApp:
                 cv.create_text(w - s(14), (6 + s(22)) / 2, text="✓", fill="#FFFFFF",
                                font=self._f(FONT_MICRO, "bold"))
 
-        for name, value in (("墨玉（深色）", "dark"), ("凝脂（浅色）", "light"), ("跟随系统", "system")):
-            cv = tk.Canvas(theme_row, width=s(150), height=s(96), bd=0,
+        for name, value in (("雾沙（柔和浅色）", "mist"), ("青墨（柔和深色）", "jade"),
+                            ("凝脂（浅色）", "light"), ("墨玉（深色）", "dark")):
+            cv = tk.Canvas(theme_row, width=s(138), height=s(96), bd=0,
                            highlightthickness=0, bg=c["surface"], cursor="hand2")
             cv.pack(side=tk.LEFT, padx=(0, s(12)))
             cv._theme_name = name

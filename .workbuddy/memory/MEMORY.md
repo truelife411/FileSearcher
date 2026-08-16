@@ -34,6 +34,7 @@
 
 ## UI 设计基线（2026-08-14「凝脂纸感」，方向 C，当前线上版）
 - **凝脂主题**（B 墨玉实机被否决后改选 C）：宣纸暖白底 #F5F3EE + 黛青 accent #2E6E66（渐变 #3A837A→#255A53）+ 墨色文字 #23282C。深色变体「墨玉」#0A0C10/#6FD8C8 保留在 THEMES["dark"]。默认主题 = light。sel_text = 选中行/激活态文字色
+- **柔和配色（2026-08-16 用户定，共 4 主题）**：纯白扎眼/纯黑压抑 → 新增「雾沙」mist（暖灰米白浅色 #ECE9E3/#F5F2EC/#3E3C37/#5F7D72，低对比护眼）与「青墨」jade（绿灰深色 #1C2320/#242C28/#C8D1CB/#7FBFA8）。**「跟随系统」已按用户要求移除**（_resolve_theme 对未知/旧 system 值落回 mist）；默认主题 = mist。BADGE_STYLES 同步四套（mist/jade 徽章为降饱和版本）。主题卡 4 张一行（s(138)），迷你预览色按主题查 THEMES 表绘制
 - **纸感语言 = 小圆角 + 细线**：结果卡片 6 / 按钮 8 / 搜索框 6 / 弹窗 10；分隔线 row_line、描边 border 1px；无网格线
 - **布局（C 版定型）**：标题栏 40px（渐变 logo+副标题）；搜索区 = 居中搜索框（max 980、高 62、placeholder「搜索全盘文件…」、聚焦 accent 描边、有内容时右侧 ✕ 清空）；下方 chips 类型筛选排（全部/文件夹/文档/图片/视频/音频/压缩包/代码，接入 filters.type）；结果纸面卡片（_layout_result_container 圆角 6）内嵌 FileTable + 底部分页栏（左"共 N 个结果"/右 ‹ 1/12 ›）；**底部快捷键栏 44px**（左：状态点+文字 + kbd 提示 ↵打开/⌥↵定位/^C复制/⌫删除/⇵翻页；右：⟳重建索引 ghost 钮 + ⚙ 钮）
 - **呼吸式表格 FileTable**：行分隔线、选中行 selected 底+左侧 6px accent 指示条、类型徽章（BADGE_STYLES[theme][kind]=(fg,bg)）、表头加粗+排序 accent+自绘小三角、列宽拖动（_fit_cols 按序压缩/拉宽、_drag_pref 刚性列、_fitted_width 1:1 手感、layout.json 跨显示器换算）。**路径列用 _path_middle_ellipsis 中间省略**（保留首尾目录）
