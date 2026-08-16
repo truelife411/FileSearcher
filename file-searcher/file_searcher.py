@@ -1421,7 +1421,9 @@ class RoundedButton(tk.Canvas):
 
 
 class RoundedSearchBox(tk.Canvas):
-    """墨玉风大搜索框：玻璃底、放大镜、聚焦 accent 描边、placeholder、清空热区。"""
+    """大搜索框：玻璃底、放大镜、聚焦 accent 描边、placeholder、大号清空热区。
+    交互：未聚焦时点击框内任意处 → 聚焦并全选文字（一点即改，直接打字替换）；
+    已聚焦时点击 → 正常光标定位；右侧清空按钮悬停 accent 填充 + 白字反馈。"""
 
     def __init__(self, master, textvariable, colors, clear_command, height=64, font_size=None,
                  placeholder=""):
@@ -1430,6 +1432,7 @@ class RoundedSearchBox(tk.Canvas):
         self.colors = colors
         self._focused = False
         self._hover = False
+        self._hover_clear = False
         self._radius = 6
         self._font_size = font_size or FONT_INPUT
         self._placeholder = placeholder
@@ -1443,8 +1446,10 @@ class RoundedSearchBox(tk.Canvas):
         self._clear_command = clear_command
         self.bind("<Configure>", self._layout)
         self.bind("<Button-1>", self._click)
+        self.bind("<Motion>", self._on_motion)
         self.bind("<Enter>", lambda _e: self._on_hover(True))
         self.bind("<Leave>", lambda _e: self._on_hover(False))
+        self.entry.bind("<Button-1>", self._entry_click)
         self.entry.bind("<FocusIn>", self._focus_in, add="+")
         self.entry.bind("<FocusOut>", self._focus_out, add="+")
         self._var.trace_add("write", lambda *_: self._draw())
@@ -1452,12 +1457,36 @@ class RoundedSearchBox(tk.Canvas):
 
     def _layout(self, _event=None):
         h = max(24, self.winfo_height() - 10)
-        self.itemconfigure(self._entry_window, width=max(20, self.winfo_width() - 108), height=h)
+        self.itemconfigure(self._entry_window, height=h)
         self._draw()
+
+    def _entry_width(self):
+        """有文字时右侧预留大号清空按钮，输入区相应收窄。"""
+        w = max(20, self.winfo_width())
+        return max(20, w - (126 if self._var.get() else 108))
+
+    def _clear_r(self):
+        """清空按钮半径：随框高成比例放大。"""
+        return max(13, int(max(2, self.winfo_height()) * 0.32))
+
+    def _clear_hit_start(self):
+        """清空按钮点击热区左边界（与按钮圆外沿对齐）。"""
+        return self.winfo_width() - (44 + self._clear_r())
 
     def _on_hover(self, hover: bool):
         self._hover = hover
+        if not hover:
+            self._hover_clear = False
+            self.configure(cursor="")
         self._draw()
+
+    def _on_motion(self, event):
+        """清空按钮热区悬停：切手型光标并重绘高亮（只在状态变化时触发）。"""
+        in_zone = bool(self._var.get()) and event.x >= self._clear_hit_start()
+        if in_zone != self._hover_clear:
+            self._hover_clear = in_zone
+            self.configure(cursor="hand2" if in_zone else "")
+            self._draw()
 
     def _draw(self):
         self.delete("shell")
@@ -1481,14 +1510,23 @@ class RoundedSearchBox(tk.Canvas):
         self.create_line(cx + 7, cy + 7, cx + 14, cy + 14,
                          fill=icon_c, width=3, capstyle=tk.ROUND, tags="shell")
         has_text = bool(self._var.get())
+        self.itemconfigure(self._entry_window, width=self._entry_width())
         if has_text:
-            # 清空按钮
-            clear_x = width - 34
-            self.create_oval(clear_x - 13, cy - 13, clear_x + 13, cy + 13,
-                             fill=c["surface_3"], outline="", tags="shell")
-            self.create_text(clear_x, cy, text="✕", fill=c["muted"],
-                             font=(FONT_FAMILY, max(8, int(self._font_size * 0.62))), tags="shell")
+            # 大号清空按钮：悬停时 accent 填充 + 白字，点击热区与圆外沿对齐
+            clear_x = width - 44
+            r = self._clear_r()
+            hot = self._hover_clear
+            self.create_oval(clear_x - r, cy - r, clear_x + r, cy + r,
+                             fill=c["accent"] if hot else c["surface_3"], outline="",
+                             tags="shell")
+            self.create_text(clear_x, cy, text="✕",
+                             fill="#FFFFFF" if hot else c["muted"],
+                             font=(FONT_FAMILY, max(9, int(self._font_size * 0.75))),
+                             tags="shell")
         else:
+            if self._hover_clear:
+                self._hover_clear = False
+                self.configure(cursor="")
             # placeholder：画在 entry 之上（Entry 无内容时背景透明区可见此文字）
             self.create_text(58, cy, text=self._placeholder, anchor=tk.W,
                              fill=c["muted_2"], font=(FONT_FAMILY, self._font_size),
@@ -1498,11 +1536,24 @@ class RoundedSearchBox(tk.Canvas):
             # 占位文字须压在 entry 上层才可见（entry 透明，文字从其背景色区域透出）
             self.tag_raise("placeholder", self._entry_window)
 
+    def _entry_click(self, _event=None):
+        """点击输入区：未聚焦时聚焦并全选（一点即改），已聚焦时交还默认光标定位。"""
+        if not self._focused:
+            self.entry.focus_set()
+            self._focused = True
+            self.entry.selection_range(0, tk.END)
+            self.entry.icursor(tk.END)
+            self._draw()
+            return "break"
+        return None
+
     def _click(self, event):
-        if event.x >= self.winfo_width() - 56 and self._var.get():
+        if self._var.get() and event.x >= self._clear_hit_start():
             self._clear_command()
         else:
-            self.entry.focus_set()
+            self._entry_click()
+        # break 阻止画布默认行为抢走焦点
+        return "break"
 
     def _focus_in(self, _event=None):
         self._focused = True
