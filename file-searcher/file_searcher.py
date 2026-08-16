@@ -2625,7 +2625,7 @@ class FileTable(tk.Canvas):
         # ---- 表头 ----
         self.create_rectangle(0, 0, w, self.HEADER_H, fill=c["surface"], outline="")
         self.create_line(0, self.HEADER_H, w, self.HEADER_H, fill=c["border"])
-        header_align = {"name": "w", "path": "w", "type": "center", "size": "e", "modified": "e"}
+        header_align = {"name": "center", "path": "center", "type": "center", "size": "center", "modified": "center"}
         for j, (key, x0, x1) in enumerate(layout):
             if j == 0:
                 continue
