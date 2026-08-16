@@ -4,6 +4,7 @@
 import os
 import sys
 import math
+import re
 import subprocess
 import sqlite3
 import json
@@ -1730,6 +1731,76 @@ def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text
     return bool(shell.run())
 
 
+def _dialog_stars(app, title, desc, preview_name, current=0, ok_text="确定"):
+    """按星级重命名弹窗：7 颗星点选（点第 N 颗 = N 星）+ 实时预览新文件名。
+
+    返回选中的星数（1~7）或 None（取消）。preview_name 为去星标后的原文件名。
+    """
+    c = app.colors
+    s = app._s
+    w = s(420)
+    h = s(170) + s(34)
+    shell = _DialogShell(app, w, h)
+    body = tk.Frame(shell.body, bg=c["dialog_bg"])
+    body.pack(fill=tk.BOTH, expand=True, padx=s(22))
+    tk.Label(body, text=title, bg=c["dialog_bg"], fg=c["text"],
+             font=app._f(FONT_LG, "bold")).pack(anchor=tk.W)
+    tk.Label(body, text=desc, bg=c["dialog_bg"], fg=c["muted"],
+             font=app._f(FONT_SMALL), justify=tk.LEFT, wraplength=w - s(90)).pack(
+        anchor=tk.W, pady=(s(6), 0))
+
+    star_var = {"n": max(1, min(7, int(current or 1)))}
+    preview_var = tk.StringVar()
+
+    def _redraw_stars():
+        for i, cv in enumerate(star_canvases):
+            cv.delete("all")
+            cw = max(2, cv.winfo_width())
+            ch = max(2, cv.winfo_height())
+            lit = i < star_var["n"]
+            cv.create_text(cw / 2, ch / 2, text="★",
+                           fill=c["warning"] if lit else c["muted_2"],
+                           font=app._f(FONT_XL, "bold"))
+
+    def _update_preview():
+        n = star_var["n"]
+        preview_var.set("★" * n + " " + preview_name)
+
+    def _pick(idx):
+        star_var["n"] = idx + 1
+        _redraw_stars()
+        _update_preview()
+
+    star_row = tk.Frame(body, bg=c["dialog_bg"])
+    star_row.pack(anchor=tk.W, pady=(s(12), 0))
+    star_canvases = []
+    for i in range(7):
+        cv = tk.Canvas(star_row, width=s(40), height=s(40), bd=0, highlightthickness=0,
+                       bg=c["dialog_bg"], cursor="hand2")
+        cv.pack(side=tk.LEFT, padx=(0, s(2)))
+        cv.bind("<Button-1>", lambda _e, idx=i: _pick(idx))
+        cv.bind("<Configure>", lambda _e: _redraw_stars())
+        star_canvases.append(cv)
+
+    tk.Label(body, textvariable=preview_var, bg=c["input"], fg=c["accent"],
+             font=(FONT_MONO, app._f(FONT_SMALL)[1]), anchor=tk.W,
+             padx=s(10), pady=s(6), highlightthickness=1,
+             highlightbackground=c["border"]).pack(fill=tk.X, pady=(s(12), 0))
+
+    btns = tk.Frame(body, bg=c["dialog_bg"])
+    btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, s(14)))
+    RoundedButton(btns, text=ok_text, command=lambda: shell.close(star_var["n"]),
+                  width=s(96), height=s(36), colors=c, kind="accent",
+                  font_size=app._f(FONT_BODY)[1]).pack(side=tk.RIGHT)
+    RoundedButton(btns, text="取消", command=lambda: shell.close(None),
+                  width=s(96), height=s(36), colors=c,
+                  font_size=app._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(0, s(8)))
+    shell.top.bind("<Return>", lambda _e: shell.close(star_var["n"]))
+    _update_preview()
+    shell.top.after_idle(_redraw_stars)
+    return shell.run()
+
+
 def _dialog_input(app, title, desc, initial="", ok_text="确定", options=None,
                   selected_option=None, follow_mouse=False, cursor_start=False, at_xy=None):
     """输入弹窗。options 提供时显示分段胶囊选择器。
@@ -3106,6 +3177,7 @@ class FileSearcherApp:
             ("sep",),
             {"text": qm_label, "icon": "➜", "cmd": self._quick_move, "disabled": multi},
             {"text": "重命名", "icon": "✎", "cmd": self._rename_file_dialog, "disabled": multi},
+            {"text": "按星级重命名", "icon": "★", "cmd": self._star_rename, "disabled": multi},
             ("sep",),
             {"text": "删除到回收站", "icon": "⌫", "cmd": self._delete_file_recycle},
             {"text": "彻底删除", "icon": "✕", "cmd": self._delete_file_permanent, "kind": "danger"},
@@ -4102,6 +4174,36 @@ class FileSearcherApp:
                 r["path"] = new_path
             self._refresh_tree()
             self.status_var.set(f"已重命名: {old_name} → {new_name}")
+        except Exception as e:
+            _dialog_confirm(self, "重命名失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
+
+    def _star_rename(self):
+        """按星级重命名：星选弹窗（1~7 星），替换文件名前的星标前缀（幂等）。"""
+        sel = self.table.selected_results()
+        if len(sel) != 1:
+            return
+        r = sel[0]
+        path = r["path"]
+        old_name = os.path.basename(path)
+        m = re.match(r"^(★+)\s*", old_name)
+        current = len(m.group(1)) if m else 0
+        stripped = re.sub(r"^(★+\s*)+", "", old_name)
+        n = _dialog_stars(self, "按星级重命名",
+                          "点击星星选择星级（1~7），将在文件名前添加对应数量的 ★。",
+                          preview_name=stripped, current=current)
+        if not n:
+            return
+        new_name = "★" * n + " " + stripped
+        if new_name == old_name:
+            return
+        try:
+            new_path = rename_file(path, new_name)
+            IndexEngine.rename_path(path, new_path)   # 同步索引 DB
+            r["name"] = new_name
+            r["path"] = new_path
+            self._refresh_tree()
+            self.status_var.set(f"已按星级重命名: {new_name}")
         except Exception as e:
             _dialog_confirm(self, "重命名失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
