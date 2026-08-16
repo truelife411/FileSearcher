@@ -3091,6 +3091,9 @@ class FileSearcherApp:
             ("sep",),
             {"text": "删除到回收站", "icon": "⌫", "cmd": self._delete_file_recycle},
             {"text": "彻底删除", "icon": "✕", "cmd": self._delete_file_permanent, "kind": "danger"},
+            ("sep",),
+            {"text": "删除所在目录到回收站", "icon": "⌫", "cmd": self._delete_dir_recycle, "disabled": multi},
+            {"text": "彻底删除所在目录", "icon": "✕", "cmd": self._delete_dir_permanent, "kind": "danger", "disabled": multi},
         ]
         self._ctx_menu.show(event.x_root, event.y_root, items)
 
@@ -4152,6 +4155,68 @@ class FileSearcherApp:
                 self.status_var.set(f"已彻底删除: {os.path.basename(paths[0])}")
             else:
                 self.status_var.set(f"已彻底删除 {count} 个文件")
+        except Exception as e:
+            _dialog_confirm(self, "删除失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
+
+    # ---- 删除所在目录（与快捷移动同语义：文件→父目录，文件夹→本身）----
+
+    def _selected_dir_path(self) -> str | None:
+        """单选时返回要操作的目录：选中文件→父目录，选中文件夹→本身；否则 None。"""
+        sel = self.table.selected_results()
+        if len(sel) != 1:
+            return None
+        path = os.path.normpath(sel[0]["path"])
+        src = path if os.path.isdir(path) else os.path.dirname(path)
+        return os.path.normpath(src)
+
+    def _is_drive_root(self, path: str) -> bool:
+        """是否为磁盘根目录（如 C:\\）。"""
+        drive = os.path.splitdrive(path)[0]
+        return bool(drive) and os.path.normcase(path).rstrip("\\/") == os.path.normcase(drive).rstrip("\\/")
+
+    def _delete_dir_recycle(self):
+        """删除所在目录到回收站（可恢复）。"""
+        src = self._selected_dir_path()
+        if src is None:
+            return
+        if self._is_drive_root(src):
+            _dialog_confirm(self, "无法删除", "不能删除磁盘根目录。",
+                            kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        name = os.path.basename(src)
+        if not _dialog_confirm(self, "确认删除目录",
+                               f"将删除目录「{name}」及其全部内容，移动到回收站。\n可以在系统回收站中恢复。确定吗？",
+                               kind="danger", ok_text="删除"):
+            return
+        try:
+            send_to_recycle_bin([src])
+            IndexEngine.remove_paths([src])
+            self._run_query(self._last_query)
+            self.status_var.set(f"已删除目录到回收站: {name}")
+        except Exception as e:
+            _dialog_confirm(self, "删除失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
+
+    def _delete_dir_permanent(self):
+        """彻底删除所在目录（不可恢复，二次确认）。"""
+        src = self._selected_dir_path()
+        if src is None:
+            return
+        if self._is_drive_root(src):
+            _dialog_confirm(self, "无法删除", "不能删除磁盘根目录。",
+                            kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        name = os.path.basename(src)
+        if not _dialog_confirm(self, "确认彻底删除目录",
+                               f"将彻底删除目录「{name}」及其全部内容！\n此操作不可恢复！确定吗？",
+                               kind="danger", ok_text="彻底删除"):
+            return
+        try:
+            permanent_delete([src])
+            IndexEngine.remove_paths([src])
+            self._run_query(self._last_query)
+            self.status_var.set(f"已彻底删除目录: {name}")
         except Exception as e:
             _dialog_confirm(self, "删除失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
