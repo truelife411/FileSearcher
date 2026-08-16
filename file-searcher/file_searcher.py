@@ -1663,8 +1663,12 @@ class _DialogShell:
 
 
 def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text="取消",
-                    show_cancel=True):
-    """确认/提示弹窗。kind: warn(黄) / danger(红) / info(青)。返回 True=确认。"""
+                    show_cancel=True, path_highlight=None):
+    """确认/提示弹窗。kind: warn(黄) / danger(红) / info(青)。返回 True=确认。
+
+    path_highlight：额外醒目展示的路径（等宽字体 + 描边条 + 红色文字），
+    用于危险操作在确认框里明示目标全路径。
+    """
     c = app.colors
     s = app._s
     w = s(400)
@@ -1673,14 +1677,21 @@ def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text
     try:
         import tkinter.font as tkfont
         f = tkfont.Font(root=app.root, font=app._f(FONT_SMALL))
+        fm = tkfont.Font(root=app.root, font=(FONT_MONO, app._f(FONT_SMALL)[1]))
         wrap = max(50, w - s(90))
         lines = 0
         for seg in desc.split("\n"):
             lines += max(1, math.ceil(f.measure(seg) / wrap))
+        path_lines = 0
+        if path_highlight:
+            pwrap = max(50, w - s(130))
+            for seg in path_highlight.split("\n"):
+                path_lines += max(1, math.ceil(fm.measure(seg) / pwrap))
     except Exception:
         approx_chars_per_line = 26
         lines = max(1, (len(desc) + approx_chars_per_line - 1) // approx_chars_per_line)
-    h = s(150) + lines * s(20) + s(64)
+        path_lines = max(1, (len(path_highlight) + 20) // 21) if path_highlight else 0
+    h = s(150) + lines * s(20) + s(64) + (s(14) + path_lines * s(22) if path_highlight else 0)
     shell = _DialogShell(app, w, h)
     body = tk.Frame(shell.body, bg=c["dialog_bg"])
     body.pack(fill=tk.BOTH, expand=True, padx=s(22))
@@ -1698,6 +1709,13 @@ def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text
     tk.Label(body, text=desc, bg=c["dialog_bg"], fg=c["muted"],
              font=app._f(FONT_SMALL), justify=tk.LEFT, wraplength=w - s(90)).pack(
         anchor=tk.W, pady=(s(7), 0))
+    if path_highlight:
+        ph = tk.Frame(body, bg=c["dialog_bg"])
+        ph.pack(fill=tk.X, pady=(s(12), 0))
+        tk.Label(ph, text=path_highlight, bg=c["input"], fg=c["error"],
+                 font=(FONT_MONO, app._f(FONT_SMALL)[1]), anchor=tk.W, justify=tk.LEFT,
+                 padx=s(10), pady=s(8), wraplength=w - s(130),
+                 highlightthickness=1, highlightbackground=c["border_strong"]).pack(fill=tk.X)
     btns = tk.Frame(body, bg=c["dialog_bg"])
     btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, s(16)))
     ok_kind = "danger" if kind == "danger" else "accent"
@@ -4186,8 +4204,8 @@ class FileSearcherApp:
             return
         name = os.path.basename(src)
         if not _dialog_confirm(self, "确认删除目录",
-                               f"将删除目录「{name}」及其全部内容，移动到回收站。\n可以在系统回收站中恢复。确定吗？",
-                               kind="danger", ok_text="删除"):
+                               "将删除以下目录及其全部内容，移动到回收站。\n可以在系统回收站中恢复。确定吗？",
+                               kind="danger", ok_text="删除", path_highlight=src):
             return
         try:
             send_to_recycle_bin([src])
@@ -4209,8 +4227,8 @@ class FileSearcherApp:
             return
         name = os.path.basename(src)
         if not _dialog_confirm(self, "确认彻底删除目录",
-                               f"将彻底删除目录「{name}」及其全部内容！\n此操作不可恢复！确定吗？",
-                               kind="danger", ok_text="彻底删除"):
+                               "将彻底删除以下目录及其全部内容！\n此操作不可恢复！确定吗？",
+                               kind="danger", ok_text="彻底删除", path_highlight=src):
             return
         try:
             permanent_delete([src])
