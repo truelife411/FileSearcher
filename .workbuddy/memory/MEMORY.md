@@ -14,7 +14,8 @@
 
 ## 技术栈
 - **运行/打包用系统 Python 3.12**（`C:\Users\hjf\AppData\Local\Programs\Python\Python312\python.exe`，PyInstaller 6.20 已装）— managed 3.13 没装 pystray/PIL！开发语法检查用 `ast.parse`（不要 `py_compile`，会写 __pycache__ 被沙箱拦）
-- Tkinter + SQLite (WAL模式)；系统托盘：pystray + Pillow；**打包：`python -m PyInstaller --noconfirm --clean FileSearcher.spec`**（spec 已配好 tcl/tk collect_all，--onefile --windowed 含在 spec 里），产物 `dist\FileSearcher.exe`（约23MB）→ 复制到桌面
+- Tkinter + SQLite (WAL模式)；系统托盘：pystray + Pillow；**打包：`python -m PyInstaller --noconfirm --clean FileSearcher.spec`**（spec 已配好 tcl/tk collect_all + **`icon='app.ico'`**（项目根，程序图标：青绿渐变圆角方块+白色放大镜，16~256px 六档）），--onefile --windowed 含在 spec 里），产物 `dist\FileSearcher.exe`（约23MB）→ 复制到桌面
+- **exe 图标验证**：Shell32 ExtractAssociatedIcon 提取 exe 图标与 app.ico 逐像素对比（0% 差异）；桌面图标不刷新时清 `%LocalAppData%\Microsoft\Windows\Explorer\iconcache_*.db` + 重启 explorer（ie4uinit -show 刷新）
 - **拖拽依赖 tkinterdnd2（0.6.2，已装）**：tkdnd 是独立 Tcl 扩展，spec 里 `collect_all('tkinterdnd2')`（未装则 try/except 跳过，运行时降级+状态栏提示）；代码里 `_setup_drag_drop` 按平台/tcl9 把 `tkinterdnd2/tkdnd/<平台>` 加 auto_path 再 `package require tkdnd`
 - GitHub: https://github.com/truelife411/FileSearcher
 
@@ -26,8 +27,10 @@
 - **每条目 1 次 stat**：`S_ISDIR/S_ISREG(st.st_mode)` 判断类型（Windows 上 junction 的 stat(follow_symlinks=False) 为 S_IFLNK → 与旧 is_dir(False) 行为一致被跳过）
 - `_db_schema()` 带 db_mtime 缓存的 PRAGMA（has_is_dir/modified_is_text/fts_ok），老库 TEXT 列不迁移
 - 实测全盘 101,256 文件：扫描 7.9s + 优化(FTS回填+索引) 1.8s
-- **日志**：`_diag` 写 `~/.file_searcher_index/debug.log`（不再硬编码开发机路径），>1MB 轮转 debug.log.1
-- build/ dist/ 已加入 .gitignore（构建产物不入库）
+- **日志**：`_diag` 写 `~/.file_searcher_index/debug.log`（不再硬编码开发机路径），>1MB 轮转 debug.log.1；`report_callback_exception` 已接线（Tkinter 回调异常写 [tk-error] 行）
+- **启动竞态坑位（2026-08-16 实测）**：_defer_initial_load 轮询映射时若先于 resize 事件更新 _page_size，resize 会因"页大小未变"跳过查询 → 首次查询永不执行、列表空白。修法：映射后一次性 _initial_query_done 标志保证至少触发一次 _load_all（默认全部文件、size DESC）
+- **键盘/滚轮导航**：FileTable 内实现——滚轮翻页（累积 delta≥120 翻一页，防抖）、↑/↓ 移选中（clamp）、PgUp/PgDn 翻页（on_scroll_page 回调），Linux Button-4/5、macOS delta 缩放
+- build/ dist/ 已加入 .gitignore（构建产物不入库）；app.ico 是项目资源（入库）
 
 ## UI 设计基线（2026-08-14「凝脂纸感」，方向 C，当前线上版）
 - **凝脂主题**（B 墨玉实机被否决后改选 C）：宣纸暖白底 #F5F3EE + 黛青 accent #2E6E66（渐变 #3A837A→#255A53）+ 墨色文字 #23282C。深色变体「墨玉」#0A0C10/#6FD8C8 保留在 THEMES["dark"]。默认主题 = light。sel_text = 选中行/激活态文字色
