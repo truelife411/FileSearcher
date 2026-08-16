@@ -3248,10 +3248,14 @@ class FileSearcherApp:
         self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate",
                                         length=self._s(100))
 
-        # 右侧：设置钮 · 重建索引钮
+        # 右侧：快捷移动目录钮 · 设置钮 · 重建索引钮（pack 顺序即从左到右）
         right = tk.Frame(bar, bg=c["title_bg"])
         right.pack(side=tk.RIGHT, padx=(0, self._s(10)))
 
+        self.qm_btn = RoundedButton(right, text="▣ 快捷移动目录", command=self._open_quick_move_dir,
+                                    width=self._s(164), height=self._s(30), colors=c,
+                                    kind="ghost", font_size=self._f(FONT_SMALL)[1])
+        self.qm_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
         self.index_btn = RoundedButton(right, text="⟳ 重建索引", command=self._toggle_index,
                                        width=self._s(104), height=self._s(30), colors=c,
                                        kind="ghost", font_size=self._f(FONT_SMALL)[1])
@@ -3260,6 +3264,7 @@ class FileSearcherApp:
                                           width=self._s(34), height=self._s(30), colors=c,
                                           font_size=self._f(FONT_BODY)[1])
         self.settings_btn.pack(side=tk.LEFT)
+        self._update_qm_button_text()
 
     def _set_status(self, text: str, kind: str = "normal"):
         self.status_var.set(text)
@@ -3280,6 +3285,32 @@ class FileSearcherApp:
     # ================================================================
     #  索引管理
     # ================================================================
+
+    def _open_quick_move_dir(self):
+        """打开快捷移动目录（资源管理器）。"""
+        qm = str(self._settings.get("quick_move_dir", "") or "")
+        qm = os.path.normpath(qm)
+        if not qm or not os.path.isdir(qm):
+            _dialog_confirm(self, "未配置快捷移动目录",
+                            "请先在 设置 → 常规 中配置「快捷移动目录」。",
+                            kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        try:
+            os.startfile(qm)   # 主线程直接打开（会话隔离经验：工具链不适用，用户桌面正常）
+        except Exception as e:
+            _dialog_confirm(self, "打开失败", str(e), kind="warn",
+                            ok_text="知道了", show_cancel=False)
+
+    def _update_qm_button_text(self):
+        """刷新快捷移动目录按钮文字（未配置显示占位名，过长截断）。"""
+        try:
+            qm = str(self._settings.get("quick_move_dir", "") or "")
+            name = os.path.basename(os.path.normpath(qm)) if qm else "快捷移动目录"
+            if len(name) > 9:
+                name = name[:9] + "…"
+            self.qm_btn.configure(text=f"▣ {name}")
+        except Exception:
+            pass
 
     def _update_index_button_text(self):
         """刷新索引按钮文字与底部状态文字。"""
@@ -3596,6 +3627,7 @@ class FileSearcherApp:
                 qm_var.set(os.path.normpath(p))
                 self._settings["quick_move_dir"] = qm_var.get()
                 IndexEngine.save_settings(self._settings)
+                self._update_qm_button_text()   # 同步底部按钮名称
 
         RoundedButton(row, text="选择…", width=s(68), height=s(28), colors=c,
                       command=_pick_quick_move_dir,
