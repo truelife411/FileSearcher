@@ -3,6 +3,7 @@
 
 import os
 import sys
+import math
 import subprocess
 import sqlite3
 import json
@@ -37,6 +38,8 @@ from PIL import Image, ImageDraw, ImageTk
 # ================================================================
 INDEX_DIR = Path.home() / ".file_searcher_index"
 INDEX_DB = INDEX_DIR / "index.db"
+DEBUG_LOG = INDEX_DIR / "debug.log"
+DEBUG_LOG_MAX = 1024 * 1024        # debug.log 超过 1MB 轮转为 debug.log.1
 INDEX_SCAN_WORKERS = 4
 INDEX_WRITE_BATCH_SIZE = 5000
 INDEX_QUEUE_SIZE = 20000
@@ -198,7 +201,7 @@ try:
     import stat as _st
     FILE_ATTR_SKIP = _st.FILE_ATTRIBUTE_HIDDEN | _st.FILE_ATTRIBUTE_SYSTEM | _st.FILE_ATTRIBUTE_REPARSE_POINT
 except Exception:
-    pass
+    import stat as _st  # 非 Windows：FILE_ATTRIBUTE_* 不存在，但仍需要 S_ISDIR/S_ISREG
 
 
 # ================================================================
@@ -415,8 +418,7 @@ def open_with_default(path: str):
             subprocess.Popen(["xdg-open", path])
     except OSError as e:
         try:
-            with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
-                fo.write(f"[open-error] {path} -> {e}\n")
+            _diag(f"[open-error] {path} -> {e}")
         except Exception:
             pass
         raise
@@ -529,7 +531,12 @@ class IndexEngine:
             self._build_lock.release()
 
     def _build_index_locked(self):
-        """执行单个全量索引任务，并返回各阶段耗时。"""
+        """执行单个全量索引任务，并返回各阶段耗时。
+
+        扫描采用「目录任务队列」：worker 一次领取一个目录扫描，子目录入共享队列，
+        多 worker 在单盘/多盘下都能并行（不再按盘符分配导致单盘并行度 1）。
+        modified 列存 epoch 秒（INTEGER），UI 层再格式化。
+        """
         total_started = time.perf_counter()
         INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -546,10 +553,19 @@ class IndexEngine:
                 path TEXT NOT NULL UNIQUE,
                 path_lower TEXT NOT NULL,
                 size INTEGER NOT NULL,
-                modified TEXT NOT NULL,
+                modified INTEGER NOT NULL,
                 is_dir INTEGER NOT NULL DEFAULT 0
             )
         """)
+        # FTS5 trigram 全文索引：子串匹配走倒排索引（搜索词 ≥3 字符时启用）
+        fts_ok = False
+        try:
+            conn.execute("DROP TABLE IF EXISTS files_fts")
+            conn.execute(
+                "CREATE VIRTUAL TABLE files_fts USING fts5(name, path, tokenize='trigram')")
+            fts_ok = True
+        except Exception:
+            fts_ok = False
 
         drives = [f"{d}:\\" for d in "CDEFGHIJKLMNOPQRSTUVWXYZAB" if os.path.exists(f"{d}:\\")]
         if not drives:
@@ -564,10 +580,13 @@ class IndexEngine:
             }
 
         result_queue = queue.Queue(maxsize=INDEX_QUEUE_SIZE)
-        producer_done = object()
+        dir_queue = queue.Queue()
         stop_event = threading.Event()
-        worker_count = min(len(drives), INDEX_SCAN_WORKERS)
-        completed_producers = 0
+        scan_cond = threading.Condition()
+        pending_dirs = [len(drives)]   # 队列中待处理目录数（可变容器，worker/扫描共享）
+        active_workers = 0             # 正在扫描目录的 worker 数
+        scan_done = False              # 全部扫描结束
+        worker_count = INDEX_SCAN_WORKERS
         total_files = 0
         insert_batch = []
 
@@ -580,22 +599,48 @@ class IndexEngine:
                     continue
             return False
 
-        def scan_drive(drive):
-            try:
-                self._scan_drive(drive, put_queue_item)
-            finally:
-                put_queue_item(producer_done)
+        def scan_worker():
+            nonlocal active_workers, scan_done
+            while True:
+                with scan_cond:
+                    if self._cancel():
+                        scan_done = True
+                        scan_cond.notify_all()
+                        return
+                    while pending_dirs[0] == 0 and active_workers == 0 and not scan_done:
+                        scan_done = True
+                        scan_cond.notify_all()
+                        return
+                    if scan_done:
+                        return
+                    try:
+                        dirpath = dir_queue.get_nowait()
+                    except queue.Empty:
+                        scan_cond.wait(timeout=0.3)
+                        continue
+                    pending_dirs[0] -= 1
+                    active_workers += 1
+                try:
+                    self._scan_one_dir(dirpath, put_queue_item, dir_queue, scan_cond,
+                                       pending_dirs)
+                finally:
+                    with scan_cond:
+                        active_workers -= 1
+                        scan_cond.notify_all()
 
         try:
-            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="index-scan") as executor:
-                futures = [executor.submit(scan_drive, drive) for drive in drives]
-
-                while completed_producers < len(drives):
-                    item = result_queue.get()
-                    if item is producer_done:
-                        completed_producers += 1
+            for drive in drives:
+                dir_queue.put(drive)
+            with ThreadPoolExecutor(max_workers=worker_count,
+                                    thread_name_prefix="index-scan") as executor:
+                futures = [executor.submit(scan_worker) for _ in range(worker_count)]
+                while True:
+                    try:
+                        item = result_queue.get(timeout=0.2)
+                    except queue.Empty:
+                        if scan_done and result_queue.empty():
+                            break
                         continue
-
                     insert_batch.append(item)
                     total_files += 1
                     if len(insert_batch) >= INDEX_WRITE_BATCH_SIZE:
@@ -606,7 +651,6 @@ class IndexEngine:
                         )
                         self._progress(f"已收录 {total_files} 个文件", total_files)
                         insert_batch.clear()
-
                 for future in futures:
                     future.result()
 
@@ -628,6 +672,12 @@ class IndexEngine:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_path_lower ON files(path_lower)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_size ON files(size)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_modified ON files(modified)")
+            if fts_ok:
+                try:
+                    conn.execute(
+                        "INSERT INTO files_fts(rowid, name, path) SELECT id, name, path FROM files")
+                except Exception:
+                    pass
             conn.commit()
             optimize_seconds = time.perf_counter() - optimize_started
             return {
@@ -644,64 +694,49 @@ class IndexEngine:
             stop_event.set()
             conn.close()
 
-    def _scan_drive(self, drive, put_queue_item):
-        """扫描单个盘符，并把文件元数据放入有界队列。"""
-        dir_stack = [drive]
-        while dir_stack and not self._cancel():
-            dirpath = dir_stack.pop()
-            try:
-                entries = os.scandir(dirpath)
-            except (PermissionError, OSError):
-                continue
+    def _scan_one_dir(self, dirpath, put_queue_item, dir_queue, scan_cond, pending_dirs):
+        """扫描单个目录：文件入结果队列，子目录入共享任务队列（含计数更新）。"""
+        try:
+            entries = os.scandir(dirpath)
+        except (PermissionError, OSError):
+            return
+        with entries:
+            for entry in entries:
+                if self._cancel():
+                    return
+                full = entry.path
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if _st.S_ISDIR(st.st_mode):
+                    if not self._should_skip_dir(full, entry, st):
+                        item = (
+                            entry.name, entry.name.lower(), full, full.lower(), 0,
+                            int(st.st_mtime), 1,
+                        )
+                        if not put_queue_item(item):
+                            return
+                        with scan_cond:
+                            pending_dirs[0] += 1
+                            dir_queue.put(full)
+                            scan_cond.notify()
+                    continue
+                if not _st.S_ISREG(st.st_mode) or not self._should_include_file(full, entry):
+                    continue
+                item = (
+                    entry.name,
+                    entry.name.lower(),
+                    full,
+                    full.lower(),
+                    st.st_size,
+                    int(st.st_mtime),
+                    0,
+                )
+                if not put_queue_item(item):
+                    return
 
-            with entries:
-                for entry in entries:
-                    if self._cancel():
-                        return
-                    full = entry.path
-                    try:
-                        is_dir = entry.is_dir(follow_symlinks=False)
-                    except OSError:
-                        continue
-                    if is_dir:
-                        if not self._should_skip_dir(full, entry):
-                            try:
-                                st = entry.stat(follow_symlinks=False)
-                                item = (
-                                    entry.name, entry.name.lower(), full, full.lower(), 0,
-                                    datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"), 1,
-                                )
-                                if not put_queue_item(item):
-                                    return
-                            except OSError:
-                                pass
-                            dir_stack.append(full)
-                        continue
-
-                    try:
-                        is_file = entry.is_file(follow_symlinks=False)
-                    except OSError:
-                        continue
-                    if not is_file or not self._should_include_file(full, entry):
-                        continue
-                    try:
-                        st = entry.stat()
-                    except OSError:
-                        continue
-
-                    item = (
-                        entry.name,
-                        entry.name.lower(),
-                        full,
-                        full.lower(),
-                        st.st_size,
-                        datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                        0,
-                    )
-                    if not put_queue_item(item):
-                        return
-
-    def _should_skip_dir(self, dirpath: str, entry) -> bool:
+    def _should_skip_dir(self, dirpath: str, entry, st=None) -> bool:
         """判断目录是否应被跳过（系统目录、junction 点、排除列表等）。"""
         basename = entry.name.lower()
         try:
@@ -711,7 +746,7 @@ class IndexEngine:
             pass
         if FILE_ATTR_SKIP:
             try:
-                attrs = entry.stat(follow_symlinks=False).st_file_attributes
+                attrs = st.st_file_attributes
                 if attrs & FILE_ATTR_SKIP:
                     return True
             except (AttributeError, OSError):
@@ -747,27 +782,116 @@ class IndexEngine:
 
     @staticmethod
     def ensure_indexes():
-        """幂等补齐排序列索引（老库升级用，重建时已含）。"""
+        """幂等补齐排序列索引 + FTS5 表（老库升级用，重建时已含）。
+
+        老库 FTS 表只建表不回填（回填交给后台 ensure_fts_backfill），
+        回填完成前搜索走原 LIKE 路径，避免升级时卡启动。
+        """
         if not INDEX_DB.exists():
             return
         try:
             conn = sqlite3.connect(str(INDEX_DB))
             conn.execute("CREATE INDEX IF NOT EXISTS idx_size ON files(size)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_modified ON files(modified)")
+            try:
+                conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS files_fts "
+                    "USING fts5(name, path, tokenize='trigram')")
+            except Exception:
+                pass
             conn.commit()
             conn.close()
         except Exception:
             pass
 
     @staticmethod
-    def index_file_count() -> int:
-        """返回索引中的文件总数。"""
-        if not INDEX_DB.exists():
-            return 0
-        conn = sqlite3.connect(str(INDEX_DB))
-        row = conn.execute("SELECT COUNT(*) FROM files").fetchone()
-        conn.close()
-        return row[0] if row else 0
+    def ensure_fts_backfill():
+        """后台回填 FTS 表缺失行（老库升级用）。表不存在或已完整时静默返回。
+
+        索引任务（_build_lock）进行中时跳过本次回填——重建完成后 FTS 已随建随填。
+        """
+        if not INDEX_DB.exists() or not IndexEngine._build_lock.acquire(blocking=False):
+            return
+        try:
+            conn = sqlite3.connect(str(INDEX_DB))
+            try:
+                conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS files_fts "
+                    "USING fts5(name, path, tokenize='trigram')")
+                have = conn.execute("SELECT count(*) FROM files_fts").fetchone()[0]
+                total = conn.execute("SELECT count(*) FROM files").fetchone()[0]
+                if have < total:
+                    conn.execute(
+                        "INSERT INTO files_fts(rowid, name, path) "
+                        "SELECT id, name, path FROM files "
+                        "WHERE id NOT IN (SELECT rowid FROM files_fts)")
+                    conn.commit()
+            except Exception:
+                pass
+            finally:
+                conn.close()
+        except Exception:
+            pass
+        finally:
+            IndexEngine._build_lock.release()
+
+    _schema_cache = (0.0, False, True, False)  # (db_mtime, has_is_dir, modified_is_text, fts_ok)
+
+    @classmethod
+    def _db_schema(cls):
+        """返回库结构信息（带 db_mtime 缓存）：(has_is_dir, modified_is_text, fts_ok)。
+
+        fts_ok = FTS 表存在且已有数据（空表视为未回填，走 LIKE 路径，
+        回填完成后 mtime 变化自动切换）。
+        """
+        try:
+            mtime = INDEX_DB.stat().st_mtime if INDEX_DB.exists() else 0.0
+        except Exception:
+            mtime = 0.0
+        if cls._schema_cache[0] == mtime:
+            return cls._schema_cache[1], cls._schema_cache[2], cls._schema_cache[3]
+        has_is_dir, mod_text, fts_ok = False, True, False
+        if INDEX_DB.exists():
+            try:
+                conn = sqlite3.connect(str(INDEX_DB))
+                try:
+                    cols = {row[1]: row[2]
+                            for row in conn.execute("PRAGMA table_info(files)")}
+                    has_is_dir = "is_dir" in cols
+                    mod_text = cols.get("modified", "TEXT") != "INTEGER"
+                    fts_ok = bool(conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='files_fts'"
+                    ).fetchone())
+                    if fts_ok:
+                        n = conn.execute("SELECT count(*) FROM files_fts").fetchone()[0]
+                        fts_ok = n > 0
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+        cls._schema_cache = (mtime, has_is_dir, mod_text, fts_ok)
+        return has_is_dir, mod_text, fts_ok
+
+    @staticmethod
+    def _fts_query_ids(conn, q: str):
+        """FTS5 trigram 子串匹配，返回匹配的 files.id 列表；失败返回 None（走 LIKE）。"""
+        phrase = '"' + q.replace('"', " ") + '"'
+        try:
+            return [r[0] for r in conn.execute(
+                "SELECT rowid FROM files_fts WHERE files_fts MATCH ?", (phrase,))]
+        except Exception:
+            return None
+
+    @staticmethod
+    def _fts_sync_row(cur, row_id: int, name: str | None, path: str | None):
+        """同步 FTS 表单行（先删后插；name/path 传 None 时仅删除）。无 FTS 表时静默跳过。"""
+        try:
+            cur.execute("DELETE FROM files_fts WHERE rowid=?", (row_id,))
+            if name is not None and path is not None:
+                cur.execute("INSERT INTO files_fts(rowid, name, path) VALUES (?,?,?)",
+                            (row_id, name, path))
+        except sqlite3.OperationalError:
+            pass
 
     _COL_DB = {"name": "name_lower", "path": "path_lower", "type": "name_lower", "size": "size", "modified": "modified"}
 
@@ -775,19 +899,29 @@ class IndexEngine:
     def _query_files(query: str = "", limit: int = PAGE_SIZE, offset: int = 0,
                      order_col: str = "name", order_desc: bool = False, filters: dict | None = None,
                      count_only: bool = False):
-        """使用参数化条件查询索引，统一支持搜索、筛选、排序、计数和分页。"""
+        """使用参数化条件查询索引，统一支持搜索、筛选、排序、计数和分页。
+
+        搜索路径：关键词 ≥3 字符且 FTS 可用 → FTS5 trigram 子串匹配
+        （MATCH 结果 rowid 落临时表后 JOIN files 排序分页）；
+        否则 → LIKE 全表扫描（关键词做 %/_/\\ 转义）。
+        """
         if not INDEX_DB.exists():
             return 0 if count_only else []
         filters = filters or {}
         conn = sqlite3.connect(str(INDEX_DB))
         conn.row_factory = sqlite3.Row
-        has_is_dir = any(row[1] == "is_dir" for row in conn.execute("PRAGMA table_info(files)"))
+        has_is_dir, mod_text, fts_ok = IndexEngine._db_schema()
         is_dir_sql = "is_dir" if has_is_dir else "0"
         clauses, params = [], []
         q = query.strip().lower()
+        fts_ids = None
         if q:
-            clauses.append("(name_lower LIKE ? OR path_lower LIKE ?)")
-            params.extend((f"%{q}%", f"%{q}%"))
+            if fts_ok and len(q) >= 3:
+                fts_ids = IndexEngine._fts_query_ids(conn, q)
+            if fts_ids is None:
+                eq = (q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"))
+                clauses.append("(name_lower LIKE ? ESCAPE '\\' OR path_lower LIKE ? ESCAPE '\\')")
+                params.extend((f"%{eq}%", f"%{eq}%"))
 
         path_prefix = filters.get("path_prefix")
         if path_prefix:
@@ -818,8 +952,12 @@ class IndexEngine:
             start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             if days:
                 start -= timedelta(days=days - 1)
-            clauses.append("modified >= ?")
-            params.append(start.strftime("%Y-%m-%d %H:%M:%S"))
+            if mod_text:
+                clauses.append("modified >= ?")
+                params.append(start.strftime("%Y-%m-%d %H:%M:%S"))
+            else:
+                clauses.append("modified >= ?")
+                params.append(int(start.timestamp()))
 
         size_name = filters.get("size", "全部")
         if size_name == "<1MB":
@@ -832,9 +970,15 @@ class IndexEngine:
             clauses.append(f"({is_dir_sql} = 0 AND size > ?)")
             params.append(100 * 1024 * 1024)
 
+        join = ""
+        if fts_ids is not None:
+            conn.execute("CREATE TEMP TABLE _fts_ids(id INTEGER PRIMARY KEY)")
+            conn.executemany("INSERT OR IGNORE INTO _fts_ids(id) VALUES (?)",
+                             ((r,) for r in fts_ids))
+            join = " JOIN _fts_ids ON files.id = _fts_ids.id"
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         if count_only:
-            row = conn.execute("SELECT COUNT(*) FROM files" + where, params).fetchone()
+            row = conn.execute("SELECT COUNT(*) FROM files" + join + where, params).fetchone()
             conn.close()
             return row[0] if row else 0
 
@@ -853,7 +997,7 @@ class IndexEngine:
         else:
             order = f"{col} {direction}, path_lower ASC"
         sql = (
-            f"SELECT name, path, size, modified, {is_dir_sql} AS is_dir FROM files"
+            f"SELECT name, path, size, modified, {is_dir_sql} AS is_dir FROM files{join}"
             f"{where} ORDER BY {order} LIMIT ? OFFSET ?"
         )
         rows = conn.execute(sql, (*params, limit, offset)).fetchall()
@@ -875,8 +1019,18 @@ class IndexEngine:
         return IndexEngine._query_files(query, filters=filters, count_only=True)
 
     @staticmethod
+    def index_file_count() -> int:
+        """返回索引中的文件总数。"""
+        if not INDEX_DB.exists():
+            return 0
+        conn = sqlite3.connect(str(INDEX_DB))
+        row = conn.execute("SELECT COUNT(*) FROM files").fetchone()
+        conn.close()
+        return row[0] if row else 0
+
+    @staticmethod
     def remove_paths(paths: list[str]):
-        """从索引中同步删除指定路径及其子路径。"""
+        """从索引中同步删除指定路径及其子路径（含 FTS 表）。"""
         if not paths or not INDEX_DB.exists():
             return
         conn = sqlite3.connect(str(INDEX_DB))
@@ -887,6 +1041,15 @@ class IndexEngine:
                 escaped_child_prefix = (child_prefix.replace("\\", "\\\\")
                                         .replace("%", "\\%")
                                         .replace("_", "\\_"))
+                try:
+                    # 先删 FTS（files 行还在，可经子查询取 rowid）
+                    conn.execute(
+                        "DELETE FROM files_fts WHERE rowid IN "
+                        "(SELECT id FROM files WHERE path_lower = ? OR path_lower LIKE ? ESCAPE '\\')",
+                        (normalized, escaped_child_prefix + "%"),
+                    )
+                except sqlite3.OperationalError:
+                    pass
                 conn.execute(
                     "DELETE FROM files WHERE path_lower = ? OR path_lower LIKE ? ESCAPE '\\'",
                     (normalized, escaped_child_prefix + "%"),
@@ -901,6 +1064,8 @@ class IndexEngine:
 
         子路径在 Python 侧逐行计算新路径再 UPDATE，避开 LIKE 前缀匹配在
         Windows 反斜杠 + 转义下的坑，逻辑直观可靠。
+        新路径若已在索引中（磁盘 rename 已成功覆盖），先删除该目标行再更新，
+        避免撞 path UNIQUE 约束导致「磁盘已改名、索引未同步」的不一致。
         """
         if not INDEX_DB.exists():
             return
@@ -912,21 +1077,33 @@ class IndexEngine:
         conn = sqlite3.connect(str(INDEX_DB))
         try:
             cur = conn.cursor()
+            # 先取自身行 id（重命名仅改大小写时 new_lower == old_lower，不能把自身当目标删掉）
+            cur.execute("SELECT id FROM files WHERE path_lower=?", (old_lower,))
+            self_row = cur.fetchone()
+            # 0) 若目标行已存在（磁盘 rename 覆盖了旧文件），先删目标行及其 FTS 条目
+            cur.execute("SELECT id FROM files WHERE path_lower=?", (new_n.lower(),))
+            target_row = cur.fetchone()
+            if target_row and (self_row is None or target_row[0] != self_row[0]):
+                IndexEngine._fts_sync_row(cur, target_row[0], None, None)
+                cur.execute("DELETE FROM files WHERE id=?", (target_row[0],))
             # 1) 更新自身行（文件或文件夹本身）
-            cur.execute(
-                "UPDATE files SET name=?, name_lower=?, path=?, path_lower=? WHERE path_lower=?",
-                (new_name, new_name.lower(), new_n, new_n.lower(), old_lower),
-            )
+            if self_row:
+                cur.execute(
+                    "UPDATE files SET name=?, name_lower=?, path=?, path_lower=? WHERE id=?",
+                    (new_name, new_name.lower(), new_n, new_n.lower(), self_row[0]),
+                )
+                IndexEngine._fts_sync_row(cur, self_row[0], new_name, new_n)
             # 2) 取出所有子行（path_lower 以旧前缀开头），逐个改路径
-            cur.execute("SELECT id, path FROM files WHERE substr(path_lower, 1, ?) = ?",
+            cur.execute("SELECT id, path, name FROM files WHERE substr(path_lower, 1, ?) = ?",
                         (len(old_prefix), old_prefix))
             children = cur.fetchall()
-            for row_id, child_path in children:
+            for row_id, child_path, child_name in children:
                 # 用原 path 的后缀（保留原始大小写）拼到新前缀
                 suffix = os.path.normpath(child_path)[len(old_n):].lstrip("\\/")
                 child_new = os.path.join(new_n, suffix)
                 cur.execute("UPDATE files SET path=?, path_lower=? WHERE id=?",
                             (child_new, child_new.lower(), row_id))
+                IndexEngine._fts_sync_row(cur, row_id, child_name, child_new)
             conn.commit()
         finally:
             conn.close()
@@ -948,7 +1125,8 @@ class IndexEngine:
 
     @classmethod
     def save_exclude_list(cls, dirs: list[str], paths: list[str]):
-        """保存排除列表到 JSON 文件。"""
+        """保存排除列表到 JSON 文件（目录不存在时先创建，兼容未建索引的首次使用）。"""
+        INDEX_DIR.mkdir(parents=True, exist_ok=True)
         cls.EXCLUDE_FILE.write_text(
             json.dumps({"dirs": dirs, "paths": paths}, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -1001,9 +1179,20 @@ class IndexEngine:
 
 
 def _diag(msg: str):
-    """追加诊断行到 debug.log（用于线上排查 UI 流程）。"""
+    """追加诊断行到 INDEX_DIR/debug.log（超过 1MB 自动轮转为 debug.log.1）。
+
+    日志位置随索引目录走（~/.file_searcher_index/），不再依赖开发机绝对路径，
+    打包 exe 移到任意位置都可正常记录。
+    """
     try:
-        with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
+        INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = DEBUG_LOG
+        if log_path.exists() and log_path.stat().st_size > DEBUG_LOG_MAX:
+            try:
+                log_path.replace(log_path.with_suffix(".log.1"))
+            except Exception:
+                pass
+        with open(log_path, "a", encoding="utf-8") as fo:
             fo.write(msg + "\n")
     except Exception:
         pass
@@ -1488,9 +1677,18 @@ def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text
     c = app.colors
     s = app._s
     w = s(400)
-    # 估算高度：图标 46 + 标题 30 + 描述行数 + 按钮 52 + 边距
-    approx_chars_per_line = 26
-    lines = max(1, (len(desc) + approx_chars_per_line - 1) // approx_chars_per_line)
+    # 估算高度：图标 46 + 标题 30 + 描述行数 + 按钮 52 + 边距。
+    # 按实际字体测量换行（wraplength 生效），避免超长 desc 裁掉按钮区。
+    try:
+        import tkinter.font as tkfont
+        f = tkfont.Font(root=app.root, font=app._f(FONT_SMALL))
+        wrap = max(50, w - s(90))
+        lines = 0
+        for seg in desc.split("\n"):
+            lines += max(1, math.ceil(f.measure(seg) / wrap))
+    except Exception:
+        approx_chars_per_line = 26
+        lines = max(1, (len(desc) + approx_chars_per_line - 1) // approx_chars_per_line)
     h = s(150) + lines * s(20) + s(64)
     shell = _DialogShell(app, w, h)
     body = tk.Frame(shell.body, bg=c["dialog_bg"])
@@ -1792,7 +1990,7 @@ class FileTable(tk.Canvas):
 
     def __init__(self, master, colors, icon_cache, font_body, font_header,
                  on_header_click=None, on_double=None, on_right=None,
-                 on_scroll_page=None, on_col_resize=None, badge_styles=None):
+                 on_col_resize=None, badge_styles=None):
         super().__init__(master, bd=0, highlightthickness=0, bg=colors["surface"],
                          cursor="")
         self.colors = colors
@@ -1812,7 +2010,6 @@ class FileTable(tk.Canvas):
         self._on_header_click = on_header_click
         self._on_double = on_double
         self._on_right = on_right
-        self._on_scroll_page = on_scroll_page
         self._on_col_resize = on_col_resize
         self._cols = []            # [(key, width)]
         self._rows = []
@@ -2297,7 +2494,11 @@ class FileSearcherApp:
         self._wnd_proc_holder = None   # 保活 WndProc 回调（防 GC）
         self._orig_wndproc = None
 
-        IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引
+        IndexEngine.ensure_indexes()   # 老库幂等补齐 size/modified 排序索引 + FTS 空表
+        # 老库升级：后台回填 FTS 表（回填完成前搜索自动走 LIKE，不卡启动）
+        if IndexEngine.index_exists():
+            threading.Thread(target=IndexEngine.ensure_fts_backfill,
+                             daemon=True, name="fts-backfill").start()
         self._build_ui()
         self._load_layout()
         self._setup_frameless()
@@ -2309,7 +2510,7 @@ class FileSearcherApp:
         self._view_resize_timer = None
         self._layout_save_timer = None
 
-        self.root.after(100, self._load_all)
+        self.root.after(100, self._defer_initial_load)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         # 不再绑 <Unmap>：它在子控件 unmap 时也冒泡触发，会误把窗口收进托盘。
         # 「✕」进托盘走 _on_close；「—」留任务栏走 _minimize_window 的 iconify。
@@ -2318,8 +2519,33 @@ class FileSearcherApp:
         if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
             self.root.after(500, self._do_index_silent)
 
+    def _defer_initial_load(self):
+        """延迟到结果表映射完成后加载首页。
+
+        启动时表格尚未布局（winfo_height=1），_compute_page_size 会兜底成 5 行/页，
+        直接查询会先拉一页 5 行、窗口显示后再重查一次。这里轮询等表格映射，
+        若窗口显示时的 resize 事件已经以正确页大小查过，则不再重复查询。
+        """
+        try:
+            if self.root.state() in ("withdrawn", "iconic"):
+                self.root.after(100, self._defer_initial_load)
+                return
+            if self.table.winfo_height() <= 1:
+                self.root.after(100, self._defer_initial_load)
+                return
+        except Exception:
+            self.root.after(100, self._defer_initial_load)
+            return
+        ps = self._compute_page_size()
+        if ps != self._page_size:
+            self._page_size = ps
+        if self._page_size == 5 and not self._results:
+            self._load_all()
+        else:
+            self._update_result_status()
+
     def _log_diag(self):
-        """启动 1.5s 后记录缩放关键参数到 debug.log，用于诊断字号问题。"""
+        """启动 1.5s 后记录缩放关键参数到 INDEX_DIR/debug.log，用于诊断字号问题。"""
         try:
             import tkinter.font as tkfont
             try:
@@ -2332,8 +2558,7 @@ class FileSearcherApp:
                     f"win_w={self.root.winfo_width()} sys_dpi={real_dpi:.0f} state={self.root.state()} "
                     f"font_body_pt={max(8, int(FONT_BODY * self.ui_scale * self._dpi_scale * self._font_scale))} "
                     f"real_px={f.metrics('linespace')}\n")
-            with open(r"C:\Users\hjf\Documents\代码\FileSearcher\debug.log", "a", encoding="utf-8") as fo:
-                fo.write(line)
+            _diag(line)
         except Exception:
             pass
 
@@ -2625,7 +2850,6 @@ class FileSearcherApp:
                                on_header_click=self._sort_by,
                                on_double=self._on_double_click,
                                on_right=self._on_right_click,
-                               on_scroll_page=self._goto_page_relative,
                                on_col_resize=self._on_col_resize,
                                badge_styles=BADGE_STYLES[self._theme_name])
         self.table.pack(fill=tk.BOTH, expand=True, padx=1, pady=(1, 0))
@@ -2670,9 +2894,11 @@ class FileSearcherApp:
                                      width=max(2, 2.5 * u))
         self._empty_icon.create_line(35 * u, 35 * u, 44 * u, 44 * u, fill=c["muted_2"],
                                      width=max(2.5, 3 * u), capstyle=tk.ROUND)
-        tk.Label(empty_frame, text="没有匹配的结果", bg=c["surface"], fg=c["muted"],
+        self.empty_title_var = tk.StringVar(value="没有匹配的结果")
+        self.empty_sub_var = tk.StringVar(value="换个关键词试试，或检查拼写")
+        tk.Label(empty_frame, textvariable=self.empty_title_var, bg=c["surface"], fg=c["muted"],
                  font=self._f(FONT_LG)).pack(pady=(self._s(14), self._s(4)))
-        tk.Label(empty_frame, text="换个关键词试试，或检查拼写", bg=c["surface"], fg=c["muted_2"],
+        tk.Label(empty_frame, textvariable=self.empty_sub_var, bg=c["surface"], fg=c["muted_2"],
                  font=self._f(FONT_SMALL)).pack()
         self.empty_state = empty_frame
 
@@ -2738,9 +2964,18 @@ class FileSearcherApp:
         self._layout_save_timer = self.root.after(500, self._save_layout)
 
     def _on_view_resize(self, event=None):
-        """窗口尺寸变化：重算页大小（自适应可视行数），刷新当前页。"""
+        """窗口尺寸变化：重算页大小（自适应可视行数），刷新当前页。
+
+        <Configure> 在窗口移动时也触发（width/height 不变），
+        尺寸无变化直接跳过，避免移动窗口白跑一轮页大小计算。
+        """
         if event is not None and getattr(event, "widget", None) is not self.root:
             return
+        if event is not None:
+            size = (event.width, event.height)
+            if getattr(self, "_last_view_size", None) == size:
+                return
+            self._last_view_size = size
         if getattr(self, "_view_resize_timer", None) is not None:
             try:
                 self.root.after_cancel(self._view_resize_timer)
@@ -2881,7 +3116,9 @@ class FileSearcherApp:
     def _toggle_index(self):
         """点击索引按钮：运行中 → 询问是否停止；空闲 → 确认后创建/重建。"""
         if self._index_running:
-            if _dialog_confirm(self, "停止索引", "索引正在后台运行，是否停止？\n已写入的数据会保留，下次可继续重建。",
+            keep = "，现有索引保持不变" if IndexEngine.index_exists() else ""
+            if _dialog_confirm(self, "停止索引",
+                               f"索引正在后台运行，确定停止吗？\n本次扫描的全部进度将被丢弃{keep}。",
                                kind="warn", ok_text="停止"):
                 self._stop_index()
                 self._set_status("正在停止索引…", "warning")
@@ -2889,8 +3126,16 @@ class FileSearcherApp:
         if self._engine_cancel:
             return
         if IndexEngine.index_exists():
-            if not _dialog_confirm(self, "重建索引", "重建索引将扫描所有磁盘，可能需要几分钟。继续？",
+            if not _dialog_confirm(self, "重建索引",
+                                   "重建索引将扫描所有磁盘，可能需要几分钟。\n"
+                                   "中途停止将丢弃本次扫描的全部进度（现有索引保持不变）。继续？",
                                    kind="warn", ok_text="重建"):
+                return
+        else:
+            if not _dialog_confirm(self, "创建索引",
+                                   "将扫描所有磁盘建立索引，可能需要几分钟。\n"
+                                   "中途停止将丢弃本次扫描的全部进度。继续？",
+                                   kind="warn", ok_text="创建"):
                 return
         self._do_index()
 
@@ -3126,15 +3371,15 @@ class FileSearcherApp:
         _page_head(page_index, "常规", "所有修改即时保存，无需重启。")
 
         card_idx = _card(page_index, "索引")
-        row = _option_row(card_idx, "启动时自动更新索引", "每次启动软件后在后台静默重建全盘索引")
+        row = _option_row(card_idx, "启动时自动重建索引", "每次启动软件后在后台静默重建全盘索引")
         ToggleSwitch(row, c, auto_start_var, width=s(46), height=s(26)).pack(
             side=tk.RIGHT, padx=(s(10), 0))
-        row = _option_row(card_idx, "托盘自动更新", "最小化到系统托盘后按固定间隔更新索引")
+        row = _option_row(card_idx, "托盘自动重建", "最小化到系统托盘后按固定间隔重建索引")
         ToggleSwitch(row, c, tray_auto_var, width=s(46), height=s(26)).pack(
             side=tk.RIGHT, padx=(s(10), 0))
 
         # 间隔步进器
-        row = _option_row(card_idx, "更新间隔", "托盘自动更新的时间间隔（5 ~ 120 分钟）")
+        row = _option_row(card_idx, "重建间隔", "托盘自动重建的时间间隔（5 ~ 120 分钟）")
         stepper = tk.Frame(row, bg=c["surface"])
         stepper.pack(side=tk.RIGHT)
         minutes_label = tk.Label(stepper, text=f"{minutes_var.get()} 分钟", bg=c["input"],
@@ -3586,6 +3831,14 @@ class FileSearcherApp:
             icon = self._icon_cache.get(result["path"], bool(result.get("is_dir")))
             rows.append({"result": result, "icon": icon, "values": self._tree_item_values(result)})
         self.table.set_rows(rows)
+        # 空状态文案区分「无索引」与「真无结果」
+        if hasattr(self, "empty_title_var"):
+            if not IndexEngine.index_exists():
+                self.empty_title_var.set("尚未创建索引")
+                self.empty_sub_var.set("点击右下角「创建索引」开始全盘搜索")
+            else:
+                self.empty_title_var.set("没有匹配的结果")
+                self.empty_sub_var.set("换个关键词试试，或检查拼写")
         self._show_empty_state(not self._results)
 
     def _tree_item_values(self, result: dict):
@@ -3593,7 +3846,10 @@ class FileSearcherApp:
         ext = os.path.splitext(result["name"])[1]
         type_text = "文件夹" if is_dir else (ext.upper().lstrip(".") if ext else "文件")
         size_text = "" if is_dir else format_size(result["size"])
-        return (result["name"], result["path"], type_text, size_text, result["modified"])
+        modified = result["modified"]
+        if isinstance(modified, (int, float)):
+            modified = datetime.fromtimestamp(int(modified)).strftime("%Y-%m-%d %H:%M:%S")
+        return (result["name"], result["path"], type_text, size_text, modified)
 
     def _get_selected_path(self) -> str | None:
         """获取当前选中文件的完整路径（兼容单选）。"""
@@ -3675,12 +3931,19 @@ class FileSearcherApp:
                             ok_text="知道了", show_cancel=False)
 
     def _open_new_window(self):
-        """右键菜单 → 新开一个程序窗口。"""
+        """右键菜单 → 新开一个程序窗口。
+
+        PyInstaller onefile 下 __file__ 指向 _MEIxxxx 临时解包目录，把脚本路径
+        传给 exe 无意义（还会在每次新窗口时重新解包），打包环境直接启动 exe；
+        源码环境带脚本路径启动解释器。
+        """
         try:
-            script = os.path.abspath(__file__)
             python = sys.executable
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            subprocess.Popen([python, script], creationflags=flags)
+            if getattr(sys, "frozen", False):
+                subprocess.Popen([python], creationflags=flags)
+            else:
+                subprocess.Popen([python, os.path.abspath(__file__)], creationflags=flags)
             self.status_var.set("已打开新窗口")
         except Exception as e:
             _dialog_confirm(self, "打开失败", str(e), kind="warn",
@@ -3743,8 +4006,31 @@ class FileSearcherApp:
     # ================================================================
 
     def _setup_drag_drop(self):
-        """设置文件拖拽功能（依赖 tkdnd 库）。"""
+        """设置文件拖拽功能（依赖 tkdnd 扩展，经 tkinterdnd2 包提供二进制）。
+
+        tkinterdnd2 装好后按平台把 tkdnd 的 Tcl 目录加入 auto_path 再 package require；
+        源码与 PyInstaller 打包环境均适用（spec 已收集 tkinterdnd2 数据）。
+        """
         try:
+            try:
+                import tkinterdnd2
+                _tkdnd_root = os.path.join(os.path.dirname(tkinterdnd2.__file__), "tkdnd")
+                if sys.platform == "win32":
+                    _platform = "win-x64"
+                elif sys.platform == "darwin":
+                    _platform = "osx-x64"
+                else:
+                    _platform = "linux-x64"
+                try:
+                    _tcl9 = int(self.root.tk.call("info", "tclversion").split(".")[0]) >= 9
+                except Exception:
+                    _tcl9 = False
+                _p = os.path.join(_tkdnd_root, _platform + ("-tcl9" if _tcl9 else ""))
+                if not os.path.isdir(_p):
+                    _p = os.path.join(_tkdnd_root, _platform)
+                self.root.tk.call("lappend", "auto_path", _p)
+            except Exception:
+                pass
             self.root.tk.call("package", "require", "tkdnd")
             self.root.tk.eval(f"tkdnd::drag_source register {self.table._w} DND_Files")
             self._dnd_cb = self.root.register(self._on_dnd_data)
@@ -3753,6 +4039,7 @@ class FileSearcherApp:
         except tk.TclError:
             self._dnd_ok = False
             self.table.bind("<B1-Motion>", self._on_drag_fallback)
+            self.status_var.set("拖拽不可用（未找到 tkdnd 扩展）")
 
     def _on_dnd_data(self, *args):
         """拖拽时返回文件路径（格式化为 tkdnd 需要的格式）。"""
@@ -3858,7 +4145,13 @@ class FileSearcherApp:
             pass
 
     def _on_close(self):
-        """点「✕」→ 收进系统托盘（任务栏不留图标，托盘可还原/退出）。"""
+        """点「✕」→ 收进系统托盘（任务栏不留图标，托盘可还原/退出）。
+
+        托盘不可用（初始化失败）时直接退出，避免窗口被隐藏后无法找回。
+        """
+        if self._tray is None:
+            self._do_exit()
+            return
         self.root.withdraw()
         self._start_tray_auto_index_timer()
 
@@ -4055,9 +4348,17 @@ class FileSearcherApp:
 
         只 root.destroy() 不够：ThreadPoolExecutor 的工作线程、pystray 图标线程、
         以及挂着的 after 定时器都会让 pythonw 进程继续存活 → 后台残留。
-        这里 shutdown 线程池、停托盘、销毁窗口，最后 os._exit 兜底确保进程结束。
+        这里 shutdown 线程池、停托盘、销毁窗口、清理临时图标，最后 os._exit 兜底确保进程结束。
         """
         self._cancel_tray_auto_index_timer()
+        # 清理临时窗口图标文件（每次启动在 %TEMP% 生成，退出时删除）
+        ico = getattr(self, "_ico_path", None)
+        if ico:
+            try:
+                os.remove(ico)
+            except Exception:
+                pass
+            self._ico_path = None
         # 停托盘图标线程
         tray = getattr(self, "_tray", None)
         if tray is not None:

@@ -7,6 +7,14 @@ hiddenimports = ['tkinter', 'tkinter.font', 'tkinter.ttk', 'tkinter.messagebox',
 tmp_ret = collect_all('tkinter')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+# tkdnd 拖拽扩展：经 tkinterdnd2 包提供 Tcl 库与各平台二进制（win-x64 等）。
+# 未安装时跳过收集，打包后拖拽功能自动降级（运行时代码已有降级路径）。
+try:
+    tmp_ret = collect_all('tkinterdnd2')
+    datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+except Exception:
+    pass
+
 
 a = Analysis(
     ['file-searcher\\file_searcher.py'],
