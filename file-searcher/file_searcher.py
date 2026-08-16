@@ -1223,47 +1223,6 @@ def _rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
 
 
 _GRADIENT_CACHE: dict = {}
-_ICON_PIX_CACHE: dict = {}
-
-
-def _make_button_icon(master, kind, bg, fg, size):
-    """生成按钮彩色圆角方块图标（齿轮/文件夹，白色符号），带缓存。
-
-    与程序 logo 同设计语言（圆角方块 + 符号），PIL 抗锯齿渲染，
-    尺寸随按钮实际大小缩放（key 含 size/bg/fg）。
-    """
-    key = (kind, bg, fg, size)
-    if key in _ICON_PIX_CACHE:
-        return _ICON_PIX_CACHE[key]
-    s = max(12, int(size))
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle((0, 0, s - 1, s - 1), radius=max(3, s * 0.24), fill=bg)
-    cx = cy = s / 2
-    if kind == "gear":
-        # 白色齿轮：圆盘 + 8 齿（短线 + 端圆点）+ 中心孔
-        r = s * 0.30
-        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fg)
-        for i in range(8):
-            a = i * math.pi / 4
-            x1 = cx + math.cos(a) * r * 0.92
-            y1 = cy + math.sin(a) * r * 0.92
-            x2 = cx + math.cos(a) * (r + s * 0.15)
-            y2 = cy + math.sin(a) * (r + s * 0.15)
-            d.line((x1, y1, x2, y2), fill=fg, width=max(2, int(s * 0.11)))
-            rr = max(1.2, s * 0.075)
-            d.ellipse((x2 - rr, y2 - rr, x2 + rr, y2 + rr), fill=fg)
-        hr = s * 0.11
-        d.ellipse((cx - hr, cy - hr, cx + hr, cy + hr), fill=bg)
-    else:  # folder：经典文件夹剪影（后片标签 + 前片主体）
-        w, h = s * 0.62, s * 0.48
-        d.rounded_rectangle((cx - w / 2, cy - h * 0.55, cx - w * 0.06, cy - h * 0.12),
-                            radius=max(1.5, s * 0.05), fill=fg)
-        d.rounded_rectangle((cx - w / 2, cy - h * 0.28, cx + w / 2, cy + h / 2),
-                            radius=max(2, s * 0.09), fill=fg)
-    pix = ImageTk.PhotoImage(img, master=master)
-    _ICON_PIX_CACHE[key] = pix
-    return pix
 
 def _make_gradient_pix(master, width: int, height: int, radius: int, c1: str, c2: str):
     """生成垂直渐变的圆角位图（带透明圆角遮罩），带缓存。"""
@@ -1306,7 +1265,6 @@ class RoundedButton(tk.Canvas):
         self._command = command
         self._radius = radius
         self._icon = icon
-        self._icon_pix = None   # 位图图标引用（防 GC）
         self._state = tk.NORMAL
         self._visual_state = "normal"
         self.bind("<Configure>", lambda _e: self._draw())
@@ -1330,31 +1288,41 @@ class RoundedButton(tk.Canvas):
             self._command()
 
     def _render_label(self, cx, cy, fill, weight="normal"):
-        """渲染按钮内容：自绘位图图标（icon="gear"/"folder"）或文字/字符图标。
+        """渲染按钮内容：自绘线条图标（icon="gear"/"folder"）或文字/字符图标。"""
+        if self._icon == "gear":
+            self._draw_gear(cx, cy, fill)
+        elif self._icon == "folder":
+            self._draw_folder(cx, cy, fill)
+        else:
+            self.create_text(cx, cy, text=self._icon or self._text, fill=fill,
+                             font=(FONT_FAMILY, self._font_size, weight))
 
-        位图图标 = 彩色圆角方块 + 白色符号（_make_button_icon），颜色随
-        按钮状态联动（normal→accent / hover→accent_hover / pressed→accent_pressed /
-        disabled→muted_2），与程序 logo 同设计语言。
-        """
-        if self._icon in ("gear", "folder"):
-            c = self.colors
-            if self._state == tk.DISABLED:
-                bg = c["muted_2"]
-            elif self._kind == "ghost":
-                bg = c["accent"]
-            elif self._visual_state == "pressed":
-                bg = c["accent_pressed"]
-            elif self._visual_state == "hover":
-                bg = c["accent_hover"]
-            else:
-                bg = c["accent"]
-            size = max(14, int(min(self.winfo_width(), self.winfo_height()) * 0.74))
-            self._icon_pix = _make_button_icon(self.master.winfo_toplevel(),
-                                               self._icon, bg, "#FFFFFF", size)
-            self.create_image(cx, cy, image=self._icon_pix)
-            return
-        self.create_text(cx, cy, text=self._icon or self._text, fill=fill,
-                         font=(FONT_FAMILY, self._font_size, weight))
+    def _draw_gear(self, cx, cy, fill):
+        """自绘线条齿轮：12 齿梯形轮廓 + 外圆 + 中心孔，尺寸紧凑。"""
+        r = max(4, min(self.winfo_width(), self.winfo_height()) * 0.22)
+        n = 12
+        r0, r1 = r * 0.90, r * 1.16
+        dw = 2 * math.pi / n * 0.42   # 齿宽（弧度）
+        for i in range(n):
+            a = i * 2 * math.pi / n
+            ca = a + math.pi / n
+            p1 = (cx + math.cos(ca - dw) * r0, cy + math.sin(ca - dw) * r0)
+            p2 = (cx + math.cos(ca - dw) * r1, cy + math.sin(ca - dw) * r1)
+            p3 = (cx + math.cos(ca + dw) * r1, cy + math.sin(ca + dw) * r1)
+            p4 = (cx + math.cos(ca + dw) * r0, cy + math.sin(ca + dw) * r0)
+            self.create_polygon(p1, p2, p3, p4, outline=fill, width=1.2, fill="")
+        self.create_oval(cx - r0, cy - r0, cx + r0, cy + r0, outline=fill, width=1.2)
+        hr = r * 0.38
+        self.create_oval(cx - hr, cy - hr, cx + hr, cy + hr, outline=fill, width=1.2)
+
+    def _draw_folder(self, cx, cy, fill):
+        """自绘线条文件夹：后片标签 + 前片主体，尺寸紧凑。"""
+        w = max(8, min(self.winfo_width(), self.winfo_height()) * 0.46)
+        h = w * 0.74
+        x0, y0 = cx - w / 2, cy - h / 2
+        x1, y1 = cx + w / 2, cy + h / 2
+        self.create_rectangle(x0, y0, x0 + w * 0.42, y0 + h * 0.30, outline=fill, width=1.5)
+        self.create_rectangle(x0, y0 + h * 0.22, x1, y1, outline=fill, width=1.5)
 
     def _draw(self):
         self.delete("all")
