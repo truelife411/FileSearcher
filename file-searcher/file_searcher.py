@@ -103,18 +103,18 @@ THEMES = {
         "success": "#5E8C6E", "warning": "#B08A45", "error": "#B0625C",
         "menu_bg": "#F5F0DE", "dialog_bg": "#F5F0DE",
     },
-    # 深色「青墨」：豆瓣绿（黄绿调护眼深色，替代纯黑压抑）
+    # 浅色「天青」：青瓷釉色（雨后天青，文雅清爽，替代原青墨深色）
     "jade": {
-        "bg": "#18241D", "surface": "#212E25", "surface_alt": "#27352A",
-        "surface_3": "#2F3F33", "input": "#161F18", "border": "#31412F",
-        "border_strong": "#465A47", "text": "#C9D6C2", "muted": "#849583",
-        "muted_2": "#637464", "accent": "#93C878", "accent_hover": "#A3D292",
-        "accent_pressed": "#7CB56C", "accent_grad_a": "#93C878", "accent_grad_b": "#5E9E55",
-        "selected": "#2C3D2E", "selected_hover": "#334631", "row_alt": "#162019",
-        "row_line": "#243228", "title_bg": "#18241D", "hover": "#1F2C22",
-        "sel_text": "#A8D89A",
-        "success": "#6FBF8F", "warning": "#D3A24E", "error": "#CE7878",
-        "menu_bg": "#212E25", "dialog_bg": "#212E25",
+        "bg": "#E6EDE9", "surface": "#F1F5F1", "surface_alt": "#DCE6E0",
+        "surface_3": "#D0DCD4", "input": "#F6F9F6", "border": "#C5D2C8",
+        "border_strong": "#A8BCAE", "text": "#33413C", "muted": "#5F726A",
+        "muted_2": "#81978C", "accent": "#5C8A7F", "accent_hover": "#6C9A8E",
+        "accent_pressed": "#4C766B", "accent_grad_a": "#6C9A8E", "accent_grad_b": "#4C766B",
+        "selected": "#DCE9E2", "selected_hover": "#D1E2D9", "row_alt": "#EDF2EE",
+        "row_line": "#DDE5DE", "title_bg": "#DCE6E0", "hover": "#EEF3EF",
+        "sel_text": "#4C766B",
+        "success": "#4E8A68", "warning": "#B08A55", "error": "#AE5F5F",
+        "menu_bg": "#F1F5F1", "dialog_bg": "#F1F5F1",
     },
 }
 
@@ -145,12 +145,12 @@ BADGE_STYLES = {
         "file": ("#6E6A60", "#E9E4D2"),
     },
     "jade": {
-        "doc": ("#7FA8D8", "#1D2A30"), "pdf": ("#D88A8A", "#302623"),
-        "xls": ("#8EC28E", "#1E2E22"), "ppt": ("#D8A56E", "#302A20"),
-        "img": ("#A98ED0", "#252437"), "code": ("#6EC0C0", "#1A2E2E"),
-        "zip": ("#C0A070", "#2C2920"), "audio": ("#8EC8A8", "#1D2E27"),
-        "video": ("#9AA8D8", "#222638"), "dir": ("#D0B46E", "#2C2B20"),
-        "file": ("#849583", "#223027"),
+        "doc": ("#4F7FB0", "#E5EEF2"), "pdf": ("#B05353", "#F5EBE8"),
+        "xls": ("#5B8A5B", "#E9F1E8"), "ppt": ("#C07A3A", "#F6EEE2"),
+        "img": ("#8E5BB8", "#F1EBF5"), "code": ("#3A8A8A", "#E7F1EF"),
+        "zip": ("#9A7A4A", "#F3EEE4"), "audio": ("#3E9468", "#E8F2EC"),
+        "video": ("#5B6FC4", "#EAECF6"), "dir": ("#8A8A3E", "#F2F2E4"),
+        "file": ("#5F726A", "#E6EDE9"),
     },
 }
 
@@ -3487,7 +3487,7 @@ class FileSearcherApp:
                 cv.create_text(w - s(14), (6 + s(22)) / 2, text="✓", fill="#FFFFFF",
                                font=self._f(FONT_MICRO, "bold"))
 
-        for name, value in (("雾沙（柔和浅色）", "mist"), ("青墨（柔和深色）", "jade"),
+        for name, value in (("雾沙（米黄浅色）", "mist"), ("天青（青瓷浅色）", "jade"),
                             ("凝脂（浅色）", "light"), ("墨玉（深色）", "dark")):
             cv = tk.Canvas(theme_row, width=s(138), height=s(96), bd=0,
                            highlightthickness=0, bg=c["surface"], cursor="hand2")
