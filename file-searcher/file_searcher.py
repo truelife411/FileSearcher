@@ -1461,9 +1461,12 @@ class RoundedSearchBox(tk.Canvas):
         self._draw()
 
     def _entry_width(self):
-        """有文字时右侧预留大号清空按钮，输入区相应收窄。"""
+        """有文字时右侧按按钮实际半径预留空间（按钮半径随框高放大，预留必须同步，
+        否则高 DPI/大字号下按钮左缘会被输入区窗口遮住）。"""
         w = max(20, self.winfo_width())
-        return max(20, w - (126 if self._var.get() else 108))
+        if self._var.get():
+            return max(20, w - 106 - self._clear_r())
+        return max(20, w - 108)
 
     def _clear_r(self):
         """清空按钮半径：随框高成比例放大。"""
