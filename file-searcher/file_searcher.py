@@ -3639,12 +3639,13 @@ class FileSearcherApp:
         self._run_query("")
 
     def _clear_search(self, event=None):
-        """清空搜索并恢复当前筛选下的全部结果。"""
+        """清空搜索并恢复当前筛选下的全部结果（清空等同新搜索，回到第 1 页）。"""
         if self._search_timer is not None:
             self.root.after_cancel(self._search_timer)
             self._search_timer = None
         self._set_search_value("")
         self.root.focus_set()
+        self._page = 1
         self._run_query("")
         return "break"
 
@@ -3657,10 +3658,11 @@ class FileSearcherApp:
         self._search_timer = self.root.after(300, self._do_search)
 
     def _do_search(self, event=None):
-        """按当前关键词、筛选和排序执行第一页查询。"""
+        """按当前关键词、筛选和排序执行第一页查询（新搜索一律回到第 1 页）。"""
         if self._search_timer is not None:
             self.root.after_cancel(self._search_timer)
             self._search_timer = None
+        self._page = 1
         self._run_query(self._search_text())
         return "break" if event is not None else None
 
