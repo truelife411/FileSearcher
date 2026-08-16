@@ -3289,8 +3289,8 @@ class FileSearcherApp:
         self._last_right_click_xy = (event.x_root, event.y_root)
         multi = len(self.table.selected_results()) > 1
         qm = str(self._settings.get("quick_move_dir", "") or "")
-        qm_label = (f"快捷移动到 {os.path.basename(os.path.normpath(qm))}"
-                    if qm else "快捷移动到…（未配置）")
+        qm_label = (f"快捷移动上层目录到 {os.path.basename(os.path.normpath(qm))}"
+                    if qm else "快捷移动上层目录…（未配置）")
         items = [
             {"text": "打开", "icon": "↗", "cmd": self._open_selected, "disabled": multi},
             {"text": "打开所在文件夹", "icon": "⌂", "cmd": self._open_file_location_selected, "disabled": multi},
@@ -3694,7 +3694,7 @@ class FileSearcherApp:
 
         # 快捷移动目录：右键「快捷移动」把文件所在目录移动到这里
         row = _option_row(card_idx, "快捷移动目录",
-                          "右键「快捷移动」把文件所在目录移动到此处（修改即时保存）")
+                          "右键「快捷移动上层目录」把文件所在目录移动到此处（修改即时保存）")
         qm_var = tk.StringVar(value=self._settings.get("quick_move_dir", "") or "")
         qm_lbl = tk.Label(row, textvariable=qm_var, bg=c["input"], fg=c["muted"],
                           font=(FONT_MONO, self._f(FONT_SMALL)[1]), anchor=tk.W,
