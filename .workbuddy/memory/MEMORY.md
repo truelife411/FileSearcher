@@ -14,8 +14,20 @@
 
 ## 技术栈
 - **运行/打包用系统 Python 3.12**（`C:\Users\hjf\AppData\Local\Programs\Python\Python312\python.exe`，PyInstaller 6.20 已装）— managed 3.13 没装 pystray/PIL！开发语法检查用 `ast.parse`（不要 `py_compile`，会写 __pycache__ 被沙箱拦）
-- Tkinter + SQLite (WAL模式)；系统托盘：pystray + Pillow；**打包：`python -m PyInstaller --noconfirm --clean FileSearcher.spec`**（spec 已配好 tcl/tk collect_all，--onefile --windowed 含在 spec 里），产物 `dist\FileSearcher.exe`（约22MB）→ 复制到桌面
+- Tkinter + SQLite (WAL模式)；系统托盘：pystray + Pillow；**打包：`python -m PyInstaller --noconfirm --clean FileSearcher.spec`**（spec 已配好 tcl/tk collect_all，--onefile --windowed 含在 spec 里），产物 `dist\FileSearcher.exe`（约23MB）→ 复制到桌面
+- **拖拽依赖 tkinterdnd2（0.6.2，已装）**：tkdnd 是独立 Tcl 扩展，spec 里 `collect_all('tkinterdnd2')`（未装则 try/except 跳过，运行时降级+状态栏提示）；代码里 `_setup_drag_drop` 按平台/tcl9 把 `tkinterdnd2/tkdnd/<平台>` 加 auto_path 再 `package require tkdnd`
 - GitHub: https://github.com/truelife411/FileSearcher
+
+## 索引引擎（2026-08-16 升级：FTS5 + 目录队列扫描）
+- **搜索 = FTS5 trigram 全文索引**：`files_fts(name, path, tokenize='trigram')` 虚拟表，rowid 对应 files.id；搜索词 ≥3 字符走 `MATCH "词"`（子串语义，trigram 下 1-2 字符 MATCH 返回空！），<3 字符回退 LIKE（`%`/`_`/`\` 已转义 + ESCAPE）；FTS 命中 rowid 落 TEMP 表 JOIN files 排序分页
+- **FTS 同步**：重建时随建随填；老库 `ensure_indexes` 只建空表 + 启动后台线程 `ensure_fts_backfill` 回填（持有 _build_lock，避开并发重建）；`remove_paths`/`rename_path` 用 `_fts_sync_row`（先删后插，name/path=None 仅删）同步；`_db_schema` 检测 fts 表有数据才启用（空表视为未回填走 LIKE）
+- **modified 列存 epoch 秒（INTEGER）**：扫描期不再格式化字符串；UI 层 `_tree_item_values` 格式化，兼容老库 TEXT（`_db_schema` 的 modified_is_text 分支，时间过滤分别用 strftime 字符串或 int(timestamp)）
+- **扫描 = 目录任务队列**：`dir_queue` + Condition 计数（pending_dirs[0]/active_workers），worker 一次领一个目录扫、子目录入队 → 单盘也 4 worker 并行；取消/异常路径 scan_done 收尾
+- **每条目 1 次 stat**：`S_ISDIR/S_ISREG(st.st_mode)` 判断类型（Windows 上 junction 的 stat(follow_symlinks=False) 为 S_IFLNK → 与旧 is_dir(False) 行为一致被跳过）
+- `_db_schema()` 带 db_mtime 缓存的 PRAGMA（has_is_dir/modified_is_text/fts_ok），老库 TEXT 列不迁移
+- 实测全盘 101,256 文件：扫描 7.9s + 优化(FTS回填+索引) 1.8s
+- **日志**：`_diag` 写 `~/.file_searcher_index/debug.log`（不再硬编码开发机路径），>1MB 轮转 debug.log.1
+- build/ dist/ 已加入 .gitignore（构建产物不入库）
 
 ## UI 设计基线（2026-08-14「凝脂纸感」，方向 C，当前线上版）
 - **凝脂主题**（B 墨玉实机被否决后改选 C）：宣纸暖白底 #F5F3EE + 黛青 accent #2E6E66（渐变 #3A837A→#255A53）+ 墨色文字 #23282C。深色变体「墨玉」#0A0C10/#6FD8C8 保留在 THEMES["dark"]。默认主题 = light。sel_text = 选中行/激活态文字色
