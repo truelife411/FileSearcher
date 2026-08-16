@@ -48,7 +48,7 @@ PAGE_SIZE = 5000
 FONT_FAMILY = "Microsoft YaHei UI" if sys.platform == "win32" else "sans-serif"
 FONT_MONO = "Consolas" if sys.platform == "win32" else "monospace"
 # 全局字号体系（基础 pt，最终渲染 pt = base × dpi_scale × font_scale，dpi_scale 为折中后的 DPI 系数）
-# 240 DPI（250% 缩放）舒适档正文 = 12 × 1.581 × 1.5 ≈ 28.5pt ≈ 38px 物理，接近系统应用观感
+# 240 DPI（250% 缩放）主字号 18 时正文 = 12 × 1.581 × 1.5 ≈ 28.5pt ≈ 38px 物理，接近系统应用观感
 # MICRO≈19pt 表头·胶囊·徽章·状态栏 / SMALL≈21pt 辅助·路径·说明 / BODY≈25pt 正文·文件名·按钮
 # INPUT≈27pt 搜索框（主角稍大）/ LG≈29pt 弹窗标题·空状态 / XL≈31pt 设置页大标题
 FONT_MICRO = 9
@@ -1097,7 +1097,7 @@ class IndexEngine:
         "tray_auto_index": False,        # 最小化到托盘后自动更新索引
         "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
         "theme": "light",
-        "text_pt": 14,                   # 文字大小档位（14 紧凑 / 16 标准 / 18 舒适）
+        "text_pt": 16,                   # 主字号（表格正文基准 pt，10~40 可调）
     }
 
     @classmethod
@@ -1894,7 +1894,7 @@ class CtxMenu:
                       outline=c["border_strong"], width=1)
         inset = s(6)
         acc = self._pad_y
-        # 右键菜单字号随正文档位走（与设置的文字大小一致）：紧凑≈14pt、标准≈16pt、舒适≈18pt
+        # 右键菜单字号随主字号走（与设置一致：正文基准 pt 的同一缩放体系）
         font = self.app._f(FONT_BODY)
         icon_font = self.app._f(FONT_BODY)
         danger_hover_bg = BADGE_STYLES[self.app._theme_name]["pdf"][1]
@@ -2447,8 +2447,8 @@ class FileSearcherApp:
         # 缩放体系：Tk 8.6 在 Windows 上按 96 DPI 布局，tk scaling 对字体渲染无效且会污染
         # winfo_fpixels，因此用原生 API GetDpiForSystem 取真实系统 DPI；
         # _dpi_scale（真实 DPI/96）× _font_scale（用户字号档位）放大所有 pt 字号与像素尺寸；
-        # ui_scale 恒 1.0。文字大小档位（text_pt = 正文目标 pt）全局生效：
-        # 紧凑 19 / 标准 21 / 舒适 25，所有页面（主界面/设置/弹窗/右键菜单）经 _f/_s 联动
+        # ui_scale 恒 1.0。主字号（text_pt = 表格正文基准 pt，10~40 可调）全局生效：
+        # 所有页面（主界面/设置/弹窗/右键菜单）经 _f/_s 联动，其余文字按固定比例自适应
         try:
             _dpi = float(ctypes.windll.user32.GetDpiForSystem())
             if _dpi < 72:
@@ -2466,13 +2466,13 @@ class FileSearcherApp:
         # 高缩放屏不至于超过系统其他应用太多。
         # 旧档位（10/12/14，上一版校准）统一迁移到 14。
         try:
-            self._text_pt = int(self._settings.get("text_pt", 14))
+            self._text_pt = int(self._settings.get("text_pt", 16))
         except Exception:
-            self._text_pt = 14
-        if self._text_pt not in (14, 16, 18):
-            self._text_pt = 14
+            self._text_pt = 16
+        if not (10 <= self._text_pt <= 40):
+            self._text_pt = 16
             if "text_pt" in self._settings:
-                self._settings["text_pt"] = 14
+                self._settings["text_pt"] = 16
                 IndexEngine.save_settings(self._settings)
         # font_scale = 用户档位相对基础正文的比例（不含 dpi_scale：dpi 因子由
         # _f/_s 里的 × dpi_scale 承担。曾误把 dpi_scale 放进分母导致其被完全
@@ -2629,11 +2629,11 @@ class FileSearcherApp:
     def _apply_text_scale(self):
         """文字大小档位切换立即生效：重算全局缩放系数并重建全部界面。"""
         try:
-            self._text_pt = int(self._settings.get("text_pt", 14))
+            self._text_pt = int(self._settings.get("text_pt", 16))
         except Exception:
-            self._text_pt = 14
-        if self._text_pt not in (14, 16, 18):
-            self._text_pt = 14
+            self._text_pt = 16
+        if not (10 <= self._text_pt <= 40):
+            self._text_pt = 16
         self._font_scale = self._text_pt / FONT_BODY
         self._configure_theme()
         self._rebuild_ui()
@@ -2680,6 +2680,10 @@ class FileSearcherApp:
         style.configure("TProgressbar", troughcolor=c["surface_alt"], background=c["accent"],
                         bordercolor=c["surface_alt"])
         style.configure("TSeparator", background=c["border"])
+        # 主字号滑动条（设置页）：轨道用 surface_alt，滑块用 accent
+        style.configure("TextPt.Horizontal.TScale", background=c["surface"],
+                        troughcolor=c["surface_alt"], bordercolor=c["surface"],
+                        lightcolor=c["accent"], darkcolor=c["accent"])
 
     # ================================================================
     #  自绘标题栏 + 无边框窗口（Windows）
@@ -3469,15 +3473,29 @@ class FileSearcherApp:
         dlg.after_idle(lambda: [_draw_theme_card(cvs, cvs._theme_value)
                                 for cvs in theme_canvases])
 
-        # ---- 文字大小档位（全局生效：主界面/弹窗/右键菜单/设置全部联动）----
-        # 档位即正文渲染 pt（96 DPI 下）；实际渲染再乘 dpi_scale（如 240 DPI 舒适 = 45pt）
+        # ---- 主字号（全局生效：主界面/弹窗/右键菜单/设置全部联动）----
+        # 主字号 = 表格正文基准 pt（96 DPI 语义，实际渲染再乘 dpi_scale）；
+        # 表头/路径/按钮/标题等其余文字、行高与间距按固定比例随主字号自适应
         text_row = tk.Frame(card_theme, bg=c["surface"])
         text_row.pack(fill=tk.X, padx=s(18), pady=(0, s(16)))
-        tk.Label(text_row, text="文字大小", bg=c["surface"], fg=c["text"],
+        tk.Label(text_row, text="主字号", bg=c["surface"], fg=c["text"],
                  font=self._f(FONT_BODY)).pack(side=tk.LEFT, padx=(0, s(16)))
-        text_pt = int(self._settings.get("text_pt", 14))
+        text_pt = int(self._settings.get("text_pt", 16))
+        TEXT_PT_MIN, TEXT_PT_MAX = 10, 40
 
-        def _set_text_pt(pt: int):
+        val_lbl = tk.Label(text_row, text=f"{text_pt} pt", bg=c["surface"], fg=c["accent"],
+                           font=self._f(FONT_BODY, "bold"), width=6, anchor=tk.E)
+        val_lbl.pack(side=tk.RIGHT, padx=(s(8), 0))
+
+        scale = ttk.Scale(text_row, from_=TEXT_PT_MIN, to=TEXT_PT_MAX,
+                          orient=tk.HORIZONTAL, style="TextPt.Horizontal.TScale",
+                          command=lambda v: val_lbl.config(text=f"{int(float(v))} pt"))
+        scale.set(text_pt)
+        scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, s(12)))
+
+        def _commit_text_pt(_e=None):
+            """松手/键盘调整后才保存生效：拖动过程只更新数值预览。"""
+            pt = int(float(scale.get()))
             if pt == self._settings.get("text_pt"):
                 return
             self._settings["text_pt"] = pt
@@ -3490,13 +3508,9 @@ class FileSearcherApp:
                 pass
             self.root.after(60, self._open_settings)
 
-        for label, pt in (("紧凑", 14), ("标准", 16), ("舒适", 18)):
-            RoundedButton(text_row, text=label, width=s(68), height=s(32), colors=c,
-                          kind="accent" if pt == text_pt else "normal",
-                          font_size=self._f(FONT_SMALL)[1],
-                          command=lambda p=pt: _set_text_pt(p)).pack(
-                side=tk.LEFT, padx=(0, s(8)))
-        tk.Label(card_theme, text="调整会立即应用到全部界面。",
+        scale.bind("<ButtonRelease-1>", _commit_text_pt)
+        scale.bind("<KeyRelease>", _commit_text_pt)
+        tk.Label(card_theme, text="主字号即表格正文的字号；表头、路径、按钮、标题等其余文字及行高、间距会随主字号自动缩放。",
                  bg=c["surface"], fg=c["muted_2"], font=self._f(FONT_MICRO)).pack(
             anchor=tk.W, padx=s(18), pady=(0, s(6)))
 

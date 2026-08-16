@@ -37,7 +37,7 @@
 - **纸感语言 = 小圆角 + 细线**：结果卡片 6 / 按钮 8 / 搜索框 6 / 弹窗 10；分隔线 row_line、描边 border 1px；无网格线
 - **布局（C 版定型）**：标题栏 40px（渐变 logo+副标题）；搜索区 = 居中搜索框（max 980、高 62、placeholder「搜索全盘文件…」、聚焦 accent 描边、有内容时右侧 ✕ 清空）；下方 chips 类型筛选排（全部/文件夹/文档/图片/视频/音频/压缩包/代码，接入 filters.type）；结果纸面卡片（_layout_result_container 圆角 6）内嵌 FileTable + 底部分页栏（左"共 N 个结果"/右 ‹ 1/12 ›）；**底部快捷键栏 44px**（左：状态点+文字 + kbd 提示 ↵打开/⌥↵定位/^C复制/⌫删除/⇵翻页；右：⟳重建索引 ghost 钮 + ⚙ 钮）
 - **呼吸式表格 FileTable**：行分隔线、选中行 selected 底+左侧 6px accent 指示条、类型徽章（BADGE_STYLES[theme][kind]=(fg,bg)）、表头加粗+排序 accent+自绘小三角、列宽拖动（_fit_cols 按序压缩/拉宽、_drag_pref 刚性列、_fitted_width 1:1 手感、layout.json 跨显示器换算）。**路径列用 _path_middle_ellipsis 中间省略**（保留首尾目录）
-- **字号层级不变**：MICRO=9/SMALL=10/BODY=12/INPUT=13/LG=14/XL=15 base pt；text_pt 档位 14/16/18；_f/_s 全局缩放；数字列 Consolas
+- **字号层级不变**：MICRO=9/SMALL=10/BODY=12/INPUT=13/LG=14/XL=15 base pt；**主字号 = text_pt（表格正文基准，10~40 可调）**，其余文字按固定比例自适应（表头/路径=0.83×、按钮=1×、搜索框=1.08×、标题≈1.17×）；_f/_s 全局缩放；数字列 Consolas。设置页用 ttk.Scale 滑动条（TextPt.Horizontal.TScale 样式），**拖动只预览数值、松手才保存生效**（ButtonRelease-1/KeyRelease 提交 → _apply_text_scale → after(80) 重算页大小）
 - **全自绘弹窗体系**：_DialogShell（透明角+阴影+置顶钳制）、_dialog_confirm、_dialog_input（分段胶囊）、CtxMenu、ToggleSwitch、RoundEntry
 - **设置窗口**：左导航三页（常规/排除列表/关于）；主题卡 = 墨玉(深)/凝脂(浅)/跟随系统，切换 destroy+重开；排除列表 ttk.Treeview（Ex.Treeview）
 - **分页**：页大小 = 表头下方可视行数（_compute_page_size），滚轮翻页，resize 重算
