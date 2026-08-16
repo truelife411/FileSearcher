@@ -2,3 +2,6 @@ __pycache__/
 build_temp/
 debug.log
 *.pyc
+
+build/
+dist/
