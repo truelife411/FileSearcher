@@ -47,7 +47,8 @@ PAGE_SIZE = 5000
 
 FONT_FAMILY = "Microsoft YaHei UI" if sys.platform == "win32" else "sans-serif"
 FONT_MONO = "Consolas" if sys.platform == "win32" else "monospace"
-# 全局字号体系（基础 pt，最终渲染 = base × dpi_scale × font_scale ≈ base × 2.08）
+# 全局字号体系（基础 pt，最终渲染 pt = base × dpi_scale × font_scale，dpi_scale 为真实 DPI/96）
+# 240 DPI（250% 缩放）舒适档正文 = 12 × 2.5 × 1.5 = 45pt ≈ 60px 物理，与系统其他应用一致
 # MICRO≈19pt 表头·胶囊·徽章·状态栏 / SMALL≈21pt 辅助·路径·说明 / BODY≈25pt 正文·文件名·按钮
 # INPUT≈27pt 搜索框（主角稍大）/ LG≈29pt 弹窗标题·空状态 / XL≈31pt 设置页大标题
 FONT_MICRO = 9
@@ -2455,9 +2456,10 @@ class FileSearcherApp:
             self._dpi_scale = max(1.0, _dpi / 96.0)
         except Exception:
             self._dpi_scale = 1.0
-        # 正文目标 pt：BODY 渲染 = text_pt（Tk pt→px ≈ ×1.714，144 DPI 下
-        # 14/16/18pt 分别约 24/27/31px 物理）。用户基线：14pt（24px）为可接受
-        # 的紧凑下限 → 紧凑 14 / 标准 16 / 舒适 18。
+        # 正文目标 pt：BODY 渲染 = base × dpi_scale × font_scale = text_pt × dpi_scale
+        # （Tk pt→px ≈ ×4/3，144 DPI 下 14/16/18pt 档分别约 28/32/36px 物理，
+        # 240 DPI 下约 47/53/60px——与系统缩放后其他应用的字号一致）。
+        # 用户基线：96 DPI 下 14pt（19px）为可接受的紧凑下限 → 紧凑 14 / 标准 16 / 舒适 18。
         # 旧档位（10/12/14，上一版校准）统一迁移到 14。
         try:
             self._text_pt = int(self._settings.get("text_pt", 14))
@@ -2468,7 +2470,11 @@ class FileSearcherApp:
             if "text_pt" in self._settings:
                 self._settings["text_pt"] = 14
                 IndexEngine.save_settings(self._settings)
-        self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
+        # font_scale = 用户档位相对基础正文的比例（不含 dpi_scale：dpi 因子由
+        # _f/_s 里的 × dpi_scale 承担。曾误把 dpi_scale 放进分母导致其被完全
+        # 抵消——程序是 per-monitor DPI aware，Windows 不会位图拉伸，高 DPI
+        # 屏上字号始终只有系统正常水平的 1/dpi_scale，修复后 DPI 才真正生效）
+        self._font_scale = self._text_pt / FONT_BODY
         try:
             self.root.tk.call("tk", "scaling", 4 / 3)  # 固定为标准 96dpi 行为
         except Exception:
@@ -2624,7 +2630,7 @@ class FileSearcherApp:
             self._text_pt = 14
         if self._text_pt not in (14, 16, 18):
             self._text_pt = 14
-        self._font_scale = self._text_pt / (FONT_BODY * self._dpi_scale)
+        self._font_scale = self._text_pt / FONT_BODY
         self._configure_theme()
         self._rebuild_ui()
 
@@ -3457,7 +3463,7 @@ class FileSearcherApp:
                                 for cvs in theme_canvases])
 
         # ---- 文字大小档位（全局生效：主界面/弹窗/右键菜单/设置全部联动）----
-        # 紧凑 14 / 标准 16 / 舒适 18 pt（144 DPI 下渲染约 24/27/31px）
+        # 档位即正文渲染 pt（96 DPI 下）；实际渲染再乘 dpi_scale（如 240 DPI 舒适 = 45pt）
         text_row = tk.Frame(card_theme, bg=c["surface"])
         text_row.pack(fill=tk.X, padx=s(18), pady=(0, s(16)))
         tk.Label(text_row, text="文字大小", bg=c["surface"], fg=c["text"],

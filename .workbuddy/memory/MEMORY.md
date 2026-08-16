@@ -42,7 +42,7 @@
 - **设置窗口**：左导航三页（常规/排除列表/关于）；主题卡 = 墨玉(深)/凝脂(浅)/跟随系统，切换 destroy+重开；排除列表 ttk.Treeview（Ex.Treeview）
 - **分页**：页大小 = 表头下方可视行数（_compute_page_size），滚轮翻页，resize 重算
 - Windows 无边框：overrideredirect + WM_NCHITTEST；启动铺满工作区
-- **缩放坑位**：Tk 8.6 按 96 DPI 布局，tk scaling 污染 winfo_fpixels；_dpi_scale=GetDpiForSystem()/96 × _font_scale；_s() 输出恒 ≈ px×2.083（系数互抵），像素尺寸不随 DPI 变
+- **缩放坑位（2026-08-16 修复重大 bug）**：Tk 8.6 按 96 DPI 布局，tk scaling 污染 winfo_fpixels；程序是 per-monitor DPI aware（SetProcessDPIAwareness(2)），Windows 不做位图拉伸，**一切缩放必须自己按 DPI 算**。曾把 `_font_scale = text_pt/(FONT_BODY×dpi_scale)` 把 dpi_scale 放分母，与 `_f/_s` 里的 ×dpi_scale 完全互抵 → 字号/像素不随 DPI 变，250% 缩放屏上只有系统其他应用 40% 大（"最大舒适还是紧凑"）。**修法：`_font_scale = text_pt/FONT_BODY`，dpi 因子由 _f/_s 的 ×dpi_scale 承担**。当前公式：渲染 pt = base×dpi_scale×text_pt/12；240 DPI 舒适 = 45pt≈60px 物理，与系统一致。布局列宽 layout.json 按 `dpi_scale×font_scale` 比例跨屏换算（自动适配新公式）
 - 诊断：_log_diag 写 debug.log [diag] 行；进程管理：PowerShell CIM 杀进程（Bash 的 wmic/tasklist 沙箱拦截）+ debug.log 行数验证
 - **已移除的死代码**：StatusPill、_path_options、_remove_from_results、排序残留之外的 _update_search_width
 - 设计稿：ui_preview_v2.html（A 霁青精修 / B 墨玉 / C 凝脂 三方向对比，含色板与取舍说明）
