@@ -1287,14 +1287,48 @@ class RoundedButton(tk.Canvas):
         if inside and self._command:
             self._command()
 
+    def _render_label(self, cx, cy, fill, weight="normal"):
+        """渲染按钮内容：自绘线条图标（icon="gear"/"folder"）或文字/字符图标。"""
+        if self._icon == "gear":
+            self._draw_gear(cx, cy, fill)
+        elif self._icon == "folder":
+            self._draw_folder(cx, cy, fill)
+        else:
+            self.create_text(cx, cy, text=self._icon or self._text, fill=fill,
+                             font=(FONT_FAMILY, self._font_size, weight))
+
+    def _draw_gear(self, cx, cy, fill):
+        """自绘线条齿轮图标（与文件夹图标同风格：细线条描边）。"""
+        r = max(5, min(self.winfo_width(), self.winfo_height()) * 0.30)
+        self.create_oval(cx - r, cy - r, cx + r, cy + r, outline=fill, width=1.5)
+        self.create_oval(cx - r * 0.45, cy - r * 0.45, cx + r * 0.45, cy + r * 0.45,
+                         outline=fill, width=1.5)
+        for i in range(8):
+            a = i * math.pi / 4
+            x1 = cx + math.cos(a) * r * 0.95
+            y1 = cy + math.sin(a) * r * 0.95
+            x2 = cx + math.cos(a) * r * 1.38
+            y2 = cy + math.sin(a) * r * 1.38
+            self.create_line(x1, y1, x2, y2, fill=fill, width=2)
+
+    def _draw_folder(self, cx, cy, fill):
+        """自绘线条文件夹图标（与齿轮图标同风格：细线条描边）。"""
+        w = max(8, min(self.winfo_width(), self.winfo_height()) * 0.56)
+        h = w * 0.74
+        x0, y0 = cx - w / 2, cy - h / 2
+        x1, y1 = cx + w / 2, cy + h / 2
+        # 后片（标签）
+        self.create_rectangle(x0, y0, x0 + w * 0.42, y0 + h * 0.30, outline=fill, width=1.5)
+        # 前片（主体）
+        self.create_rectangle(x0, y0 + h * 0.22, x1, y1, outline=fill, width=1.5)
+
     def _draw(self):
         self.delete("all")
         width, height = max(2, self.winfo_width()), max(2, self.winfo_height())
         c = self.colors
         if self._state == tk.DISABLED:
             if self._kind == "ghost":
-                self.create_text(width / 2, height / 2, text=self._icon or self._text,
-                                 fill=c["muted_2"], font=(FONT_FAMILY, self._font_size, "bold"))
+                self._render_label(width / 2, height / 2, c["muted_2"], "bold")
                 return
             fill, outline, fg = c["surface"], c["border"], c["muted_2"]
         elif self._kind == "accent":
@@ -1306,13 +1340,11 @@ class RoundedButton(tk.Canvas):
                 pix = _make_gradient_pix(self.master.winfo_toplevel(), width, height,
                                          self._radius, c["accent_grad_a"], c["accent_grad_b"])
                 self.create_image(width / 2, height / 2, image=pix)
-                self.create_text(width / 2, height / 2, text=self._icon or self._text,
-                                 fill="#FFFFFF", font=(FONT_FAMILY, self._font_size, "bold"))
+                self._render_label(width / 2, height / 2, "#FFFFFF", "bold")
                 return
             _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius,
                           fill=fill, outline=outline, width=1)
-            self.create_text(width / 2, height / 2, text=self._icon or self._text,
-                             fill=fg, font=(FONT_FAMILY, self._font_size, "bold"))
+            self._render_label(width / 2, height / 2, fg, "bold")
             return
         elif self._kind == "danger":
             if self._visual_state == "pressed":
@@ -1327,8 +1359,7 @@ class RoundedButton(tk.Canvas):
                 pix = _make_gradient_pix(self.master.winfo_toplevel(), width, height,
                                          self._radius, "#E2636E", "#C94854")
                 self.create_image(width / 2, height / 2, image=pix)
-            self.create_text(width / 2, height / 2, text=self._icon or self._text,
-                             fill="#FFFFFF", font=(FONT_FAMILY, self._font_size, "bold"))
+            self._render_label(width / 2, height / 2, "#FFFFFF", "bold")
             return
         elif self._kind == "ghost":
             # 幽灵按钮：常态透明底 accent 文字；hover/pressed 淡 accent 底
@@ -1338,8 +1369,7 @@ class RoundedButton(tk.Canvas):
             elif self._visual_state == "hover":
                 _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius,
                               fill=c["selected"], outline="", width=0)
-            self.create_text(width / 2, height / 2, text=self._icon or self._text,
-                             fill=c["accent"], font=(FONT_FAMILY, self._font_size, "bold"))
+            self._render_label(width / 2, height / 2, c["accent"], "bold")
             return
         elif self._visual_state == "pressed":
             fill, outline, fg = c["surface_3"], c["border_strong"], c["text"]
@@ -1349,9 +1379,8 @@ class RoundedButton(tk.Canvas):
             fill, outline, fg = c["surface_alt"], c["border"], c["text"]
         _rounded_rect(self, 1, 1, width - 1, height - 1, self._radius,
                       fill=fill, outline=outline, width=1)
-        label = self._icon if self._icon and not self._text else self._text
-        self.create_text(width / 2, height / 2, text=label, fill=fg,
-                         font=(FONT_FAMILY, self._font_size, "bold" if self._text else "normal"))
+        self._render_label(width / 2, height / 2, fg,
+                           "bold" if self._text else "normal")
 
     def configure(self, cnf=None, **kwargs):
         if cnf is None and not kwargs:
@@ -3256,11 +3285,11 @@ class FileSearcherApp:
                                        width=self._s(104), height=self._s(30), colors=c,
                                        kind="ghost", font_size=self._f(FONT_SMALL)[1])
         self.index_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
-        self.settings_btn = RoundedButton(right, icon="⚙", command=self._open_settings,
+        self.settings_btn = RoundedButton(right, icon="gear", command=self._open_settings,
                                           width=self._s(34), height=self._s(30), colors=c,
                                           font_size=self._f(FONT_BODY)[1])
         self.settings_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
-        self.qm_btn = RoundedButton(right, icon="🗀", command=self._open_quick_move_dir,
+        self.qm_btn = RoundedButton(right, icon="folder", command=self._open_quick_move_dir,
                                     width=self._s(34), height=self._s(30), colors=c,
                                     font_size=self._f(FONT_BODY)[1])
         self.qm_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
