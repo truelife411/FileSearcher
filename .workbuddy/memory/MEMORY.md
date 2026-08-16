@@ -3,13 +3,18 @@
 ## 用户偏好
 - 每次改完代码自动做本地 `git commit`
 - `git push` 到 GitHub 需要用户明确要求
-- **改完代码必须杀旧进程再启动新程序**（2026-08-08 用户明确强调）：杀掉所有 file_searcher 实例（`wmic process where "name='pythonw.exe'" get ProcessId,CommandLine` 过滤 → `wmic process where ProcessId=X call terminate`），再用 Python subprocess detached（DETACHED|CREATE_NO_WINDOW）启动 pythonw 新实例，确认 debug.log 新增 [diag] 行
+- **【铁律·2026-08-15 用户定】改完代码一律「PyInstaller 打包 exe 到桌面」，绝不再从工具链拉起 FS 进程**。流程：杀旧实例（让用户自己退/关，或确认无残留）→ `python -m PyInstaller --noconfirm --clean FileSearcher.spec` → 覆盖 `C:\Users\hjf\Desktop\FileSearcher.exe` → **让用户自己双击桌面 exe 启动**（用户在自己的 Session 1 桌面会话里启动，一切正常）。
+- **【血泪教训·会话隔离】绝不能用 `Start-Process`/subprocess 从 WorkBuddy 工具链启动 FS 验证**！工具拉起的进程跑在隔离沙箱会话（非用户 Session 1），会导致：① `os.startfile`/`ShellExecute`/`explorer.exe` 拉起另一个 GUI 程序（视频播放器）时**静默失败或卡死**（双击视频无反应/空窗）② 任务栏图标、窗口行为异常 ③ 跨会话杀不掉进程残留。这些「bug」全是假象，根因是进程不在用户桌面会话。**双击打开文件异常时，第一反应必须是「FS 是不是被工具拉起的」，别再怀疑 os.startfile 写法/标志位/线程**（这些都试过、都不是根因，纯弯路）。
 - × 关闭按钮 = 最小化到托盘，最小化按钮也缩到托盘，彻底退出靠托盘右键菜单
 - 托盘恢复窗口时：最大化 + 搜索框全选/聚焦
 
+## 打开文件的最终实现（2026-08-15 定稿）
+- `open_with_default`：**主线程直接 `os.startfile(os.path.normpath(path))`**，不包后台线程、不加 ShellExecute 标志位。与文档中心/资源管理器/迅雷完全同款。os.startfile 本就异步不阻塞 UI。
+- 失败的弯路（勿再走）：后台守护线程调 startfile、ShellExecuteExW 加 `SEE_MASK_NOASYNC`/`DDEWAIT`、怀疑播放器单实例 emit 丢失——全是被「会话隔离」假象误导。
+
 ## 技术栈
-- **运行用系统 Python 3.12**（`C:\Users\hjf\AppData\Local\Programs\Python\Python312\pythonw.exe`）— managed 3.13 没装 pystray/PIL！开发检查可用 managed 3.13 py_compile
-- Tkinter + SQLite (WAL模式)；系统托盘：pystray + Pillow；打包：PyInstaller (--onefile --windowed)
+- **运行/打包用系统 Python 3.12**（`C:\Users\hjf\AppData\Local\Programs\Python\Python312\python.exe`，PyInstaller 6.20 已装）— managed 3.13 没装 pystray/PIL！开发语法检查用 `ast.parse`（不要 `py_compile`，会写 __pycache__ 被沙箱拦）
+- Tkinter + SQLite (WAL模式)；系统托盘：pystray + Pillow；**打包：`python -m PyInstaller --noconfirm --clean FileSearcher.spec`**（spec 已配好 tcl/tk collect_all，--onefile --windowed 含在 spec 里），产物 `dist\FileSearcher.exe`（约22MB）→ 复制到桌面
 - GitHub: https://github.com/truelife411/FileSearcher
 
 ## UI 设计基线（2026-08-14「凝脂纸感」，方向 C，当前线上版）

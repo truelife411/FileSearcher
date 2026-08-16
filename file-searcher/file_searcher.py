@@ -895,6 +895,42 @@ class IndexEngine:
         finally:
             conn.close()
 
+    @staticmethod
+    def rename_path(old_path: str, new_path: str):
+        """同步索引中的重命名：更新该行，若为文件夹则级联更新所有子路径。
+
+        子路径在 Python 侧逐行计算新路径再 UPDATE，避开 LIKE 前缀匹配在
+        Windows 反斜杠 + 转义下的坑，逻辑直观可靠。
+        """
+        if not INDEX_DB.exists():
+            return
+        old_n = os.path.normpath(old_path)
+        new_n = os.path.normpath(new_path)
+        old_lower = old_n.lower()
+        old_prefix = old_lower.rstrip("\\/") + os.sep
+        new_name = os.path.basename(new_n)
+        conn = sqlite3.connect(str(INDEX_DB))
+        try:
+            cur = conn.cursor()
+            # 1) 更新自身行（文件或文件夹本身）
+            cur.execute(
+                "UPDATE files SET name=?, name_lower=?, path=?, path_lower=? WHERE path_lower=?",
+                (new_name, new_name.lower(), new_n, new_n.lower(), old_lower),
+            )
+            # 2) 取出所有子行（path_lower 以旧前缀开头），逐个改路径
+            cur.execute("SELECT id, path FROM files WHERE substr(path_lower, 1, ?) = ?",
+                        (len(old_prefix), old_prefix))
+            children = cur.fetchall()
+            for row_id, child_path in children:
+                # 用原 path 的后缀（保留原始大小写）拼到新前缀
+                suffix = os.path.normpath(child_path)[len(old_n):].lstrip("\\/")
+                child_new = os.path.join(new_n, suffix)
+                cur.execute("UPDATE files SET path=?, path_lower=? WHERE id=?",
+                            (child_new, child_new.lower(), row_id))
+            conn.commit()
+        finally:
+            conn.close()
+
     # ---- 排除列表管理 ----
 
     @classmethod
@@ -1347,7 +1383,7 @@ class RoundEntry(tk.Canvas):
 class _DialogShell:
     """无边框圆角模态弹窗外壳：透明角、阴影、圆角卡片、标题区拖动、Esc 关闭。"""
 
-    def __init__(self, app, width_px, height_px, radius=10):
+    def __init__(self, app, width_px, height_px, radius=10, follow_mouse=False, at_xy=None):
         self.app = app
         self.root = app.root
         self.colors = app.colors
@@ -1355,6 +1391,7 @@ class _DialogShell:
         self._radius = radius
         top = tk.Toplevel(self.root)
         self.top = top
+        top.withdraw()                          # 先隐藏，定位完成后再显示，避免 Windows 重定位
         top.overrideredirect(True)
         self._rounded_ok = True
         try:
@@ -1363,18 +1400,29 @@ class _DialogShell:
         except tk.TclError:
             self._rounded_ok = False
             top.configure(bg=self.colors["dialog_bg"])
-        top.transient(self.root)
+        # 注意：不设 transient(self.root)。transient 会让 Windows 把弹窗锚定到主窗口，
+        # 导致我们 geometry 设置的跟随鼠标坐标被强制改回主窗附近。
         top.resizable(False, False)
         self.root.update_idletasks()
-        pw, ph = self.root.winfo_width(), self.root.winfo_height()
-        px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
-        x = px + (pw - width_px) // 2
-        y = py + (ph - height_px) // 2
+        if at_xy is not None:
+            # 显式指定屏幕坐标（如右键点下位置），最可靠的跟随鼠标
+            x, y = at_xy[0] + 12, at_xy[1] + 12
+        elif follow_mouse:
+            mx, my = self.root.winfo_pointerx(), self.root.winfo_pointery()
+            x, y = mx + 12, my + 12
+        else:
+            pw, ph = self.root.winfo_width(), self.root.winfo_height()
+            px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
+            x = px + (pw - width_px) // 2
+            y = py + (ph - height_px) // 2
         # 防御：多显示器/主窗几何异常时，弹窗坐标钳制到屏幕内并强制置顶可见
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         x = max(0, min(x, sw - width_px))
         y = max(0, min(y, sh - height_px))
         top.geometry(f"{width_px}x{height_px}+{x}+{y}")
+        top.update_idletasks()                  # 让 geometry 真正应用
+        top.geometry(f"{width_px}x{height_px}+{x}+{y}")  # 二次锁定，防 Windows 改动
+        top.deiconify()                         # 定位完成后显示
         top.attributes("-topmost", True)          # 弹窗必须浮在无边框主窗之上
         top.lift()
         top.after(120, lambda: top.attributes("-topmost", False))  # 短暂置顶后归还层级
@@ -1425,10 +1473,11 @@ class _DialogShell:
             pass
         self.top.destroy()
 
-    def run(self):
-        """模态运行，返回 result。"""
+    def run(self, grab_focus=True):
+        """模态运行，返回 result。grab_focus=False 时不抢占焦点（由调用方聚焦到具体输入框）。"""
         self.top.grab_set()
-        self.top.focus_set()
+        if grab_focus:
+            self.top.focus_set()
         self.root.wait_window(self.top)
         return self.result
 
@@ -1475,16 +1524,19 @@ def _dialog_confirm(app, title, desc, kind="warn", ok_text="确定", cancel_text
 
 
 def _dialog_input(app, title, desc, initial="", ok_text="确定", options=None,
-                  selected_option=None):
+                  selected_option=None, follow_mouse=False, cursor_start=False, at_xy=None):
     """输入弹窗。options 提供时显示分段胶囊选择器。
 
+    at_xy：弹窗出现的屏幕坐标 (x,y)，优先于 follow_mouse，用于精确跟随右键点下位置。
+    follow_mouse：弹窗跟随当前鼠标位置。
+    cursor_start：光标落在初始文字最前（不选中、不再点一下），便于直接在最前输入。
     返回：未提供 options → 输入字符串或 None；提供 options → (option_value, 文本) 或 None。
     """
     c = app.colors
     s = app._s
     w = s(460)
     h = s(150) + (s(44) if options else 0) + s(90)
-    shell = _DialogShell(app, w, h)
+    shell = _DialogShell(app, w, h, follow_mouse=follow_mouse, at_xy=at_xy)
     body = tk.Frame(shell.body, bg=c["dialog_bg"])
     body.pack(fill=tk.BOTH, expand=True, padx=s(22))
     tk.Label(body, text=title, bg=c["dialog_bg"], fg=c["text"],
@@ -1525,8 +1577,19 @@ def _dialog_input(app, title, desc, initial="", ok_text="确定", options=None,
     entry_box = RoundEntry(body, c, height=s(42), font=app._f(FONT_BODY))
     entry_box.pack(fill=tk.X, pady=(s(12), 0))
     entry_box.set(initial)
-    entry_box.entry.focus_set()
-    entry_box.entry.selection_range(0, tk.END)
+
+    def _place_cursor():
+        # grab/topmost 时序后强制聚焦并定位光标（压过 shell.run 的 focus_set）
+        entry_box.entry.focus_set()
+        if cursor_start:
+            entry_box.entry.selection_clear()
+            entry_box.entry.icursor(0)
+        else:
+            entry_box.entry.selection_range(0, tk.END)
+    # 立即设一次，再在事件循环空闲+短延迟后各设一次，确保生效
+    _place_cursor()
+    shell.top.after_idle(_place_cursor)
+    shell.top.after(50, _place_cursor)
 
     def _ok():
         text = entry_box.get().strip()
@@ -1543,7 +1606,8 @@ def _dialog_input(app, title, desc, initial="", ok_text="确定", options=None,
                   width=s(96), height=s(36), colors=c,
                   font_size=app._f(FONT_BODY)[1]).pack(side=tk.RIGHT, padx=(0, s(8)))
     entry_box.entry.bind("<Return>", lambda _e: _ok())
-    return shell.run()
+    # 不让 run() 抢占焦点，由 _place_cursor 聚焦到输入框
+    return shell.run(grab_focus=False)
 
 
 class CtxMenu:
@@ -1684,8 +1748,9 @@ class CtxMenu:
                       outline=c["border_strong"], width=1)
         inset = s(6)
         acc = self._pad_y
-        font = self.app._f(FONT_SMALL)
-        icon_font = self.app._f(FONT_SMALL)
+        # 右键菜单字号随正文档位走（与设置的文字大小一致）：紧凑≈14pt、标准≈16pt、舒适≈18pt
+        font = self.app._f(FONT_BODY)
+        icon_font = self.app._f(FONT_BODY)
         danger_hover_bg = BADGE_STYLES[self.app._theme_name]["pdf"][1]
         for i, it in enumerate(self._items):
             if it == ("sep",):
@@ -2645,6 +2710,24 @@ class FileSearcherApp:
     def _goto_page_relative(self, delta: int):
         self._goto_page(self._page + delta)
 
+    def _on_jump_to_page(self, _event=None):
+        """内联跳页器回车：解析输入并跳转，非法/超范围提示并还原为当前页。"""
+        total_pages = self._total_pages()
+        raw = self._pager_jump_var.get().strip()
+        try:
+            page = int(raw)
+        except (TypeError, ValueError):
+            self.status_var.set("请输入有效的页码数字")
+            self._pager_jump_var.set(str(self._page))
+            return
+        if page < 1 or page > total_pages:
+            self.status_var.set(f"页码超出范围（共 {total_pages} 页）")
+            self._pager_jump_var.set(str(self._page))
+            return
+        # 跳完把焦点还给表格，方便继续用快捷键翻页
+        self._goto_page(page)
+        self.table.focus_set()
+
     def _on_col_resize(self):
         """列宽拖动后防抖保存布局。"""
         if getattr(self, "_layout_save_timer", None) is not None:
@@ -2700,6 +2783,9 @@ class FileSearcherApp:
             return
         if not self.table.selected_results():
             return
+        # 记录右键点下的屏幕坐标，供后续弹窗（如重命名）跟随鼠标定位。
+        # 不能用 winfo_pointerxy：菜单项经 after_idle 触发时指针位置已不可靠。
+        self._last_right_click_xy = (event.x_root, event.y_root)
         multi = len(self.table.selected_results()) > 1
         items = [
             {"text": "打开", "icon": "↗", "cmd": self._open_selected, "disabled": multi},
@@ -3403,6 +3489,24 @@ class FileSearcherApp:
         if self._page <= 1:
             pb.config(state=tk.DISABLED)
         pb.pack(side=tk.RIGHT)
+        # 内联跳页器放进 next_f、位于「下一页」左侧（同容器相邻，永不与页码重叠）
+        self._pager_jump_var = tk.StringVar(value=str(self._page))
+        entry_w = max(4, len(str(total_pages)) + 1)
+        je = tk.Entry(
+            next_f, textvariable=self._pager_jump_var, width=entry_w,
+            justify=tk.CENTER, bg=c["input"], fg=c["text"],
+            insertbackground=c["accent"], relief="flat", bd=0,
+            font=self._f(FONT_BODY),
+            highlightthickness=1, highlightbackground=c["border"],
+            highlightcolor=c["accent"])
+        je.pack(side=tk.LEFT, ipady=s(3), padx=(0, s(3)))
+        je.bind("<Return>", self._on_jump_to_page)
+        # 聚焦时全选，方便直接覆盖输入目标页码
+        je.bind("<FocusIn>", lambda _e: je.after_idle(
+            lambda: je.selection_range(0, tk.END)))
+        tk.Label(next_f, text=f"/ {total_pages}", bg=c["surface"],
+                 fg=c["muted"], font=self._f(FONT_SMALL)).pack(side=tk.LEFT,
+                 padx=(0, s(10)))
         nb = RoundedButton(next_f, text="下一页", command=lambda: self._goto_page_relative(1),
                            width=nav_w, height=btn_h, colors=c, font_size=nav_fsize)
         if self._page >= total_pages:
@@ -3550,11 +3654,15 @@ class FileSearcherApp:
         if not path:
             return
         old_name = os.path.basename(path)
-        new_name = _dialog_input(self, "重命名", "输入新的文件名：", initial=old_name)
+        at_xy = getattr(self, "_last_right_click_xy", None)
+        _diag(f"[rename] dialog at_xy={at_xy}")
+        new_name = _dialog_input(self, "重命名", "输入新的文件名：", initial=old_name,
+                                 cursor_start=True, at_xy=at_xy)
         if not new_name or new_name == old_name:
             return
         try:
             new_path = rename_file(path, new_name)
+            IndexEngine.rename_path(path, new_path)   # 同步索引 DB（含子路径级联）
             selected = self.table.selected_results()
             if selected:
                 r = selected[0]

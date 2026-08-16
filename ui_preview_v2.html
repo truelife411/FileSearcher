@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>File Searcher · 界面重设计稿 V2（三方向对比）</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: #07090B; }
+  body {
+    font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    color: #E6EDF0; padding: 44px 36px 90px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: Consolas, "Cascadia Mono", monospace; }
+  .page-head { max-width: 1500px; margin: 0 auto 36px; }
+  .page-head h1 { font-size: 28px; font-weight: 600; }
+  .page-head h1 em { font-style: normal; color: #3FC1B0; }
+  .page-head p { margin-top: 10px; font-size: 13.5px; color: #8694A0; line-height: 1.8; max-width: 900px; }
+
+  section { max-width: 1500px; margin: 0 auto 72px; }
+  .dir-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .dir-no { font-size: 13px; color: #5D6B77; font-family: Consolas, monospace; }
+  .dir-title { font-size: 21px; font-weight: 600; }
+  .dir-pick { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: rgba(63,193,176,.13); color: #3FC1B0; font-weight: 600; }
+  .dir-desc { font-size: 13px; color: #7B8894; margin-bottom: 20px; max-width: 860px; line-height: 1.7; }
+
+  /* ============ 应用窗口通用骨架 ============ */
+  .app { border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
+         height: 780px; box-shadow: 0 26px 80px rgba(0,0,0,.55); }
+  .titlebar { height: 38px; flex: 0 0 38px; display: flex; align-items: center; padding: 0 4px 0 14px; user-select: none; }
+  .tb-logo { width: 18px; height: 18px; border-radius: 5px; margin-right: 9px; display: flex; align-items: center; justify-content: center; }
+  .tb-name { font-size: 12px; font-weight: 600; letter-spacing: .3px; }
+  .tb-sub { font-size: 10.5px; margin-left: 8px; font-weight: 400; }
+  .tb-spacer { flex: 1; }
+  .tb-btn { width: 44px; height: 38px; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .tb-btn.close:hover { background: #D64545; color: #fff; }
+
+  .row-file { display: flex; align-items: center; gap: 0; }
+  .f-ico { width: 15px; height: 15px; border-radius: 4px; flex: 0 0 auto; }
+  .col { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  .palette { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .swatch { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #8A97A3;
+            background: #10151A; border: 1px solid #1E2830; border-radius: 8px; padding: 6px 10px; }
+  .swatch i { width: 16px; height: 16px; border-radius: 4px; display: inline-block; }
+  .notes { margin-top: 16px; font-size: 12.5px; color: #7B8894; line-height: 1.9; }
+  .notes b { color: #C7D2DA; font-weight: 600; }
+
+  /* ============================================================
+     方向 A · 霁青精修（保留现主题，全面统一细节）
+  ============================================================ */
+  .a-app { background: #0C1014; }
+  .a-titlebar { background: #10161C; }
+  .a-search-wrap { padding: 18px 24px 0; }
+  .a-search { height: 54px; border-radius: 13px; background: #0F151B; border: 1.5px solid #222D38;
+              display: flex; align-items: center; padding: 0 14px 0 18px; }
+  .a-search.focus { border-color: #3FC1B0; box-shadow: 0 0 0 4px rgba(63,193,176,.13); }
+  .a-search input { flex: 1; background: none; border: none; outline: none; color: #E9F0F3;
+                    font-size: 15.5px; font-family: inherit; }
+  .a-search .clear { width: 24px; height: 24px; border-radius: 50%; background: #212D38; color: #8E9CAA;
+                     display: flex; align-items: center; justify-content: center; font-size: 11px; cursor: pointer; }
+  .a-tools { display: flex; align-items: center; gap: 10px; padding: 12px 24px 0; }
+  .a-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 20px;
+            background: #131A21; border: 1px solid #222D38; font-size: 11.5px; color: #8E9CAA; }
+  .a-pill i { width: 7px; height: 7px; border-radius: 50%; background: #3ED598; }
+  .a-ghost { margin-left: auto; font-size: 12px; color: #3FC1B0; padding: 7px 13px; border-radius: 9px; font-weight: 600; cursor: pointer; }
+  .a-ghost:hover { background: #193034; }
+  .a-icobtn { width: 34px; height: 34px; border-radius: 9px; background: #19222B; border: 1px solid #222D38;
+              color: #8E9CAA; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; }
+  .a-card { margin: 14px 24px 12px; flex: 1; min-height: 0; background: #131A21; border: 1px solid #222D38;
+            border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .a-thead { height: 40px; flex: 0 0 40px; display: flex; align-items: center; padding: 0 16px 0 20px;
+             border-bottom: 1px solid #222D38; font-size: 10.5px; color: #5E6C79; font-weight: 600; }
+  .a-row { height: 46px; display: flex; align-items: center; padding: 0 16px 0 20px;
+           border-bottom: 1px solid #1B232B; font-size: 12.5px; color: #E9F0F3; position: relative; }
+  .a-row:hover { background: #1B242D; }
+  .a-row.sel { background: #193034; }
+  .a-row.sel::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 4px;
+                       border-radius: 0 3px 3px 0; background: #3FC1B0; }
+  .a-row.sel .a-name { color: #59D2C2; }
+  .a-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 10px; }
+  .a-pager { height: 38px; flex: 0 0 38px; display: flex; align-items: center; padding: 0 16px;
+             border-top: 1px solid #1B232B; font-size: 11px; color: #8E9CAA; }
+  .a-page-btn { width: 26px; height: 26px; border-radius: 7px; background: #19222B; border: 1px solid #222D38;
+                color: #8E9CAA; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+  .a-statusbar { height: 32px; flex: 0 0 32px; background: #10161C; border-top: 1px solid #222D38;
+                 display: flex; align-items: center; padding: 0 18px; font-size: 11.5px; color: #8E9CAA; }
+  .a-dot { color: #3ED598; margin-right: 8px; }
+
+  /* ============================================================
+     方向 B · 墨玉（Raycast 风 · 玻璃拟态深色）
+  ============================================================ */
+  .b-app { background: radial-gradient(120% 90% at 50% -10%, #131820 0%, #0A0C10 55%); }
+  .b-titlebar { background: transparent; }
+  .b-search-wrap { padding: 30px 24px 0; display: flex; justify-content: center; }
+  .b-search { width: min(860px, 100%); height: 64px; border-radius: 18px;
+              background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09);
+              backdrop-filter: blur(20px);
+              display: flex; align-items: center; padding: 0 18px 0 22px;
+              box-shadow: 0 12px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06); }
+  .b-search input { flex: 1; background: none; border: none; outline: none; color: #EDF2F4;
+                    font-size: 18px; font-family: inherit; }
+  .b-search input::placeholder { color: #4E5A66; }
+  .b-kbd { font-size: 10px; font-family: Consolas, monospace; color: #5D6B77;
+           border: 1px solid rgba(255,255,255,.10); border-radius: 6px; padding: 3px 7px; margin-left: 6px; }
+  .b-tools { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 24px 2px; }
+  .b-chip { font-size: 11.5px; color: #7A8792; padding: 5px 12px; border-radius: 20px;
+            background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); cursor: pointer; }
+  .b-chip.on { color: #6FD8C8; border-color: rgba(63,193,176,.4); background: rgba(63,193,176,.10); }
+  .b-list { flex: 1; min-height: 0; margin: 14px 24px 8px; }
+  .b-row { height: 52px; display: flex; align-items: center; padding: 0 14px; border-radius: 12px;
+           font-size: 13.5px; color: #DDE6EA; gap: 12px; }
+  .b-row:hover { background: rgba(255,255,255,.04); }
+  .b-row.sel { background: rgba(63,193,176,.12); box-shadow: inset 0 0 0 1px rgba(63,193,176,.35); }
+  .b-row .b-name { width: 300px; font-weight: 500; }
+  .b-row .b-path { flex: 1; color: #5D6B77; font-size: 12px; }
+  .b-row .b-meta { color: #7A8792; font-size: 11.5px; font-family: Consolas, monospace; }
+  .b-foot { flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 24px; font-size: 11.5px; color: #5D6B77; }
+  .b-foot .acts { display: flex; gap: 16px; }
+  .b-foot kbd { font-family: Consolas, monospace; font-size: 10px; color: #7A8792;
+                border: 1px solid rgba(255,255,255,.1); border-radius: 5px; padding: 2px 6px; margin-right: 5px; }
+
+  /* ============================================================
+     方向 C · 凝脂（宣纸浅底 · 克制国风）
+  ============================================================ */
+  .c-app { background: #F5F3EE; }
+  .c-titlebar { background: #EDEAE3; border-bottom: 1px solid #E0DCD2; }
+  .c-search-wrap { padding: 22px 28px 0; }
+  .c-search { height: 52px; border-radius: 4px; background: #FFFFFF; border: 1px solid #D9D4C8;
+              border-bottom: 2px solid #C9C3B4; display: flex; align-items: center; padding: 0 14px 0 18px; }
+  .c-search.focus { border-bottom-color: #2E6E66; }
+  .c-search input { flex: 1; background: none; border: none; outline: none; color: #23282C;
+                    font-size: 15px; font-family: inherit; }
+  .c-tools { display: flex; align-items: center; gap: 12px; padding: 13px 28px 0; }
+  .c-pill { font-size: 11.5px; color: #6B6558; }
+  .c-pill b { color: #2E6E66; font-weight: 600; }
+  .c-btn { font-size: 12px; color: #4A463C; padding: 6px 14px; border: 1px solid #D9D4C8;
+           border-radius: 4px; background: #FBFAF6; cursor: pointer; }
+  .c-card { margin: 14px 28px 12px; flex: 1; min-height: 0; background: #FFFFFF;
+            border: 1px solid #E0DCD2; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; }
+  .c-thead { height: 38px; flex: 0 0 38px; display: flex; align-items: center; padding: 0 16px 0 20px;
+             border-bottom: 1.5px solid #D9D4C8; font-size: 10.5px; color: #8B8474; font-weight: 600;
+             letter-spacing: 1px; }
+  .c-row { height: 44px; display: flex; align-items: center; padding: 0 16px 0 20px;
+           border-bottom: 1px solid #EFEDE6; font-size: 12.5px; color: #23282C; position: relative; }
+  .c-row:hover { background: #F7F5EF; }
+  .c-row.sel { background: #EBF1EE; }
+  .c-row.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #2E6E66; }
+  .c-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 3px; }
+  .c-pager { height: 36px; flex: 0 0 36px; display: flex; align-items: center; padding: 0 16px;
+             border-top: 1px solid #EFEDE6; font-size: 11px; color: #8B8474; }
+  .c-statusbar { height: 30px; flex: 0 0 30px; background: #EDEAE3; border-top: 1px solid #E0DCD2;
+                 display: flex; align-items: center; padding: 0 18px; font-size: 11px; color: #6B6558; }
+
+  .col-name { width: 27%; } .col-path { flex: 1; } .col-type { width: 84px; text-align: center; }
+  .col-size { width: 100px; text-align: right; } .col-time { width: 160px; text-align: right; }
+  .muted { color: #8E9CAA; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>File Searcher · 界面重设计稿 <em>V2</em>（三方向对比）</h1>
+  <p>上一版改到一半留下的问题：圆角/间距/描边各处不一致、分页信息重复两处、搜索框 kbd 胶囊常年占位、
+     若干死代码与空壳方法。以下三个方向都基于同一套功能，仅视觉语言不同。每个方向均为主界面完整渲染 + 色板 + 设计说明。</p>
+</div>
+
+<!-- ════════════════════ 方向 A ════════════════════ -->
+<section>
+  <div class="dir-head">
+    <span class="dir-no">方向 A</span>
+    <span class="dir-title">霁青 · 精修</span>
+    <span class="dir-pick">改动最小 · 保留现主题</span>
+  </div>
+  <div class="dir-desc">保留你选定的霁青骨架，把「半成品感」修掉：圆角统一为 7/9/12 三档、描边统一 1px #222D38、
+    搜索框去掉 kbd 胶囊改纯输入、分页信息只保留表格底部一处、状态胶囊精简为「绿点 + 一句话」。</div>
+
+  <div class="app a-app">
+    <div class="titlebar a-titlebar">
+      <div class="tb-logo" style="background: linear-gradient(160deg,#46C9B6,#2B9C8E);">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><circle cx="10" cy="10" r="7"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke-linecap="round"/></svg>
+      </div>
+      <span class="tb-name" style="color:#E9F0F3;">File Searcher</span>
+      <span class="tb-sub" style="color:#5E6C79;">全盘文件搜索</span>
+      <div class="tb-spacer"></div>
+      <div class="tb-btn" style="color:#8E9CAA;">—</div>
+      <div class="tb-btn close" style="color:#8E9CAA;">✕</div>
+    </div>
+
+    <div class="a-search-wrap">
+      <div class="a-search focus">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3FC1B0" stroke-width="2.4" style="margin-right:12px;"><circle cx="10" cy="10" r="7"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke-linecap="round"/></svg>
+        <input value="季度报告">
+        <div class="clear">✕</div>
+      </div>
+    </div>
+
+    <div class="a-tools">
+      <span class="a-pill"><i></i>索引就绪 · 1,248,362 个文件</span>
+      <span class="a-ghost">⟳ 重建索引</span>
+      <span class="a-icobtn">⚙</span>
+    </div>
+
+    <div class="a-card">
+      <div class="a-thead">
+        <span class="col" style="width:31px;"></span>
+        <span class="col col-name">文件名 ↑</span>
+        <span class="col col-path">路径</span>
+        <span class="col col-type">类型</span>
+        <span class="col col-size">大小</span>
+        <span class="col col-time">修改时间</span>
+      </div>
+      <div class="a-row sel">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#6FA8EF;display:block;"></i></span>
+        <span class="col col-name a-name">2026 第二季度业绩报告.docx</span>
+        <span class="col col-path muted">C:\Users\hjf\Documents\工作\报告</span>
+        <span class="col col-type"><span class="a-badge" style="color:#6FA8EF;background:#1F2C3C;">DOCX</span></span>
+        <span class="col col-size mono muted">2.4 MB</span>
+        <span class="col col-time mono muted">2026-08-12 14:32</span>
+      </div>
+      <div class="a-row">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#E4747E;display:block;"></i></span>
+        <span class="col col-name">季度报告-终版.pdf</span>
+        <span class="col col-path muted">D:\资料\财务\2026</span>
+        <span class="col col-type"><span class="a-badge" style="color:#E4747E;background:#2E262D;">PDF</span></span>
+        <span class="col col-size mono muted">8.1 MB</span>
+        <span class="col col-time mono muted">2026-08-10 09:15</span>
+      </div>
+      <div class="a-row">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#E5C56F;display:block;"></i></span>
+        <span class="col col-name">季度报告素材</span>
+        <span class="col col-path muted">C:\Users\hjf\Desktop</span>
+        <span class="col col-type"><span class="a-badge" style="color:#E5C56F;background:#2E302B;">文件夹</span></span>
+        <span class="col col-size mono muted"></span>
+        <span class="col col-time mono muted">2026-08-08 17:44</span>
+      </div>
+      <div class="a-row">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#7CC784;display:block;"></i></span>
+        <span class="col col-name">Q2 季度数据汇总.xlsx</span>
+        <span class="col col-path muted">C:\Users\hjf\Documents\工作\数据</span>
+        <span class="col col-type"><span class="a-badge" style="color:#7CC784;background:#21312E;">XLSX</span></span>
+        <span class="col col-size mono muted">964 KB</span>
+        <span class="col col-time mono muted">2026-08-05 11:02</span>
+      </div>
+      <div style="flex:1;"></div>
+      <div class="a-pager">
+        <span>共 1,386 个结果</span>
+        <span style="flex:1;"></span>
+        <span class="a-page-btn">‹</span>
+        <span class="mono" style="margin:0 10px;">1 / 93</span>
+        <span class="a-page-btn">›</span>
+      </div>
+    </div>
+
+    <div class="a-statusbar">
+      <span class="a-dot">●</span>搜索「季度报告」— 共 1,386 个结果
+      <span style="flex:1;"></span>
+      <span style="color:#5E6C79;">Ctrl+F 聚焦搜索</span>
+    </div>
+  </div>
+
+  <div class="palette">
+    <span class="swatch"><i style="background:#0C1014;"></i>bg #0C1014</span>
+    <span class="swatch"><i style="background:#131A21;"></i>surface #131A21</span>
+    <span class="swatch"><i style="background:#222D38;"></i>border #222D38</span>
+    <span class="swatch"><i style="background:#3FC1B0;"></i>accent #3FC1B0</span>
+    <span class="swatch"><i style="background:#193034;"></i>selected #193034</span>
+    <span class="swatch"><i style="background:#8E9CAA;"></i>muted #8E9CAA</span>
+  </div>
+  <div class="notes">
+    <b>改动清单：</b>圆角统一 7（按钮）/9（徽章·页码钮）/12（卡片·搜索框）；删除 kbd 胶囊，快捷键提示移到状态栏右侧；
+    删除状态栏重复页码；状态胶囊改为「绿点 + 一句话」；标题栏副标题与分隔、表格行分隔线全部统一 token。
+    <b>工作量最小，风险最低</b>，主题/浅色版/设置窗口全部沿用现有体系顺手修齐。
+  </div>
+</section>
+
+<!-- ════════════════════ 方向 B ════════════════════ -->
+<section>
+  <div class="dir-head">
+    <span class="dir-no">方向 B</span>
+    <span class="dir-title">墨玉 · 深空</span>
+    <span class="dir-pick" style="background:rgba(111,216,200,.12);color:#6FD8C8;">现代 · Raycast 风</span>
+  </div>
+  <div class="dir-desc">彻底换语言：超大居中搜索框为绝对主角，结果列表去表格化（行卡片式、无表头、无徽章），
+    类型筛选改为搜索框下方一排 chip。玻璃拟态层次 + 底部快捷键栏。最接近当代启动器审美，但排序/列宽拖动等表格能力会弱化。</div>
+
+  <div class="app b-app">
+    <div class="titlebar b-titlebar">
+      <div class="tb-logo" style="background: linear-gradient(160deg,#3EDAC6,#1FA190);">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#06231F" stroke-width="3.2"><circle cx="10" cy="10" r="7"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke-linecap="round"/></svg>
+      </div>
+      <span class="tb-name" style="color:#EDF2F4;">File Searcher</span>
+      <div class="tb-spacer"></div>
+      <div class="tb-btn" style="color:#5D6B77;">⚙</div>
+      <div class="tb-btn" style="color:#5D6B77;">—</div>
+      <div class="tb-btn close" style="color:#5D6B77;">✕</div>
+    </div>
+
+    <div class="b-search-wrap">
+      <div class="b-search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6FD8C8" stroke-width="2.2" style="margin-right:14px;"><circle cx="10" cy="10" r="7"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke-linecap="round"/></svg>
+        <input value="季度报告" placeholder="搜索全盘文件…">
+        <span class="b-kbd">Ctrl F</span>
+      </div>
+    </div>
+
+    <div class="b-tools">
+      <span class="b-chip on">全部</span>
+      <span class="b-chip">文档</span>
+      <span class="b-chip">图片</span>
+      <span class="b-chip">视频</span>
+      <span class="b-chip">代码</span>
+      <span class="b-chip">压缩包</span>
+      <span style="flex:0 0 auto;color:#41505C;font-size:11px;margin-left:auto;">1,386 个结果</span>
+    </div>
+
+    <div class="b-list">
+      <div class="b-row sel">
+        <i class="f-ico" style="background:#6FA8EF;"></i>
+        <span class="col b-name">2026 第二季度业绩报告.docx</span>
+        <span class="col b-path">Documents/工作/报告</span>
+        <span class="b-meta">2.4 MB · 08-12</span>
+      </div>
+      <div class="b-row">
+        <i class="f-ico" style="background:#E4747E;"></i>
+        <span class="col b-name">季度报告-终版.pdf</span>
+        <span class="col b-path">D:/资料/财务/2026</span>
+        <span class="b-meta">8.1 MB · 08-10</span>
+      </div>
+      <div class="b-row">
+        <i class="f-ico" style="background:#E5C56F;"></i>
+        <span class="col b-name">季度报告素材</span>
+        <span class="col b-path">Desktop</span>
+        <span class="b-meta">文件夹 · 08-08</span>
+      </div>
+      <div class="b-row">
+        <i class="f-ico" style="background:#7CC784;"></i>
+        <span class="col b-name">Q2 季度数据汇总.xlsx</span>
+        <span class="col b-path">Documents/工作/数据</span>
+        <span class="b-meta">964 KB · 08-05</span>
+      </div>
+      <div class="b-row">
+        <i class="f-ico" style="background:#BE8FE0;"></i>
+        <span class="col b-name">季度报告配图-final.png</span>
+        <span class="col b-path">Pictures/设计稿</span>
+        <span class="b-meta">3.2 MB · 08-02</span>
+      </div>
+    </div>
+
+    <div class="b-foot">
+      <div class="acts">
+        <span><kbd>↵</kbd>打开</span>
+        <span><kbd>⌥↵</kbd>定位</span>
+        <span><kbd>^C</kbd>复制</span>
+        <span><kbd>⌫</kbd>删除</span>
+      </div>
+      <span>1 / 93 · 滚动加载更多</span>
+    </div>
+  </div>
+
+  <div class="palette">
+    <span class="swatch"><i style="background:#0A0C10;"></i>bg #0A0C10</span>
+    <span class="swatch"><i style="background:rgba(255,255,255,.06);"></i>glass 6% 白</span>
+    <span class="swatch"><i style="background:#6FD8C8;"></i>accent #6FD8C8</span>
+    <span class="swatch"><i style="background:#5D6B77;"></i>muted #5D6B77</span>
+  </div>
+  <div class="notes">
+    <b>取舍：</b>视觉最现代，但列排序、列宽拖动、精确的大小/时间列展示会被弱化（meta 合并为一列）；
+    类型筛选从设置里挪回主界面 chip。适合「搜索为主、管理为辅」的使用习惯。<b>改动量最大</b>，FileTable 要重写为列表。
+  </div>
+</section>
+
+<!-- ════════════════════ 方向 C ════════════════════ -->
+<section>
+  <div class="dir-head">
+    <span class="dir-no">方向 C</span>
+    <span class="dir-title">凝脂 · 纸感</span>
+    <span class="dir-pick" style="background:rgba(46,110,102,.14);color:#7FB5AD;">浅色 · 克制国风</span>
+  </div>
+  <div class="dir-desc">宣纸暖白底 + 墨色文字 + 黛青 accent，直角小圆角（4px）、细线分割，像一张排印讲究的纸。
+    适合长时间盯屏办公，浅色下眼睛压力小。表格能力完整保留，气质与深色工具截然不同。</div>
+
+  <div class="app c-app">
+    <div class="titlebar c-titlebar">
+      <div class="tb-logo" style="background: #2E6E66;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#F5F3EE" stroke-width="3"><circle cx="10" cy="10" r="7"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke-linecap="round"/></svg>
+      </div>
+      <span class="tb-name" style="color:#23282C;">File Searcher</span>
+      <span class="tb-sub" style="color:#8B8474;">全盘文件搜索</span>
+      <div class="tb-spacer"></div>
+      <div class="tb-btn" style="color:#6B6558;">—</div>
+      <div class="tb-btn close" style="color:#6B6558;">✕</div>
+    </div>
+
+    <div class="c-search-wrap">
+      <div class="c-search focus">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#2E6E66" stroke-width="2.4" style="margin-right:12px;"><circle cx="10" cy="10" r="7"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke-linecap="round"/></svg>
+        <input value="季度报告">
+      </div>
+    </div>
+
+    <div class="c-tools">
+      <span class="c-pill" style="color:#6B6558;">索引就绪 · <b>1,248,362</b> 个文件 · 更新于 08-14 21:30</span>
+      <span style="flex:1;"></span>
+      <span class="c-btn">⟳ 重建索引</span>
+      <span class="c-btn">⚙ 设置</span>
+    </div>
+
+    <div class="c-card">
+      <div class="c-thead">
+        <span class="col" style="width:31px;"></span>
+        <span class="col col-name">文件名 ↑</span>
+        <span class="col col-path">路径</span>
+        <span class="col col-type">类型</span>
+        <span class="col col-size">大小</span>
+        <span class="col col-time">修改时间</span>
+      </div>
+      <div class="c-row sel">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#4A7FBC;display:block;"></i></span>
+        <span class="col col-name" style="color:#2E6E66;font-weight:600;">2026 第二季度业绩报告.docx</span>
+        <span class="col col-path" style="color:#8B8474;">C:\Users\hjf\Documents\工作\报告</span>
+        <span class="col col-type"><span class="c-badge" style="color:#4A7FBC;background:#EDF2F8;">DOCX</span></span>
+        <span class="col col-size mono" style="color:#6B6558;">2.4 MB</span>
+        <span class="col col-time mono" style="color:#6B6558;">2026-08-12 14:32</span>
+      </div>
+      <div class="c-row">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#B05353;display:block;"></i></span>
+        <span class="col col-name">季度报告-终版.pdf</span>
+        <span class="col col-path" style="color:#8B8474;">D:\资料\财务\2026</span>
+        <span class="col col-type"><span class="c-badge" style="color:#B05353;background:#F8EEEC;">PDF</span></span>
+        <span class="col col-size mono" style="color:#6B6558;">8.1 MB</span>
+        <span class="col col-time mono" style="color:#6B6558;">2026-08-10 09:15</span>
+      </div>
+      <div class="c-row">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#A08A46;display:block;"></i></span>
+        <span class="col col-name">季度报告素材</span>
+        <span class="col col-path" style="color:#8B8474;">C:\Users\hjf\Desktop</span>
+        <span class="col col-type"><span class="c-badge" style="color:#A08A46;background:#F5F1E6;">文件夹</span></span>
+        <span class="col col-size mono" style="color:#6B6558;"></span>
+        <span class="col col-time mono" style="color:#6B6558;">2026-08-08 17:44</span>
+      </div>
+      <div class="c-row">
+        <span class="col" style="width:31px;"><i class="f-ico" style="background:#5B8A5B;display:block;"></i></span>
+        <span class="col col-name">Q2 季度数据汇总.xlsx</span>
+        <span class="col col-path" style="color:#8B8474;">C:\Users\hjf\Documents\工作\数据</span>
+        <span class="col col-type"><span class="c-badge" style="color:#5B8A5B;background:#EDF3EC;">XLSX</span></span>
+        <span class="col col-size mono" style="color:#6B6558;">964 KB</span>
+        <span class="col col-time mono" style="color:#6B6558;">2026-08-05 11:02</span>
+      </div>
+      <div style="flex:1;"></div>
+      <div class="c-pager">
+        <span>共 1,386 个结果</span>
+        <span style="flex:1;"></span>
+        <span class="mono">‹ 1 / 93 ›</span>
+      </div>
+    </div>
+
+    <div class="c-statusbar">
+      <span style="color:#2E6E66;margin-right:8px;">●</span>搜索「季度报告」— 共 1,386 个结果
+      <span style="flex:1;"></span>
+      <span style="color:#8B8474;">Ctrl+F 聚焦搜索</span>
+    </div>
+  </div>
+
+  <div class="palette">
+    <span class="swatch"><i style="background:#F5F3EE;border:1px solid #D9D4C8;"></i>bg #F5F3EE</span>
+    <span class="swatch"><i style="background:#FFFFFF;border:1px solid #D9D4C8;"></i>surface #FFFFFF</span>
+    <span class="swatch"><i style="background:#D9D4C8;"></i>border #D9D4C8</span>
+    <span class="swatch"><i style="background:#2E6E66;"></i>accent #2E6E66</span>
+    <span class="swatch"><i style="background:#23282C;"></i>text #23282C</span>
+  </div>
+  <div class="notes">
+    <b>特点：</b>长时间使用最护眼；表格/排序/列宽全部保留，改动集中在配色 token 与圆角体系；
+    深色模式可作为「墨青」变体共存。若选 C，建议主题设置改为「凝脂（浅）/ 墨青（深）/ 跟随系统」。
+  </div>
+</section>
+
+<section style="margin-bottom:0;">
+  <div class="dir-head"><span class="dir-title" style="font-size:17px;">三个方向怎么选</span></div>
+  <div class="notes" style="max-width:1000px;">
+    <b>A 霁青精修</b>：喜欢现在的深色青玉调，只是嫌它"糙"——选它，风险最低、见效最快。<br>
+    <b>B 墨玉深空</b>：想要 Raycast 那种现代启动器气质，愿意接受表格能力弱化——选它，最惊艳但改动最大。<br>
+    <b>C 凝脂纸感</b>：长时间盯屏、白天用得多，想要安静耐看的浅色——选它，功能完整保留。<br>
+    选定后我会：<b>1)</b> 清理死代码与重复信息；<b>2)</b> 按方向落地全套 token（圆角/间距/描边/字号）；<b>3)</b> 主界面+设置+弹窗+右键菜单一起刷齐，不留半成品。
+  </div>
+</section>
+
+</body>
+</html>
