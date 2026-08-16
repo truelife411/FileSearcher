@@ -26,7 +26,7 @@ if sys.platform == "win32":
             pass
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 from pathlib import Path
 
 import pystray
@@ -1139,6 +1139,7 @@ class IndexEngine:
         "tray_auto_index": False,        # 最小化到托盘后自动更新索引
         "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
         "theme": "mist",
+        "quick_move_dir": "",            # 快捷移动目标目录（右键「快捷移动」）
         "text_pt": 16,                   # 主字号（表格正文基准 pt，10~40 可调）
     }
 
@@ -3074,6 +3075,9 @@ class FileSearcherApp:
         # 不能用 winfo_pointerxy：菜单项经 after_idle 触发时指针位置已不可靠。
         self._last_right_click_xy = (event.x_root, event.y_root)
         multi = len(self.table.selected_results()) > 1
+        qm = str(self._settings.get("quick_move_dir", "") or "")
+        qm_label = (f"快捷移动到 {os.path.basename(os.path.normpath(qm))}"
+                    if qm else "快捷移动到…（未配置）")
         items = [
             {"text": "打开", "icon": "↗", "cmd": self._open_selected, "disabled": multi},
             {"text": "打开所在文件夹", "icon": "⌂", "cmd": self._open_file_location_selected, "disabled": multi},
@@ -3082,6 +3086,7 @@ class FileSearcherApp:
             {"text": "剪切", "icon": "✂", "cmd": self._cut_path},
             {"text": "复制完整路径", "icon": "≡", "cmd": self._copy_full_path_text},
             ("sep",),
+            {"text": qm_label, "icon": "➜", "cmd": self._quick_move, "disabled": multi},
             {"text": "重命名", "icon": "✎", "cmd": self._rename_file_dialog, "disabled": multi},
             ("sep",),
             {"text": "删除到回收站", "icon": "⌫", "cmd": self._delete_file_recycle},
@@ -3448,6 +3453,29 @@ class FileSearcherApp:
         minutes_var.trace_add("write", lambda *_: minutes_label.configure(
             text=f"{minutes_var.get()} 分钟"))
         tk.Frame(card_idx, bg=c["surface"], height=s(8)).pack()
+
+        # 快捷移动目录：右键「快捷移动」把文件所在目录移动到这里
+        row = _option_row(card_idx, "快捷移动目录",
+                          "右键「快捷移动」把文件所在目录移动到此处（修改即时保存）")
+        qm_var = tk.StringVar(value=self._settings.get("quick_move_dir", "") or "")
+        qm_lbl = tk.Label(row, textvariable=qm_var, bg=c["input"], fg=c["muted"],
+                          font=(FONT_MONO, self._f(FONT_SMALL)[1]), anchor=tk.W,
+                          width=34, pady=4, highlightthickness=1,
+                          highlightbackground=c["border"])
+        qm_lbl.pack(side=tk.LEFT, padx=(0, s(8)))
+        qm_lbl.bind("<Button-1>", lambda _e: _pick_quick_move_dir())
+
+        def _pick_quick_move_dir():
+            initial = qm_var.get() or os.path.expanduser("~")
+            p = filedialog.askdirectory(title="选择快捷移动目录", initialdir=initial)
+            if p:
+                qm_var.set(os.path.normpath(p))
+                self._settings["quick_move_dir"] = qm_var.get()
+                IndexEngine.save_settings(self._settings)
+
+        RoundedButton(row, text="选择…", width=s(68), height=s(28), colors=c,
+                      command=_pick_quick_move_dir,
+                      font_size=self._f(FONT_SMALL)[1]).pack(side=tk.LEFT)
 
         # ---- 外观卡：主题预览 ----
         card_theme = _card(page_index, "外观")
@@ -3961,6 +3989,75 @@ class FileSearcherApp:
     # ================================================================
     #  重命名
     # ================================================================
+
+    def _quick_move(self):
+        """快捷移动：把选中文件所在目录（或选中文件夹本身）移动到配置的快捷移动目录。
+
+        按用户要求不弹确认（追求快捷）；安全边界自动拦截：
+        ① 磁盘根目录不可移 ② 快捷移动目录位于源目录内部（自移动）不可移
+        ③ 目标位置已有同名目录 → 提示并取消。移动在后台线程执行（跨盘为
+        复制+删除，可能较慢），成功后在主线程用 rename_path 级联同步索引并刷新。
+        """
+        qm = str(self._settings.get("quick_move_dir", "") or "")
+        qm = os.path.normpath(qm)
+        if not qm or not os.path.isdir(qm):
+            _dialog_confirm(self, "未配置快捷移动目录",
+                            "请先在 设置 → 常规 中配置「快捷移动目录」。",
+                            kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        sel = self.table.selected_results()
+        if len(sel) != 1:
+            return
+        path = os.path.normpath(sel[0]["path"])
+        src = path if os.path.isdir(path) else os.path.dirname(path)
+        src = os.path.normpath(src)
+        # 安全边界 ①：磁盘根目录
+        drive = os.path.splitdrive(src)[0]
+        if drive and os.path.normcase(src).rstrip("\\/") == os.path.normcase(drive).rstrip("\\/"):
+            _dialog_confirm(self, "无法移动", "不能移动磁盘根目录。",
+                            kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        # 安全边界 ②：目标在源内部（含源==目标）
+        src_prefix = os.path.normcase(src).rstrip("\\/") + os.sep
+        qm_norm = os.path.normcase(qm)
+        if qm_norm == os.path.normcase(src) or qm_norm.startswith(src_prefix):
+            _dialog_confirm(self, "无法移动",
+                            "快捷移动目录位于源目录内部，无法移动。",
+                            kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        # 安全边界 ③：目标已有同名目录/文件
+        dst = os.path.join(qm, os.path.basename(src))
+        if os.path.exists(dst):
+            _dialog_confirm(self, "无法移动",
+                            f"目标位置已存在同名目录「{os.path.basename(src)}」。\n请先处理同名目录再试。",
+                            kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        # 后台执行移动 + 索引同步（不卡 UI；跨盘大目录较慢）
+        self._set_status(f"正在移动「{os.path.basename(src)}」…", "warning")
+
+        def work():
+            try:
+                shutil.move(src, dst)
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): self._on_quick_move_failed(err))
+                return
+            try:
+                IndexEngine.rename_path(src, dst)   # 级联同步子路径，无需重扫
+            except Exception:
+                pass   # 索引同步失败不影响磁盘结果，下次重建索引会纠正
+            self.root.after(0, lambda: self._on_quick_move_done(dst))
+
+        threading.Thread(target=work, daemon=True, name="quick-move").start()
+
+    def _on_quick_move_done(self, dst: str):
+        """移动成功：刷新结果（索引已同步，旧路径条目自动消失）。"""
+        self._set_status(f"已移动到 {dst}")
+        self._run_query(self._search_text())
+
+    def _on_quick_move_failed(self, err: str):
+        self._set_status("移动失败", "warning")
+        _dialog_confirm(self, "移动失败", f"无法移动目录：\n{err}",
+                        kind="danger", ok_text="知道了", show_cancel=False)
 
     def _rename_file_dialog(self):
         """弹出重命名对话框（自绘圆角输入弹窗），执行文件重命名并刷新列表。"""

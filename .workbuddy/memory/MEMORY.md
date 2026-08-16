@@ -30,6 +30,8 @@
 - **日志**：`_diag` 写 `~/.file_searcher_index/debug.log`（不再硬编码开发机路径），>1MB 轮转 debug.log.1；`report_callback_exception` 已接线（Tkinter 回调异常写 [tk-error] 行）
 - **启动竞态坑位（2026-08-16 实测）**：_defer_initial_load 轮询映射时若先于 resize 事件更新 _page_size，resize 会因"页大小未变"跳过查询 → 首次查询永不执行、列表空白。修法：映射后一次性 _initial_query_done 标志保证至少触发一次 _load_all（默认全部文件、size DESC）
 - **键盘/滚轮导航**：FileTable 内实现——滚轮翻页（累积 delta≥120 翻一页，防抖）、↑/↓ 移选中（clamp）、PgUp/PgDn 翻页（on_scroll_page 回调），Linux Button-4/5、macOS delta 缩放
+- **搜索重置页码（2026-08-16）**：_do_search(防抖搜索)与 _clear_search(清空) 必须 `_page = 1`；_sort_by 本就重置；_goto_page/resize/索引刷新保持页码
+- **快捷移动（2026-08-16 用户定）**：右键菜单「快捷移动到 xxx」（重命名上方，多选置灰，未配置显示"（未配置）"）。作用：选中文件→移动其父目录，选中文件夹→移动本身。设置项 quick_move_dir（设置-常规页，filedialog.askdirectory 选择，点击路径标签也可重新选择）。**不弹确认**（用户要求快捷）；安全边界：磁盘根不可移/目标在源内部不可移/目标已有同名提示取消。后台线程 shutil.move（跨盘=复制+删除）+ 成功调 IndexEngine.rename_path 级联同步索引（无需重扫）→ 刷新结果。索引同步失败仅忽略（重建时纠正）
 - build/ dist/ 已加入 .gitignore（构建产物不入库）；app.ico 是项目资源（入库）
 
 ## UI 设计基线（2026-08-14「凝脂纸感」，方向 C，当前线上版）
