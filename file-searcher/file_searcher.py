@@ -90,18 +90,18 @@ THEMES = {
         "success": "#2E8B57", "warning": "#C08A2E", "error": "#B05353",
         "menu_bg": "#FFFFFF", "dialog_bg": "#FFFFFF",
     },
-    # 浅色「雾沙」：柔和米色（黄白调、亮而干净，替代纯白扎眼）
+    # 浅色「雾沙」：柔和米白（黄白调再提亮，接近米白，替代纯白扎眼）
     "mist": {
-        "bg": "#F2ECDB", "surface": "#F8F4E7", "surface_alt": "#EAE3CD",
-        "surface_3": "#E0D8BF", "input": "#FBF8EE", "border": "#D9D2B9",
-        "border_strong": "#C3B9A1", "text": "#403B2F", "muted": "#6F6957",
-        "muted_2": "#948D76", "accent": "#5F7D72", "accent_hover": "#6E8C81",
+        "bg": "#F5F0E2", "surface": "#FAF7EC", "surface_alt": "#EFE9D6",
+        "surface_3": "#E6DFC9", "input": "#FDFBF4", "border": "#DFD8C2",
+        "border_strong": "#C9C0AA", "text": "#403B2F", "muted": "#6F6957",
+        "muted_2": "#98917C", "accent": "#5F7D72", "accent_hover": "#6E8C81",
         "accent_pressed": "#526C62", "accent_grad_a": "#6E8C81", "accent_grad_b": "#4C6B60",
-        "selected": "#EAE7D4", "selected_hover": "#E1DEC8", "row_alt": "#F5F0E2",
-        "row_line": "#EAE3CE", "title_bg": "#E8E1CB", "hover": "#F3EEDF",
+        "selected": "#EFEBDD", "selected_hover": "#E6E2D2", "row_alt": "#F7F3E7",
+        "row_line": "#EFE9D8", "title_bg": "#EDE7D4", "hover": "#F6F2E5",
         "sel_text": "#4C6B60",
         "success": "#5E8C6E", "warning": "#B08A45", "error": "#B0625C",
-        "menu_bg": "#F8F4E7", "dialog_bg": "#F8F4E7",
+        "menu_bg": "#FAF7EC", "dialog_bg": "#FAF7EC",
     },
     # 浅色「天青」：青瓷釉色（雨后天青，文雅清爽，替代原青墨深色）
     "jade": {
@@ -137,12 +137,12 @@ BADGE_STYLES = {
         "file": ("#6B6558", "#EFEDE6"),
     },
     "mist": {
-        "doc": ("#5A7FA8", "#E9ECDE"), "pdf": ("#A85A5A", "#F4EDE2"),
-        "xls": ("#5E8A62", "#EAF0DC"), "ppt": ("#B0783C", "#F5EEDC"),
-        "img": ("#8A62A8", "#F0EBEA"), "code": ("#4A8585", "#E6EEE1"),
-        "zip": ("#95784E", "#F2ECDA"), "audio": ("#4A8A6E", "#E8EFDF"),
-        "video": ("#5E6FB0", "#EAECE6"), "dir": ("#937E44", "#F2EDDC"),
-        "file": ("#6E6A60", "#ECE7D7"),
+        "doc": ("#5A7FA8", "#EEF0E6"), "pdf": ("#A85A5A", "#F7F1EA"),
+        "xls": ("#5E8A62", "#F0F3E6"), "ppt": ("#B0783C", "#F8F2E6"),
+        "img": ("#8A62A8", "#F4F0EF"), "code": ("#4A8585", "#EDF1E8"),
+        "zip": ("#95784E", "#F6F0E4"), "audio": ("#4A8A6E", "#EFF2E9"),
+        "video": ("#5E6FB0", "#EFF0EB"), "dir": ("#937E44", "#F6F1E5"),
+        "file": ("#6E6A60", "#F1EDE1"),
     },
     "jade": {
         "doc": ("#4F7FB0", "#E5EEF2"), "pdf": ("#B05353", "#F5EBE8"),
