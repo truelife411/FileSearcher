@@ -2515,7 +2515,11 @@ class FileSearcherApp:
 
         启动时表格尚未布局（winfo_height=1），_compute_page_size 会兜底成 5 行/页，
         直接查询会先拉一页 5 行、窗口显示后再重查一次。这里轮询等表格映射，
-        若窗口显示时的 resize 事件已经以正确页大小查过，则不再重复查询。
+        映射完成后用一次性标志保证至少触发一次加载（_load_all）。
+
+        注意：不能依赖窗口 resize 事件兜底——若本方法的映射检测先于 resize
+        事件完成，会先把 _page_size 更新为实际值，随后 resize 发现页大小未变
+        而跳过查询 → 首次查询永不执行、启动后列表空白。必须由本方法保证查询。
         """
         try:
             if self.root.state() in ("withdrawn", "iconic"):
@@ -2530,7 +2534,8 @@ class FileSearcherApp:
         ps = self._compute_page_size()
         if ps != self._page_size:
             self._page_size = ps
-        if self._page_size == 5 and not self._results:
+        if not getattr(self, "_initial_query_done", False):
+            self._initial_query_done = True
             self._load_all()
         else:
             self._update_result_status()
