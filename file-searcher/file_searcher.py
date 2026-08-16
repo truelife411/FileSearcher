@@ -260,10 +260,13 @@ class SHFILEOPSTRUCTW(ctypes.Structure):
     ]
 
 FO_DELETE = 3
+FO_MOVE = 1
 FOF_ALLOWUNDO = 0x40
 FOF_NOCONFIRMATION = 0x10
 FOF_SILENT = 0x0004
 FOF_WANTNUKEWARNING = 0x4000
+FOF_NOCONFIRMMKDIR = 0x0200
+DE_OPERATION_CANCELLED = 0x75
 
 
 class WindowsShellIconCache:
@@ -531,6 +534,24 @@ def permanent_delete(paths: list[str]):
                     os.remove(p)
             except OSError as e:
                 raise OSError(f"无法删除文件: {p}") from e
+
+
+def shell_move(src: str, dst_dir: str) -> tuple[bool, int]:
+    """用 SHFileOperation 将 src 移入 dst_dir，显示系统原生进度对话框。
+
+    与资源管理器拖拽移动同一机制：进度条 + 剩余时间 + 取消按钮，
+    冲突时由系统弹框询问。返回 (成功?, 错误码)；用户取消时错误码
+    为 DE_OPERATION_CANCELLED(0x75)。仅 Windows。
+    """
+    p_from = ctypes.create_unicode_buffer(src + "\0\0")
+    p_to = ctypes.create_unicode_buffer(dst_dir + "\0\0")
+    op = SHFILEOPSTRUCTW()
+    op.wFunc = FO_MOVE
+    op.pFrom = ctypes.cast(p_from, ctypes.c_wchar_p)
+    op.pTo = ctypes.cast(p_to, ctypes.c_wchar_p)
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR
+    ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+    return ret == 0, ret
 
 
 def rename_file(old_path: str, new_name: str) -> str:
@@ -4135,9 +4156,29 @@ class FileSearcherApp:
                             f"目标位置已存在同名目录「{os.path.basename(src)}」。\n请先处理同名目录再试。",
                             kind="warn", ok_text="知道了", show_cancel=False)
             return
-        # 后台执行移动 + 索引同步（不卡 UI；跨盘大目录较慢）
-        self._set_status(f"正在移动「{os.path.basename(src)}」…", "warning")
+        self._set_status(f"正在移动「{os.path.basename(src)}」…")
 
+        if sys.platform == "win32":
+            # 系统原生移动对话框（进度条/剩余时间/可取消/冲突询问），
+            # 与资源管理器拖拽移动同一机制；模态对话框自带消息循环不冻结窗口
+            ok, ret = shell_move(src, qm)
+            if not ok:
+                if ret == DE_OPERATION_CANCELLED:
+                    self._set_status("移动已取消")
+                else:
+                    self._set_status("移动失败", "warning")
+                    _dialog_confirm(self, "移动失败",
+                                    f"无法移动目录（错误码 {ret:#x}）。",
+                                    kind="danger", ok_text="知道了", show_cancel=False)
+                return
+            try:
+                IndexEngine.rename_path(src, dst)   # 级联同步子路径，无需重扫
+            except Exception:
+                pass   # 索引同步失败不影响磁盘结果，下次重建索引会纠正
+            self._on_quick_move_done(dst)
+            return
+
+        # 非 Windows：后台线程 shutil.move（无系统进度框，跨盘较慢）
         def work():
             try:
                 shutil.move(src, dst)
@@ -4145,9 +4186,9 @@ class FileSearcherApp:
                 self.root.after(0, lambda err=str(e): self._on_quick_move_failed(err))
                 return
             try:
-                IndexEngine.rename_path(src, dst)   # 级联同步子路径，无需重扫
+                IndexEngine.rename_path(src, dst)
             except Exception:
-                pass   # 索引同步失败不影响磁盘结果，下次重建索引会纠正
+                pass
             self.root.after(0, lambda: self._on_quick_move_done(dst))
 
         threading.Thread(target=work, daemon=True, name="quick-move").start()
