@@ -3248,14 +3248,10 @@ class FileSearcherApp:
         self.progress = ttk.Progressbar(self.progress_slot, mode="indeterminate",
                                         length=self._s(100))
 
-        # 右侧：快捷移动目录钮 · 设置钮 · 重建索引钮（pack 顺序即从左到右）
+        # 右侧：重建索引钮 · 设置钮 · 快捷移动目录钮（pack 顺序即从左到右）
         right = tk.Frame(bar, bg=c["title_bg"])
         right.pack(side=tk.RIGHT, padx=(0, self._s(10)))
 
-        self.qm_btn = RoundedButton(right, text="▣ 快捷移动目录", command=self._open_quick_move_dir,
-                                    width=self._s(164), height=self._s(30), colors=c,
-                                    kind="ghost", font_size=self._f(FONT_SMALL)[1])
-        self.qm_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
         self.index_btn = RoundedButton(right, text="⟳ 重建索引", command=self._toggle_index,
                                        width=self._s(104), height=self._s(30), colors=c,
                                        kind="ghost", font_size=self._f(FONT_SMALL)[1])
@@ -3263,7 +3259,11 @@ class FileSearcherApp:
         self.settings_btn = RoundedButton(right, icon="⚙", command=self._open_settings,
                                           width=self._s(34), height=self._s(30), colors=c,
                                           font_size=self._f(FONT_BODY)[1])
-        self.settings_btn.pack(side=tk.LEFT)
+        self.settings_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
+        self.qm_btn = RoundedButton(right, text="▣ 快捷移动目录", command=self._open_quick_move_dir,
+                                    width=self._s(164), height=self._s(30), colors=c,
+                                    kind="ghost", font_size=self._f(FONT_SMALL)[1])
+        self.qm_btn.pack(side=tk.LEFT)
         self._update_qm_button_text()
 
     def _set_status(self, text: str, kind: str = "normal"):
