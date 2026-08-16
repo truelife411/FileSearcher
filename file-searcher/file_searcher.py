@@ -1739,7 +1739,17 @@ def _dialog_stars(app, title, desc, preview_name, current=0, ok_text="确定"):
     c = app.colors
     s = app._s
     w = s(420)
-    h = s(170) + s(34)
+    # 高度按内容实测：标题 46 + 描述行数 + 星星行 40 + 预览条 36 + 按钮 52 + 边距
+    try:
+        import tkinter.font as tkfont
+        f = tkfont.Font(root=app.root, font=app._f(FONT_SMALL))
+        wrap = max(50, w - s(90))
+        lines = 0
+        for seg in desc.split("\n"):
+            lines += max(1, math.ceil(f.measure(seg) / wrap))
+    except Exception:
+        lines = 2
+    h = s(150) + lines * s(20) + s(120)
     shell = _DialogShell(app, w, h)
     body = tk.Frame(shell.body, bg=c["dialog_bg"])
     body.pack(fill=tk.BOTH, expand=True, padx=s(22))
