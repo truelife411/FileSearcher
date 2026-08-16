@@ -1163,6 +1163,14 @@ class IndexEngine:
         "theme": "mist",
         "quick_move_dir": "",            # 快捷移动目标目录（右键「快捷移动」）
         "text_pt": 16,                   # 主字号（表格正文基准 pt，10~40 可调）
+        # 保护目录：禁止对其实施目录级移动/删除（含其上层目录；不含其子目录），
+        # 预置系统关键目录防误伤，用户可在 设置 → 保护目录 中增删
+        "protected_dirs": [
+            "C:\\Windows",
+            "C:\\Program Files",
+            "C:\\Program Files (x86)",
+            "C:\\ProgramData",
+        ],
     }
 
     @classmethod
@@ -3575,6 +3583,7 @@ class FileSearcherApp:
 
         nav_idx, idx_cv = _make_nav_item("◉", "常规")
         nav_ex, ex_cv = _make_nav_item("⊘", "排除列表")
+        nav_protect, protect_cv = _make_nav_item("⛔", "保护目录")
         nav_about, about_cv = _make_nav_item("ℹ", "关于")
         nav_state = {"active": idx_cv}
 
@@ -3584,6 +3593,7 @@ class FileSearcherApp:
 
         page_index = tk.Frame(content, bg=c["bg"])
         page_exclude = tk.Frame(content, bg=c["bg"])
+        page_protect = tk.Frame(content, bg=c["bg"])
         page_about = tk.Frame(content, bg=c["bg"])
 
         # ---- 设置项变量 ----
@@ -3839,6 +3849,42 @@ class FileSearcherApp:
         for p in data.get("paths", []):
             ex_list.insert("", tk.END, values=("路径包含", p))
 
+        # ================= 保护目录页 =================
+        _page_head(page_protect, "保护目录",
+                   "禁止对以下目录实施目录级移动/删除（含其上层目录；子目录不受限）。\n"
+                   "影响操作：快捷移动、删除到回收站、彻底删除所在目录。")
+
+        pb = tk.Frame(page_protect, bg=c["bg"])
+        pb.pack(fill=tk.X, pady=(0, s(10)))
+        RoundedButton(pb, text="＋ 添加", command=lambda: self._protect_add(pt_list),
+                      width=s(96), height=s(34), colors=c,
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(0, s(8)))
+        RoundedButton(pb, text="✎ 编辑", command=lambda: self._protect_edit(pt_list),
+                      width=s(96), height=s(34), colors=c,
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(0, s(8)))
+        RoundedButton(pb, text="✕ 删除", command=lambda: self._protect_delete(pt_list),
+                      width=s(96), height=s(34), colors=c, kind="danger",
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT)
+
+        pt_frame = tk.Frame(page_protect, bg=c["surface"], highlightthickness=1,
+                            highlightbackground=c["border"])
+        pt_frame.pack(fill=tk.BOTH, expand=True)
+
+        pt_list = ttk.Treeview(pt_frame, columns=("dir",), show="headings",
+                               selectmode="browse", style="Ex.Treeview", height=14)
+        pt_list.heading("dir", text="受保护目录")
+        pt_list.column("dir", width=s(430), minwidth=220)
+
+        pt_scroll = ttk.Scrollbar(pt_frame, orient=tk.VERTICAL, command=pt_list.yview)
+        pt_list.configure(yscrollcommand=pt_scroll.set)
+        pt_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        pt_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        pt_list.bind("<Double-1>", lambda e: self._protect_edit(pt_list))
+
+        for d in self._settings.get("protected_dirs", []):
+            pt_list.insert("", tk.END, values=(d,))
+
         # ================= 关于页 =================
         _page_head(page_about, "关于", "")
         card_about = _card(page_about, "File Searcher")
@@ -3869,7 +3915,7 @@ class FileSearcherApp:
 
         # ====== 导航切换 ======
         def _show_page(page, active_cv):
-            for p in (page_index, page_exclude, page_about):
+            for p in (page_index, page_exclude, page_protect, page_about):
                 p.pack_forget()
             page.pack(fill=tk.BOTH, expand=True)
             nav_state["active"] = active_cv
@@ -3878,8 +3924,10 @@ class FileSearcherApp:
 
         _on_idx = lambda _e=None: _show_page(page_index, idx_cv)
         _on_ex = lambda _e=None: _show_page(page_exclude, ex_cv)
+        _on_protect = lambda _e=None: _show_page(page_protect, protect_cv)
         _on_about = lambda _e=None: _show_page(page_about, about_cv)
-        for nav_frame, handler in ((nav_idx, _on_idx), (nav_ex, _on_ex), (nav_about, _on_about)):
+        for nav_frame, handler in ((nav_idx, _on_idx), (nav_ex, _on_ex),
+                                   (nav_protect, _on_protect), (nav_about, _on_about)):
             nav_frame.bind("<Button-1>", handler)
             for w in nav_frame.winfo_children():
                 w.bind("<Button-1>", handler)
@@ -4134,6 +4182,50 @@ class FileSearcherApp:
             ex_list.delete(sel[0])
             self._exclude_save(ex_list)
 
+    # ---- 保护目录管理（阻止目录级移动/删除的高危操作）----
+
+    def _protect_add(self, pt_list):
+        """添加保护目录（目录选择器，修改即时保存）。"""
+        initial = os.path.expanduser("~")
+        p = filedialog.askdirectory(title="选择要保护的目录", initialdir=initial)
+        if not p:
+            return
+        p = os.path.normpath(p)
+        # 去重（大小写不敏感）
+        for iid in pt_list.get_children():
+            if os.path.normcase(pt_list.item(iid, "values")[0]) == os.path.normcase(p):
+                return
+        pt_list.insert("", tk.END, values=(p,))
+        self._protect_save(pt_list)
+
+    def _protect_edit(self, pt_list):
+        """重新选择选中的保护目录。"""
+        sel = pt_list.selection()
+        if not sel:
+            return
+        cur = pt_list.item(sel[0], "values")[0]
+        p = filedialog.askdirectory(title="重新选择保护目录", initialdir=cur)
+        if not p:
+            return
+        p = os.path.normpath(p)
+        pt_list.item(sel[0], values=(p,))
+        self._protect_save(pt_list)
+
+    def _protect_delete(self, pt_list):
+        """删除选中的保护目录并即时保存。"""
+        sel = pt_list.selection()
+        if sel:
+            pt_list.delete(sel[0])
+            self._protect_save(pt_list)
+
+    def _protect_save(self, pt_list):
+        """将保护目录列表保存到设置。"""
+        dirs = []
+        for iid in pt_list.get_children():
+            dirs.append(pt_list.item(iid, "values")[0])
+        self._settings["protected_dirs"] = dirs
+        IndexEngine.save_settings(self._settings)
+
     # ================================================================
     #  文件列表显示与交互
     # ================================================================
@@ -4239,6 +4331,9 @@ class FileSearcherApp:
         path = os.path.normpath(sel[0]["path"])
         src = path if os.path.isdir(path) else os.path.dirname(path)
         src = os.path.normpath(src)
+        # 安全边界 ⓪：保护目录（设置 → 保护目录，含其上层目录）
+        if self._block_if_protected(src, "移动"):
+            return
         # 安全边界 ①：磁盘根目录
         drive = os.path.splitdrive(src)[0]
         if drive and os.path.normcase(src).rstrip("\\/") == os.path.normcase(drive).rstrip("\\/"):
@@ -4450,6 +4545,34 @@ class FileSearcherApp:
         drive = os.path.splitdrive(path)[0]
         return bool(drive) and os.path.normcase(path).rstrip("\\/") == os.path.normcase(drive).rstrip("\\/")
 
+    def _is_protected_dir(self, path: str) -> str | None:
+        """判断目录是否受「保护目录」约束：命中返回命中的保护项（供弹窗展示），否则 None。
+
+        匹配规则（用户定）：拦「保护目录本身」及其「所有上层目录」（操作会连带
+        把它一起移走/删掉），**不拦其子目录**（不伤保护目录本身）。大小写不敏感，
+        按路径分隔符边界比较（D:\\重要 不误伤 D:\\重要2）。
+        """
+        t = os.path.normcase(os.path.normpath(path)).rstrip("\\/")
+        for p in self._settings.get("protected_dirs", []):
+            p = str(p).strip()
+            if not p:
+                continue
+            p = os.path.normcase(os.path.normpath(p)).rstrip("\\/")
+            if t == p or p.startswith(t + os.sep):
+                return p
+        return None
+
+    def _block_if_protected(self, src: str, action: str) -> bool:
+        """若 src 受保护：弹警告并返回 True（已拦截）；否则 False。"""
+        p = self._is_protected_dir(src)
+        if not p:
+            return False
+        _dialog_confirm(self, "操作被阻止",
+                        f"该目录在「保护目录」列表中，禁止{action}。\n"
+                        "如需操作，请先在 设置 → 保护目录 中移除对应目录。",
+                        kind="danger", ok_text="知道了", show_cancel=False, path_highlight=p)
+        return True
+
     def _delete_dir_recycle(self):
         """删除所在目录到回收站（可恢复）。"""
         src = self._selected_dir_path()
@@ -4458,6 +4581,8 @@ class FileSearcherApp:
         if self._is_drive_root(src):
             _dialog_confirm(self, "无法删除", "不能删除磁盘根目录。",
                             kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        if self._block_if_protected(src, "删除"):
             return
         name = os.path.basename(src)
         if not _dialog_confirm(self, "确认删除目录",
@@ -4481,6 +4606,8 @@ class FileSearcherApp:
         if self._is_drive_root(src):
             _dialog_confirm(self, "无法删除", "不能删除磁盘根目录。",
                             kind="warn", ok_text="知道了", show_cancel=False)
+            return
+        if self._block_if_protected(src, "删除"):
             return
         name = os.path.basename(src)
         if not _dialog_confirm(self, "确认彻底删除目录",
