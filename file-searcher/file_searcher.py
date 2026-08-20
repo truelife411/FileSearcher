@@ -3718,10 +3718,12 @@ class FileSearcherApp:
             updated = datetime.fromtimestamp(INDEX_DB.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
             self.index_btn.config(text="⟳ 重建索引")
             self._index_state_text = f"索引就绪 · {count:,} 个文件 · 更新于 {updated}"
-            self._set_status(self._index_state_text)
+            # 常驻同步状态已含索引信息，活动信息留空避免重复
+            self._set_status("")
         else:
             self.index_btn.config(text="⟳ 创建索引")
             self._index_state_text = "尚未创建索引 · 点击右下按钮创建"
+            self._sync_status = ""   # 无索引时不需要「索引同步中…」前缀
             self._set_status(self._index_state_text, "warning")
 
     def _toggle_index(self):
@@ -4456,7 +4458,10 @@ class FileSearcherApp:
         if self._last_query:
             self._set_status(f"搜索「{self._last_query}」— 共 {total:,} 个结果")
         elif IndexEngine.index_exists():
-            self._set_status(getattr(self, "_index_state_text", "就绪"))
+            # 空搜索词：常驻同步状态已含索引信息，不再重复显示
+            self._set_status("")
+        else:
+            self._set_status(getattr(self, "_index_state_text", "就绪"), "warning")
 
     # ---- 大号数字页码 ----
 
