@@ -3508,7 +3508,7 @@ class FileSearcherApp:
         if page != self._page:
             self._page = page
             self.table._scroll_y = 0   # 翻页回到顶部
-            self._run_query(self._search_text())
+            self._run_query(self._search_text(), paging=True)
         else:
             self._update_result_status()
 
@@ -3685,9 +3685,11 @@ class FileSearcherApp:
         if hasattr(self, "_statusbar_dot"):
             self._statusbar_dot.configure(foreground=color)
 
-    def _set_loading(self, loading: bool, text: str = "正在加载结果…"):
+    def _set_loading(self, loading: bool, text: str = "正在加载结果…", paging: bool = False):
         if loading:
-            self._set_status(text)
+            # 翻页查询极快，「正在加载结果…」会一闪而过造成闪烁，翻页时不显示文字
+            if not paging:
+                self._set_status(text)
             self.root.configure(cursor="watch")
             self.root.update_idletasks()
         else:
@@ -4463,7 +4465,7 @@ class FileSearcherApp:
         self._count_cache_val = val
         return val
 
-    def _run_query(self, query: str):
+    def _run_query(self, query: str, paging: bool = False):
         """统一执行搜索查询：后台线程跑 DB，主线程只渲染；计数走缓存。"""
         self._last_query = query
         if not IndexEngine.index_exists():
@@ -4475,7 +4477,7 @@ class FileSearcherApp:
             self._set_status("请先创建索引再搜索", "warning")
             return
 
-        self._set_loading(True)
+        self._set_loading(True, paging=paging)
         self._query_seq += 1
         seq = self._query_seq
         page, page_size = self._page, self._page_size
