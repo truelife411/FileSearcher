@@ -1469,7 +1469,8 @@ class IndexEngine:
     # ---- 设置管理 ----
 
     DEFAULT_SETTINGS = {
-        "auto_sync_index": True,         # USN 自动同步索引（启动补差 + 60s 轮询）
+        "auto_sync_index": True,         # USN 自动同步索引（启动补差 + 定时轮询）
+        "usn_sync_interval_sec": 60,     # USN 轮询间隔（秒，10~600）
         "theme": "mist",
         "quick_move_dir": "",            # 快捷移动目标目录（右键「快捷移动」）
         "text_pt": 16,                   # 主字号（表格正文基准 pt，10~40 可调）
@@ -3844,17 +3845,23 @@ class FileSearcherApp:
 
     # ---- USN 自动同步（启动补差 + 60s 轮询）----
 
-    USN_SYNC_INTERVAL_MS = 60_000
+    def _usn_interval_ms(self) -> int:
+        """当前 USN 轮询间隔（毫秒，来自设置，钳制 10~600 秒）。"""
+        try:
+            sec = int(self._settings.get("usn_sync_interval_sec", 60))
+        except Exception:
+            sec = 60
+        return max(10, min(600, sec)) * 1000
 
     def _usn_sync_tick(self):
         """定时入口：启动补差与轮询共用。索引未建/正在重建/同步中时顺延。"""
         if not self._settings.get("auto_sync_index"):
             return
         if self._index_running or getattr(self, "_usn_syncing", False):
-            self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+            self.root.after(self._usn_interval_ms(), self._usn_sync_tick)
             return
         if not IndexEngine.index_exists():
-            self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+            self.root.after(self._usn_interval_ms(), self._usn_sync_tick)
             return
         self._usn_syncing = True
         exclude_dirs, exclude_paths = IndexEngine._load_exclude_list()
@@ -3884,13 +3891,13 @@ class FileSearcherApp:
             self._sync_status = (f"索引已同步（{changed} 项变更）. "
                                  f"{total:,} 个文件 . 更新于 {now}")
             self._set_status("", "success")
-        self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+        self.root.after(self._usn_interval_ms(), self._usn_sync_tick)
 
     def _on_usn_sync_error(self, err):
         self._usn_syncing = False
         self._sync_status = "索引同步失败"
         self._set_status(f"同步失败: {err}", "warning")
-        self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+        self.root.after(self._usn_interval_ms(), self._usn_sync_tick)
 
     # ================================================================
     #  设置对话框
@@ -3960,14 +3967,50 @@ class FileSearcherApp:
         nav_about, about_cv = _make_nav_item("ℹ", "关于")
         nav_state = {"active": idx_cv}
 
-        # ====== 右侧内容区 ======
+        # ====== 右侧内容区（可纵向滚动：常规页内容多，超出窗口也能看到）======
         content = tk.Frame(body, bg=c["bg"])
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(s(14), 0))
 
-        page_index = tk.Frame(content, bg=c["bg"])
-        page_exclude = tk.Frame(content, bg=c["bg"])
-        page_protect = tk.Frame(content, bg=c["bg"])
-        page_about = tk.Frame(content, bg=c["bg"])
+        content_canvas = tk.Canvas(content, bd=0, highlightthickness=0, bg=c["bg"])
+        content_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        content_scroll = ttk.Scrollbar(content, orient=tk.VERTICAL,
+                                       command=content_canvas.yview)
+        content_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll_frame = tk.Frame(content_canvas, bg=c["bg"])
+        scroll_win = content_canvas.create_window((0, 0), window=scroll_frame,
+                                                  anchor=tk.NW)
+        content_canvas.configure(yscrollcommand=content_scroll.set)
+
+        def _sync_scroll_region(_e=None):
+            content_canvas.configure(scrollregion=content_canvas.bbox("all"))
+
+        scroll_frame.bind("<Configure>", _sync_scroll_region)
+
+        def _sync_scroll_width(e):
+            content_canvas.itemconfigure(scroll_win, width=e.width)
+
+        content_canvas.bind("<Configure>", _sync_scroll_width)
+
+        # 滚轮：仅接管设置窗口内、非 Treeview 控件的滚动（先清旧绑定防累积）
+        try:
+            self.root.unbind_all("<MouseWheel>")
+        except Exception:
+            pass
+
+        def _on_settings_wheel(e):
+            if not str(e.widget).startswith(str(dlg)):
+                return
+            if isinstance(e.widget, ttk.Treeview):
+                return
+            content_canvas.yview_scroll(-(e.delta // 120) * 3, "units")
+            return "break"
+
+        dlg.bind_all("<MouseWheel>", _on_settings_wheel, add="+")
+
+        page_index = tk.Frame(scroll_frame, bg=c["bg"])
+        page_exclude = tk.Frame(scroll_frame, bg=c["bg"])
+        page_protect = tk.Frame(scroll_frame, bg=c["bg"])
+        page_about = tk.Frame(scroll_frame, bg=c["bg"])
 
         # ---- 设置项变量 ----
         auto_sync_var = tk.BooleanVar(value=self._settings.get("auto_sync_index", True))
@@ -4029,10 +4072,32 @@ class FileSearcherApp:
 
         card_idx = _card(page_index, "索引")
         row = _option_row(card_idx, "自动同步索引",
-                          "通过 NTFS 变更日志（USN）自动同步：启动补差 + 每 60 秒轮询，"
+                          "通过 NTFS 变更日志（USN）自动同步：启动补差 + 定时轮询，"
                           "无需手动重建")
         ToggleSwitch(row, c, auto_sync_var, width=s(46), height=s(26)).pack(
             side=tk.RIGHT, padx=(s(10), 0))
+
+        # 同步间隔步进器（10 ~ 600 秒，即时保存生效）
+        row = _option_row(card_idx, "同步间隔", "自动同步索引的轮询间隔（10 ~ 600 秒）")
+        stepper = tk.Frame(row, bg=c["surface"])
+        stepper.pack(side=tk.RIGHT)
+        interval_var = tk.IntVar(value=self._settings.get("usn_sync_interval_sec", 60))
+        interval_label = tk.Label(stepper, text=f"{interval_var.get()} 秒", bg=c["input"],
+                                  fg=c["text"], font=(FONT_MONO, self._f(FONT_SMALL)[1]),
+                                  width=9, pady=4, highlightthickness=1,
+                                  highlightbackground=c["border"])
+        RoundedButton(stepper, text="−", width=s(28), height=s(28), colors=c,
+                      command=lambda: interval_var.set(max(10, interval_var.get() - 10)),
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(0, s(6)))
+        interval_label.pack(side=tk.LEFT)
+        RoundedButton(stepper, text="＋", width=s(28), height=s(28), colors=c,
+                      command=lambda: interval_var.set(min(600, interval_var.get() + 10)),
+                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(s(6), 0))
+        interval_var.trace_add("write", lambda *_: (
+            interval_label.configure(text=f"{interval_var.get()} 秒"),
+            self._settings.__setitem__("usn_sync_interval_sec", interval_var.get()),
+            IndexEngine.save_settings(self._settings),
+        ))
         tk.Frame(card_idx, bg=c["surface"], height=s(8)).pack()
 
         # USN 状态卡：各盘变更日志状态 + 一键激活（需管理员）
@@ -4331,6 +4396,7 @@ class FileSearcherApp:
             for p in (page_index, page_exclude, page_protect, page_about):
                 p.pack_forget()
             page.pack(fill=tk.BOTH, expand=True)
+            content_canvas.yview_moveto(0)   # 切页回到顶部
             nav_state["active"] = active_cv
             for cv in nav_items:
                 _draw_nav(cv, cv is active_cv)
