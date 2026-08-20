@@ -1193,6 +1193,20 @@ class IndexEngine:
     # ---- USN 增量同步支撑（dir_refs 映射 + 目录级重扫）----
 
     @staticmethod
+    def count_all() -> int:
+        """索引条目总数（文件+目录，状态栏「M 个文件」用）。"""
+        if not INDEX_DB.exists():
+            return 0
+        try:
+            conn = sqlite3.connect(str(INDEX_DB))
+            try:
+                return conn.execute("SELECT count(*) FROM files").fetchone()[0]
+            finally:
+                conn.close()
+        except Exception:
+            return 0
+
+    @staticmethod
     def dir_ref_lookup(file_ref: int) -> str | None:
         """父引用号 → 目录路径（USN 事件翻译）。无映射返回 None。"""
         if not INDEX_DB.exists():
@@ -2993,6 +3007,8 @@ class FileSearcherApp:
         self._query_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="db-query")
         self._usn_syncing = False         # USN 同步进行中标志
         self._settings = IndexEngine.load_settings()
+        self._sync_status = ("索引同步中…" if self._settings.get("auto_sync_index")
+                             else "")      # 常驻同步状态前缀（索引已同步…）
         self._theme_name = self._resolve_theme(self._settings.get("theme", "mist"))
         self.colors = THEMES[self._theme_name]
 
@@ -3505,11 +3521,11 @@ class FileSearcherApp:
         try:
             page = int(raw)
         except (TypeError, ValueError):
-            self.status_var.set("请输入有效的页码数字")
+            self._set_status("请输入有效的页码数字")
             self._pager_jump_var.set(str(self._page))
             return
         if page < 1 or page > total_pages:
-            self.status_var.set(f"页码超出范围（共 {total_pages} 页）")
+            self._set_status(f"页码超出范围（共 {total_pages} 页）")
             self._pager_jump_var.set(str(self._page))
             return
         # 跳完把焦点还给表格，方便继续用快捷键翻页
@@ -3655,7 +3671,13 @@ class FileSearcherApp:
         self.qm_btn.pack(side=tk.LEFT, padx=(0, self._s(4)))
 
     def _set_status(self, text: str, kind: str = "normal"):
-        self.status_var.set(text)
+        """设置状态栏活动信息。有常驻同步状态前缀时拼接在其后：
+        「索引已同步（N 项变更）. M 个文件 . 更新于 时间 · 活动信息」"""
+        if self._sync_status:
+            self.status_var.set(f"{self._sync_status}  ·  {text}" if text
+                                else self._sync_status)
+        else:
+            self.status_var.set(text)
         color = {"success": self.colors["success"], "error": self.colors["error"],
                  "warning": self.colors["warning"]}.get(kind, self.colors["muted"])
         self.status_label.configure(foreground=color)
@@ -3757,7 +3779,7 @@ class FileSearcherApp:
         """停止正在进行的索引构建。"""
         if not self._engine_cancel:
             self._engine_cancel = True
-            self.status_var.set("正在停止索引…")
+            self._set_status("正在停止索引…")
 
     def _on_index_progress(self, msg: str, count: int):
         """索引进度回调。"""
@@ -3778,6 +3800,9 @@ class FileSearcherApp:
         optimize = stats["optimize_seconds"]
         elapsed = stats["total_seconds"]
         self._run_query(self._search_text())
+        # 全量重建完成：同步游标已在 UsnSyncEngine 重置，刷新常驻状态
+        self._sync_status = (f"索引已就绪 · {total:,} 个文件 · "
+                             f"更新于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         self._set_status(
             f"索引完成 — {total:,} 项｜扫描写入 {scan_write:.1f} 秒｜"
             f"优化 {optimize:.1f} 秒｜总计 {elapsed:.1f} 秒", "success"
@@ -3847,17 +3872,22 @@ class FileSearcherApp:
     def _on_usn_sync_done(self, stats):
         self._usn_syncing = False
         if stats.get("reset"):
+            self._sync_status = "索引重建中…"
             self._set_status("变更日志断档，正在自动重建索引…", "warning")
             self._do_index_silent()
         else:
             changed = stats.get("changed", 0)
-            if changed > 0:
-                self._set_status(f"索引已同步（{changed} 项变更）", "success")
+            total = IndexEngine.count_all()
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._sync_status = (f"索引已同步（{changed} 项变更）. "
+                                 f"{total:,} 个文件 . 更新于 {now}")
+            self._set_status("", "success")
         self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
 
     def _on_usn_sync_error(self, err):
         self._usn_syncing = False
-        self._set_status(f"索引同步失败: {err}", "warning")
+        self._sync_status = "索引同步失败"
+        self._set_status(f"同步失败: {err}", "warning")
         self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
 
     # ================================================================
@@ -4804,7 +4834,7 @@ class FileSearcherApp:
                 r["name"] = new_name
                 r["path"] = new_path
             self._refresh_tree()
-            self.status_var.set(f"已重命名: {old_name} → {new_name}")
+            self._set_status(f"已重命名: {old_name} → {new_name}")
         except Exception as e:
             _dialog_confirm(self, "重命名失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
@@ -4834,7 +4864,7 @@ class FileSearcherApp:
             r["name"] = new_name
             r["path"] = new_path
             self._refresh_tree()
-            self.status_var.set(f"已按星级重命名: {new_name}")
+            self._set_status(f"已按星级重命名: {new_name}")
         except Exception as e:
             _dialog_confirm(self, "重命名失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
@@ -4853,7 +4883,7 @@ class FileSearcherApp:
                 subprocess.Popen([python], creationflags=flags)
             else:
                 subprocess.Popen([python, os.path.abspath(__file__)], creationflags=flags)
-            self.status_var.set("已打开新窗口")
+            self._set_status("已打开新窗口")
         except Exception as e:
             _dialog_confirm(self, "打开失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
@@ -4879,9 +4909,9 @@ class FileSearcherApp:
             IndexEngine.remove_paths(paths)
             self._run_query(self._last_query)
             if count == 1:
-                self.status_var.set(f"已删除到回收站: {os.path.basename(paths[0])}")
+                self._set_status(f"已删除到回收站: {os.path.basename(paths[0])}")
             else:
-                self.status_var.set(f"已删除 {count} 个文件到回收站")
+                self._set_status(f"已删除 {count} 个文件到回收站")
         except Exception as e:
             _dialog_confirm(self, "删除失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
@@ -4903,9 +4933,9 @@ class FileSearcherApp:
             IndexEngine.remove_paths(paths)
             self._run_query(self._last_query)
             if count == 1:
-                self.status_var.set(f"已彻底删除: {os.path.basename(paths[0])}")
+                self._set_status(f"已彻底删除: {os.path.basename(paths[0])}")
             else:
-                self.status_var.set(f"已彻底删除 {count} 个文件")
+                self._set_status(f"已彻底删除 {count} 个文件")
         except Exception as e:
             _dialog_confirm(self, "删除失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
@@ -4974,7 +5004,7 @@ class FileSearcherApp:
             send_to_recycle_bin([src])
             IndexEngine.remove_paths([src])
             self._run_query(self._last_query)
-            self.status_var.set(f"已删除目录到回收站: {name}")
+            self._set_status(f"已删除目录到回收站: {name}")
         except Exception as e:
             _dialog_confirm(self, "删除失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
@@ -4999,7 +5029,7 @@ class FileSearcherApp:
             permanent_delete([src])
             IndexEngine.remove_paths([src])
             self._run_query(self._last_query)
-            self.status_var.set(f"已彻底删除目录: {name}")
+            self._set_status(f"已彻底删除目录: {name}")
         except Exception as e:
             _dialog_confirm(self, "删除失败", str(e), kind="warn",
                             ok_text="知道了", show_cancel=False)
@@ -5325,9 +5355,9 @@ class FileSearcherApp:
         if paths and self._set_clipboard_hdrop(paths, move=False):
             count = len(paths)
             if count == 1:
-                self.status_var.set(f"已复制: {os.path.basename(paths[0])}")
+                self._set_status(f"已复制: {os.path.basename(paths[0])}")
             else:
-                self.status_var.set(f"已复制 {count} 个文件")
+                self._set_status(f"已复制 {count} 个文件")
 
     def _cut_path(self, event=None):
         """Ctrl+X：将选中文件剪切到剪贴板（资源管理器可粘贴）。"""
@@ -5335,9 +5365,9 @@ class FileSearcherApp:
         if paths and self._set_clipboard_hdrop(paths, move=True):
             count = len(paths)
             if count == 1:
-                self.status_var.set(f"已剪切: {os.path.basename(paths[0])}")
+                self._set_status(f"已剪切: {os.path.basename(paths[0])}")
             else:
-                self.status_var.set(f"已剪切 {count} 个文件")
+                self._set_status(f"已剪切 {count} 个文件")
 
     def _set_clipboard_hdrop(self, paths: list[str], move: bool = False) -> bool:
         """将文件列表写入剪贴板。Windows 用 CF_HDROP 支持资源管理器粘贴；Linux 降级为纯文本路径。"""
