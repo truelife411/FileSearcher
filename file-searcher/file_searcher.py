@@ -33,6 +33,11 @@ from pathlib import Path
 import pystray
 from PIL import Image, ImageDraw, ImageTk
 
+from usn_sync import (dir_file_ref, UsnSyncEngine,  # noqa: E402
+                      list_ntfs_volumes, query_journal, open_volume,
+                      volume_serial, is_admin, create_journal,
+                      INVALID_HANDLE_VALUE)
+
 
 # ================================================================
 #  全局常量配置
@@ -618,6 +623,15 @@ class IndexEngine:
                 is_dir INTEGER NOT NULL DEFAULT 0
             )
         """)
+        # 目录引用号映射（USN 事件翻译用：父引用号 → 目录路径）
+        conn.execute("DROP TABLE IF EXISTS dir_refs")
+        conn.execute("""
+            CREATE TABLE dir_refs (
+                dir_path TEXT PRIMARY KEY,
+                file_ref INTEGER NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dir_refs_ref ON dir_refs(file_ref)")
         # FTS5 trigram 全文索引：子串匹配走倒排索引（搜索词 ≥3 字符时启用）
         fts_ok = False
         try:
@@ -642,6 +656,7 @@ class IndexEngine:
 
         result_queue = queue.Queue(maxsize=INDEX_QUEUE_SIZE)
         dir_queue = queue.Queue()
+        ref_queue = queue.Queue()      # 目录引用号采集（dir_path, file_ref）
         stop_event = threading.Event()
         scan_cond = threading.Condition()
         pending_dirs = [len(drives)]   # 队列中待处理目录数（可变容器，worker/扫描共享）
@@ -683,7 +698,7 @@ class IndexEngine:
                     active_workers += 1
                 try:
                     self._scan_one_dir(dirpath, put_queue_item, dir_queue, scan_cond,
-                                       pending_dirs)
+                                       pending_dirs, ref_queue)
                 finally:
                     with scan_cond:
                         active_workers -= 1
@@ -695,7 +710,20 @@ class IndexEngine:
             with ThreadPoolExecutor(max_workers=worker_count,
                                     thread_name_prefix="index-scan") as executor:
                 futures = [executor.submit(scan_worker) for _ in range(worker_count)]
+                ref_batch = []
                 while True:
+                    # 顺带消费目录引用号队列（非阻塞）
+                    while True:
+                        try:
+                            ref_batch.append(ref_queue.get_nowait())
+                        except queue.Empty:
+                            break
+                        if len(ref_batch) >= 5000:
+                            conn.executemany(
+                                "INSERT OR REPLACE INTO dir_refs(dir_path, file_ref) VALUES(?,?)",
+                                ref_batch,
+                            )
+                            ref_batch.clear()
                     try:
                         item = result_queue.get(timeout=0.2)
                     except queue.Empty:
@@ -712,6 +740,11 @@ class IndexEngine:
                         )
                         self._progress(f"已收录 {total_files} 个文件", total_files)
                         insert_batch.clear()
+                if ref_batch:
+                    conn.executemany(
+                        "INSERT OR REPLACE INTO dir_refs(dir_path, file_ref) VALUES(?,?)",
+                        ref_batch,
+                    )
                 for future in futures:
                     future.result()
 
@@ -755,7 +788,8 @@ class IndexEngine:
             stop_event.set()
             conn.close()
 
-    def _scan_one_dir(self, dirpath, put_queue_item, dir_queue, scan_cond, pending_dirs):
+    def _scan_one_dir(self, dirpath, put_queue_item, dir_queue, scan_cond, pending_dirs,
+                      ref_queue=None):
         """扫描单个目录：文件入结果队列，子目录入共享任务队列（含计数更新）。"""
         try:
             entries = os.scandir(dirpath)
@@ -778,6 +812,14 @@ class IndexEngine:
                         )
                         if not put_queue_item(item):
                             return
+                        # 采集目录引用号（USN 事件翻译用）
+                        if ref_queue is not None:
+                            try:
+                                ref = dir_file_ref(full)
+                                if ref is not None:
+                                    ref_queue.put((full, ref))
+                            except Exception:
+                                pass
                         with scan_cond:
                             pending_dirs[0] += 1
                             dir_queue.put(full)
@@ -854,6 +896,15 @@ class IndexEngine:
             conn = sqlite3.connect(str(INDEX_DB))
             conn.execute("CREATE INDEX IF NOT EXISTS idx_size ON files(size)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_modified ON files(modified)")
+            # dir_refs：USN 事件翻译映射表（老库升级时创建，空表由下次全量重建填充）
+            try:
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS dir_refs ("
+                    "dir_path TEXT PRIMARY KEY, file_ref INTEGER NOT NULL)")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_dir_refs_ref ON dir_refs(file_ref)")
+            except Exception:
+                pass
             try:
                 conn.execute(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS files_fts "
@@ -1066,6 +1117,14 @@ class IndexEngine:
                     "DELETE FROM files WHERE path_lower = ? OR path_lower LIKE ? ESCAPE '\\'",
                     (normalized, escaped_child_prefix + "%"),
                 )
+                # 同步清理 dir_refs（目录本身及其子目录）
+                try:
+                    conn.execute(
+                        "DELETE FROM dir_refs WHERE dir_path = ? OR dir_path LIKE ? ESCAPE '\\'",
+                        (os.path.normpath(path), escaped_child_prefix + "%"),
+                    )
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
         finally:
             conn.close()
@@ -1105,6 +1164,12 @@ class IndexEngine:
                     (new_name, new_name.lower(), new_n, new_n.lower(), self_row[0]),
                 )
                 IndexEngine._fts_sync_row(cur, self_row[0], new_name, new_n)
+            # dir_refs 同步：自身目录条目
+            try:
+                cur.execute("UPDATE dir_refs SET dir_path=? WHERE dir_path=?",
+                            (new_n, old_n))
+            except sqlite3.OperationalError:
+                pass
             # 2) 取出所有子行（path_lower 以旧前缀开头），逐个改路径
             cur.execute("SELECT id, path, name FROM files WHERE substr(path_lower, 1, ?) = ?",
                         (len(old_prefix), old_prefix))
@@ -1116,9 +1181,242 @@ class IndexEngine:
                 cur.execute("UPDATE files SET path=?, path_lower=? WHERE id=?",
                             (child_new, child_new.lower(), row_id))
                 IndexEngine._fts_sync_row(cur, row_id, child_name, child_new)
+                try:
+                    cur.execute("UPDATE dir_refs SET dir_path=? WHERE dir_path=?",
+                                (child_new, os.path.normpath(child_path)))
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
         finally:
             conn.close()
+
+    # ---- USN 增量同步支撑（dir_refs 映射 + 目录级重扫）----
+
+    @staticmethod
+    def dir_ref_lookup(file_ref: int) -> str | None:
+        """父引用号 → 目录路径（USN 事件翻译）。无映射返回 None。"""
+        if not INDEX_DB.exists():
+            return None
+        try:
+            conn = sqlite3.connect(str(INDEX_DB))
+            try:
+                row = conn.execute("SELECT dir_path FROM dir_refs WHERE file_ref=?",
+                                   (int(file_ref),)).fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
+    @staticmethod
+    def rescan_dirs(dir_paths: list[str], exclude_dirs=(), exclude_paths=()) -> int:
+        """增量重扫目录集合（USN 事件触发）：一层 diff + 新增递归 + 消失递归删。
+        维护 files/FTS/dir_refs。返回处理的条目数。"""
+        if not dir_paths or not INDEX_DB.exists():
+            return 0
+        conn = sqlite3.connect(str(INDEX_DB))
+        changed = 0
+        try:
+            conn.execute("BEGIN")
+            for d in dir_paths:
+                d = os.path.normpath(d)
+                if not os.path.isdir(d):
+                    changed += IndexEngine._remove_tree(conn, d)
+                    continue
+                changed += IndexEngine._rescan_one_dir(conn, d, exclude_dirs, exclude_paths)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return changed
+
+    @staticmethod
+    def _rescan_one_dir(conn, d: str, exclude_dirs=(), exclude_paths=()) -> int:
+        """重扫单目录：磁盘 vs 索引一层 diff。返回变更条目数。"""
+        changed = 0
+        # root 自身 dir_refs（事件翻译依赖）
+        ref = dir_file_ref(d)
+        if ref is not None:
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO dir_refs(dir_path, file_ref) VALUES(?,?)",
+                    (d, ref))
+            except sqlite3.OperationalError:
+                pass
+        prefix = d.lower().rstrip("\\/") + os.sep
+        rows = conn.execute(
+            "SELECT path, is_dir FROM files WHERE substr(path_lower,1,?)=? AND "
+            "instr(substr(path_lower,?), '\\')=0",
+            (len(prefix), prefix, len(prefix) + 1)).fetchall()
+        db_items = {os.path.normpath(r[0]).lower(): (r[0], r[1]) for r in rows}
+        disk_items = {}
+        try:
+            with os.scandir(d) as it:
+                for e in it:
+                    disk_items[e.name.lower()] = e
+        except OSError:
+            disk_items = {}
+        # 消失的条目 → 删除
+        for low, (path, is_dir) in db_items.items():
+            if low in disk_items:
+                continue
+            if is_dir:
+                changed += IndexEngine._remove_tree(conn, path)
+            else:
+                try:
+                    conn.execute("DELETE FROM files_fts WHERE rowid IN "
+                                 "(SELECT id FROM files WHERE path_lower=?)", (low,))
+                except sqlite3.OperationalError:
+                    pass
+                conn.execute("DELETE FROM files WHERE path_lower=?", (low,))
+                changed += 1
+        # 磁盘上的条目 → 新增或更新
+        for low, entry in disk_items.items():
+            full = entry.path
+            try:
+                st = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if _st.S_ISDIR(st.st_mode):
+                if low in db_items:
+                    continue   # 目录已索引（内部变化由各自事件/重扫处理）
+                if IndexEngine._skip_dir_check(full, entry, st, exclude_dirs,
+                                               exclude_paths):
+                    continue
+                # 插入目录自身条目，再递归扫描其内容
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO files(name,name_lower,path,path_lower,size,modified,is_dir) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (entry.name, entry.name.lower(), full, full.lower(),
+                     0, int(st.st_mtime), 1))
+                if cur.rowcount:
+                    IndexEngine._fts_sync_row(conn, cur.lastrowid, entry.name, full)
+                changed += 1
+                changed += IndexEngine._scan_tree(conn, full, exclude_dirs,
+                                                  exclude_paths)
+            elif _st.S_ISREG(st.st_mode):
+                if low in db_items:
+                    conn.execute("UPDATE files SET size=?, modified=? WHERE path_lower=?",
+                                 (st.st_size, int(st.st_mtime), low))
+                    changed += 1
+                else:
+                    cur = conn.execute(
+                        "INSERT OR IGNORE INTO files(name,name_lower,path,path_lower,size,modified,is_dir) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (entry.name, entry.name.lower(), full, full.lower(),
+                         st.st_size, int(st.st_mtime), 0))
+                    if cur.rowcount:
+                        IndexEngine._fts_sync_row(conn, cur.lastrowid, entry.name, full)
+                        changed += 1
+        return changed
+
+    @staticmethod
+    def _scan_tree(conn, root: str, exclude_dirs=(), exclude_paths=()) -> int:
+        """递归扫描一棵目录树并插入索引（USN 新增目录用）。返回插入条目数。"""
+        count = 0
+        stack = [os.path.normpath(root)]
+        while stack:
+            d = stack.pop()
+            if not os.path.isdir(d):
+                continue
+            ref = dir_file_ref(d)
+            if ref is not None:
+                try:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO dir_refs(dir_path, file_ref) VALUES(?,?)",
+                        (d, ref))
+                except sqlite3.OperationalError:
+                    pass
+            try:
+                entries = list(os.scandir(d))
+            except OSError:
+                continue
+            for entry in entries:
+                full = entry.path
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if _st.S_ISDIR(st.st_mode):
+                    if IndexEngine._skip_dir_check(full, entry, st, exclude_dirs,
+                                                   exclude_paths):
+                        continue
+                    cur = conn.execute(
+                        "INSERT OR IGNORE INTO files(name,name_lower,path,path_lower,size,modified,is_dir) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (entry.name, entry.name.lower(), full, full.lower(),
+                         0, int(st.st_mtime), 1))
+                    if cur.rowcount:
+                        IndexEngine._fts_sync_row(conn, cur.lastrowid, entry.name, full)
+                    stack.append(full)
+                    count += 1
+                elif _st.S_ISREG(st.st_mode):
+                    conn.execute(
+                        "INSERT OR IGNORE INTO files(name,name_lower,path,path_lower,size,modified,is_dir) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (entry.name, entry.name.lower(), full, full.lower(),
+                         st.st_size, int(st.st_mtime), 0))
+                    row = conn.execute("SELECT id FROM files WHERE path_lower=?",
+                                       (full.lower(),)).fetchone()
+                    if row:
+                        IndexEngine._fts_sync_row(conn, row[0], entry.name, full)
+                    count += 1
+        return count
+
+    @staticmethod
+    def _remove_tree(conn, path: str) -> int:
+        """从索引删除目录及其全部子路径（files/FTS/dir_refs）。返回删除条目数。"""
+        normalized = os.path.normcase(os.path.normpath(path)).lower()
+        child_prefix = normalized.rstrip("\\/") + os.sep
+        escaped = (child_prefix.replace("\\", "\\\\")
+                   .replace("%", "\\%").replace("_", "\\_"))
+        try:
+            conn.execute(
+                "DELETE FROM files_fts WHERE rowid IN "
+                "(SELECT id FROM files WHERE path_lower = ? OR path_lower LIKE ? ESCAPE '\\')",
+                (normalized, escaped + "%"))
+        except sqlite3.OperationalError:
+            pass
+        cur = conn.execute(
+            "DELETE FROM files WHERE path_lower = ? OR path_lower LIKE ? ESCAPE '\\'",
+            (normalized, escaped + "%"))
+        try:
+            conn.execute(
+                "DELETE FROM dir_refs WHERE dir_path = ? OR dir_path LIKE ? ESCAPE '\\'",
+                (os.path.normpath(path), escaped + "%"))
+        except sqlite3.OperationalError:
+            pass
+        return max(1, cur.rowcount)
+
+    @staticmethod
+    def _skip_dir_check(dirpath: str, entry, st, exclude_dirs, exclude_paths) -> bool:
+        """静态版目录跳过判断（供 USN 重扫使用，排除列表由调用方传入）。"""
+        basename = entry.name.lower()
+        try:
+            if entry.is_junction():
+                return True
+        except Exception:
+            pass
+        if FILE_ATTR_SKIP:
+            try:
+                if st.st_file_attributes & FILE_ATTR_SKIP:
+                    return True
+            except (AttributeError, OSError):
+                pass
+        if basename in IGNORE_DIRS:
+            return True
+        lower_path = dirpath.lower()
+        for pat in IGNORE_PATH_CONTAINS:
+            if pat in lower_path:
+                return True
+        if basename in exclude_dirs:
+            return True
+        for pat in exclude_paths:
+            if pat in lower_path:
+                return True
+        return False
 
     # ---- 排除列表管理 ----
 
@@ -1157,9 +1455,7 @@ class IndexEngine:
     # ---- 设置管理 ----
 
     DEFAULT_SETTINGS = {
-        "auto_index_on_start": False,   # 启动时自动增量更新索引
-        "tray_auto_index": False,        # 最小化到托盘后自动更新索引
-        "tray_auto_index_minutes": 30,   # 托盘自动更新间隔（分钟）
+        "auto_sync_index": True,         # USN 自动同步索引（启动补差 + 60s 轮询）
         "theme": "mist",
         "quick_move_dir": "",            # 快捷移动目标目录（右键「快捷移动」）
         "text_pt": 16,                   # 主字号（表格正文基准 pt，10~40 可调）
@@ -2695,7 +2991,7 @@ class FileSearcherApp:
         self._count_cache_val = 0
         self._query_seq = 0               # 查询序号（丢弃过期结果）
         self._query_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="db-query")
-        self._tray_index_after_id = None
+        self._usn_syncing = False         # USN 同步进行中标志
         self._settings = IndexEngine.load_settings()
         self._theme_name = self._resolve_theme(self._settings.get("theme", "mist"))
         self.colors = THEMES[self._theme_name]
@@ -2773,8 +3069,9 @@ class FileSearcherApp:
         # 「✕」进托盘走 _on_close；「—」留任务栏走 _minimize_window 的 iconify。
         self.root.bind("<Configure>", self._on_view_resize, add="+")
         self.root.after(1500, self._log_diag)
-        if self._settings.get("auto_index_on_start") and IndexEngine.index_exists():
-            self.root.after(500, self._do_index_silent)
+        # USN 自动同步：启动补差（索引就绪后），之后 60s 轮询
+        if self._settings.get("auto_sync_index"):
+            self.root.after(3000, self._usn_sync_tick)
 
     def _defer_initial_load(self):
         """延迟到结果表映射完成后加载首页。
@@ -2840,7 +3137,6 @@ class FileSearcherApp:
         self._build_toolbar()
         self._build_tree()
         self._build_statusbar()
-        self._setup_drag_drop()
         self._build_context_menu()
         self._bind_shortcuts()
         self._update_index_button_text()
@@ -3519,6 +3815,51 @@ class FileSearcherApp:
 
         threading.Thread(target=run, daemon=True).start()
 
+    # ---- USN 自动同步（启动补差 + 60s 轮询）----
+
+    USN_SYNC_INTERVAL_MS = 60_000
+
+    def _usn_sync_tick(self):
+        """定时入口：启动补差与轮询共用。索引未建/正在重建/同步中时顺延。"""
+        if not self._settings.get("auto_sync_index"):
+            return
+        if self._index_running or getattr(self, "_usn_syncing", False):
+            self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+            return
+        if not IndexEngine.index_exists():
+            self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+            return
+        self._usn_syncing = True
+        exclude_dirs, exclude_paths = IndexEngine._load_exclude_list()
+        syncer = UsnSyncEngine(IndexEngine, str(INDEX_DIR),
+                               exclude_dirs=exclude_dirs,
+                               exclude_paths=exclude_paths)
+
+        def run():
+            try:
+                stats = syncer.sync_once()
+                self.root.after(0, lambda s=stats: self._on_usn_sync_done(s))
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): self._on_usn_sync_error(err))
+
+        threading.Thread(target=run, daemon=True, name="usn-sync").start()
+
+    def _on_usn_sync_done(self, stats):
+        self._usn_syncing = False
+        if stats.get("reset"):
+            self._set_status("变更日志断档，正在自动重建索引…", "warning")
+            self._do_index_silent()
+        else:
+            changed = stats.get("changed", 0)
+            if changed > 0:
+                self._set_status(f"索引已同步（{changed} 项变更）", "success")
+        self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+
+    def _on_usn_sync_error(self, err):
+        self._usn_syncing = False
+        self._set_status(f"索引同步失败: {err}", "warning")
+        self.root.after(self.USN_SYNC_INTERVAL_MS, self._usn_sync_tick)
+
     # ================================================================
     #  设置对话框
     # ================================================================
@@ -3597,25 +3938,14 @@ class FileSearcherApp:
         page_about = tk.Frame(content, bg=c["bg"])
 
         # ---- 设置项变量 ----
-        auto_start_var = tk.BooleanVar(value=self._settings.get("auto_index_on_start", False))
-        tray_auto_var = tk.BooleanVar(value=self._settings.get("tray_auto_index", False))
-        minutes_var = tk.IntVar(value=self._settings.get("tray_auto_index_minutes", 30))
+        auto_sync_var = tk.BooleanVar(value=self._settings.get("auto_sync_index", True))
         theme_var = tk.StringVar(value=self._settings.get("theme", "mist"))
 
         def _persist_general():
-            try:
-                mins = int(minutes_var.get())
-                mins = max(5, min(120, mins))
-            except Exception:
-                mins = 30
-            self._settings["auto_index_on_start"] = auto_start_var.get()
-            self._settings["tray_auto_index"] = tray_auto_var.get()
-            self._settings["tray_auto_index_minutes"] = mins
+            self._settings["auto_sync_index"] = auto_sync_var.get()
             IndexEngine.save_settings(self._settings)
 
-        auto_start_var.trace_add("write", lambda *_: _persist_general())
-        tray_auto_var.trace_add("write", lambda *_: _persist_general())
-        minutes_var.trace_add("write", lambda *_: _persist_general())
+        auto_sync_var.trace_add("write", lambda *_: _persist_general())
 
         def _on_theme_change(*_):
             new_theme = theme_var.get()
@@ -3666,31 +3996,82 @@ class FileSearcherApp:
         _page_head(page_index, "常规", "所有修改即时保存，无需重启。")
 
         card_idx = _card(page_index, "索引")
-        row = _option_row(card_idx, "启动时自动重建索引", "每次启动软件后在后台静默重建全盘索引")
-        ToggleSwitch(row, c, auto_start_var, width=s(46), height=s(26)).pack(
+        row = _option_row(card_idx, "自动同步索引",
+                          "通过 NTFS 变更日志（USN）自动同步：启动补差 + 每 60 秒轮询，"
+                          "无需手动重建")
+        ToggleSwitch(row, c, auto_sync_var, width=s(46), height=s(26)).pack(
             side=tk.RIGHT, padx=(s(10), 0))
-        row = _option_row(card_idx, "托盘自动重建", "最小化到系统托盘后按固定间隔重建索引")
-        ToggleSwitch(row, c, tray_auto_var, width=s(46), height=s(26)).pack(
-            side=tk.RIGHT, padx=(s(10), 0))
-
-        # 间隔步进器
-        row = _option_row(card_idx, "重建间隔", "托盘自动重建的时间间隔（5 ~ 120 分钟）")
-        stepper = tk.Frame(row, bg=c["surface"])
-        stepper.pack(side=tk.RIGHT)
-        minutes_label = tk.Label(stepper, text=f"{minutes_var.get()} 分钟", bg=c["input"],
-                                 fg=c["text"], font=(FONT_MONO, self._f(FONT_SMALL)[1]),
-                                 width=9, pady=4, highlightthickness=1,
-                                 highlightbackground=c["border"])
-        RoundedButton(stepper, text="−", width=s(28), height=s(28), colors=c,
-                      command=lambda: minutes_var.set(max(5, int(minutes_var.get() or 30) - 5)),
-                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(0, s(6)))
-        minutes_label.pack(side=tk.LEFT)
-        RoundedButton(stepper, text="＋", width=s(28), height=s(28), colors=c,
-                      command=lambda: minutes_var.set(min(120, int(minutes_var.get() or 30) + 5)),
-                      font_size=self._f(FONT_BODY)[1]).pack(side=tk.LEFT, padx=(s(6), 0))
-        minutes_var.trace_add("write", lambda *_: minutes_label.configure(
-            text=f"{minutes_var.get()} 分钟"))
         tk.Frame(card_idx, bg=c["surface"], height=s(8)).pack()
+
+        # USN 状态卡：各盘变更日志状态 + 一键激活（需管理员）
+        card_usn = _card(page_index, "USN 状态")
+        usn_rows = []
+        usn_status_var = tk.StringVar()
+
+        def _refresh_usn_status():
+            try:
+                vols = list_ntfs_volumes()
+            except Exception:
+                vols = []
+            # 清理旧行
+            for f in usn_rows:
+                f.destroy()
+            usn_rows.clear()
+            admin = is_admin()
+            for root in vols:
+                row_f = tk.Frame(card_usn, bg=c["surface"])
+                row_f.pack(fill=tk.X, padx=s(18), pady=s(3))
+                h = open_volume(root)
+                active = False
+                if h != INVALID_HANDLE_VALUE:
+                    try:
+                        active = query_journal(h) is not None
+                    finally:
+                        ctypes.windll.kernel32.CloseHandle(h)
+                tk.Label(row_f, text=root.rstrip("\\"), bg=c["surface"],
+                         fg=c["text"], font=(FONT_MONO, self._f(FONT_SMALL)[1]),
+                         width=6, anchor=tk.W).pack(side=tk.LEFT)
+                state_c = c["success"] if active else c["warning"]
+                state_t = "已激活" if active else "未激活"
+                tk.Label(row_f, text=state_t, bg=c["surface"], fg=state_c,
+                         font=self._f(FONT_SMALL)).pack(side=tk.LEFT, padx=(s(8), 0))
+                if not active:
+                    def _activate(root=root, f=row_f):
+                        if is_admin():
+                            h2 = open_volume(root)
+                            if h2 != INVALID_HANDLE_VALUE:
+                                try:
+                                    if create_journal(h2):
+                                        _refresh_usn_status()
+                                        self._set_status(f"已激活 {root} 的 USN 日志")
+                                        return
+                                finally:
+                                    ctypes.windll.kernel32.CloseHandle(h2)
+                            _dialog_confirm(self, "激活失败", f"无法激活 {root} 的 USN 日志。",
+                                            kind="warn", ok_text="知道了", show_cancel=False)
+                            return
+                        _dialog_confirm(self, "需要管理员权限",
+                                        "激活 USN 变更日志需要管理员权限。\n"
+                                        "请以管理员身份运行本程序后重试。",
+                                        kind="warn", ok_text="知道了", show_cancel=False)
+                    RoundedButton(row_f, text="激活", width=s(56), height=s(26),
+                                  colors=c, command=_activate,
+                                  font_size=self._f(FONT_SMALL)[1]).pack(side=tk.LEFT,
+                                                                         padx=(s(8), 0))
+                usn_rows.append(row_f)
+            usn_status_var.set(f"共 {len(vols)} 个 NTFS 固定盘" +
+                               ("（当前为管理员）" if admin else ""))
+
+        _refresh_usn_status()
+        row = _option_row(card_usn, "变更日志状态",
+                          "未激活的盘无法增量同步，需管理员权限激活一次（长期有效）")
+        tk.Label(row, textvariable=usn_status_var, bg=c["surface"], fg=c["muted_2"],
+                 font=self._f(FONT_MICRO)).pack(side=tk.RIGHT, padx=(s(10), 0))
+        tk.Frame(card_usn, bg=c["surface"], height=s(8)).pack()
+        RoundedButton(card_usn, text="刷新状态", width=s(88), height=s(28), colors=c,
+                      command=_refresh_usn_status,
+                      font_size=self._f(FONT_SMALL)[1]).pack(anchor=tk.W, padx=s(18),
+                                                             pady=(0, s(12)))
 
         # 快捷移动目录：右键「快捷移动」把文件所在目录移动到这里
         row = _option_row(card_idx, "快捷移动目录",
@@ -4624,64 +5005,6 @@ class FileSearcherApp:
                             ok_text="知道了", show_cancel=False)
 
     # ================================================================
-    #  拖拽到外部程序
-    # ================================================================
-
-    def _setup_drag_drop(self):
-        """设置文件拖拽功能（依赖 tkdnd 扩展，经 tkinterdnd2 包提供二进制）。
-
-        tkinterdnd2 装好后按平台把 tkdnd 的 Tcl 目录加入 auto_path 再 package require；
-        源码与 PyInstaller 打包环境均适用（spec 已收集 tkinterdnd2 数据）。
-        """
-        try:
-            try:
-                import tkinterdnd2
-                _tkdnd_root = os.path.join(os.path.dirname(tkinterdnd2.__file__), "tkdnd")
-                if sys.platform == "win32":
-                    _platform = "win-x64"
-                elif sys.platform == "darwin":
-                    _platform = "osx-x64"
-                else:
-                    _platform = "linux-x64"
-                try:
-                    _tcl9 = int(self.root.tk.call("info", "tclversion").split(".")[0]) >= 9
-                except Exception:
-                    _tcl9 = False
-                _p = os.path.join(_tkdnd_root, _platform + ("-tcl9" if _tcl9 else ""))
-                if not os.path.isdir(_p):
-                    _p = os.path.join(_tkdnd_root, _platform)
-                self.root.tk.call("lappend", "auto_path", _p)
-            except Exception:
-                pass
-            self.root.tk.call("package", "require", "tkdnd")
-            self.root.tk.eval(f"tkdnd::drag_source register {self.table._w} DND_Files")
-            self._dnd_cb = self.root.register(self._on_dnd_data)
-            self.root.tk.eval(f"tkdnd::drag_source handler {self.table._w} drag {self._dnd_cb}")
-            self._dnd_ok = True
-        except tk.TclError:
-            self._dnd_ok = False
-            self.table.bind("<B1-Motion>", self._on_drag_fallback)
-            self.status_var.set("拖拽不可用（未找到 tkdnd 扩展）")
-
-    def _on_dnd_data(self, *args):
-        """拖拽时返回文件路径（格式化为 tkdnd 需要的格式）。"""
-        path = self._get_selected_path()
-        if path:
-            return "{" + path.replace(chr(92), "/") + "}"
-        return ""
-
-    def _on_drag_fallback(self, event):
-        """tkdnd 不可用时的拖拽回退事件处理。"""
-        self._drag_started = getattr(self, '_drag_started', False)
-        if not self._drag_started:
-            self._drag_started = True
-            self.root.after(200, self._reset_drag_flag)
-
-    def _reset_drag_flag(self):
-        """重置拖拽标志。"""
-        self._drag_started = False
-
-    # ================================================================
     #  排序
     # ================================================================
 
@@ -4775,7 +5098,6 @@ class FileSearcherApp:
             self._do_exit()
             return
         self.root.withdraw()
-        self._start_tray_auto_index_timer()
 
     def _minimize_window(self):
         """点「—」→ 标准最小化到任务栏（保留原生窗口框架后 iconify 有效）。"""
@@ -4919,8 +5241,6 @@ class FileSearcherApp:
         self.root.after(0, self._do_restore)
 
     def _do_restore(self):
-        # 取消待执行的托盘定时索引
-        self._cancel_tray_auto_index_timer()
         self.root.deiconify()
         self.root.lift()
         self._maximize_to_workarea()   # 恢复也铺满工作区（不依赖 zoomed）
@@ -4931,29 +5251,6 @@ class FileSearcherApp:
             self.search_entry.select_range(0, tk.END)
         else:
             self.search_entry.icursor(0)
-
-    def _start_tray_auto_index_timer(self):
-        """如果设置了托盘自动更新，启动定时器，N 分钟后触发一次静默索引。"""
-        self._cancel_tray_auto_index_timer()
-        if self._settings.get("tray_auto_index") and IndexEngine.index_exists():
-            minutes = self._settings.get("tray_auto_index_minutes", 30)
-            ms = max(5, minutes) * 60 * 1000
-            self._tray_index_after_id = self.root.after(ms, self._on_tray_auto_index)
-
-    def _cancel_tray_auto_index_timer(self):
-        """取消待执行的托盘定时索引。"""
-        if self._tray_index_after_id is not None:
-            try:
-                self.root.after_cancel(self._tray_index_after_id)
-            except Exception:
-                pass
-            self._tray_index_after_id = None
-
-    def _on_tray_auto_index(self):
-        """托盘定时触发：静默更新索引。"""
-        self._tray_index_after_id = None
-        if not self._index_running:
-            self._do_index_silent()
 
     def _tray_exit(self, icon=None, item=None):
         """右键菜单「退出」：停止托盘并销毁窗口。"""
@@ -4972,7 +5269,6 @@ class FileSearcherApp:
         以及挂着的 after 定时器都会让 pythonw 进程继续存活 → 后台残留。
         这里 shutdown 线程池、停托盘、销毁窗口、清理临时图标，最后 os._exit 兜底确保进程结束。
         """
-        self._cancel_tray_auto_index_timer()
         # 清理临时窗口图标文件（每次启动在 %TEMP% 生成，退出时删除）
         ico = getattr(self, "_ico_path", None)
         if ico:
